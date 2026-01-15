@@ -1,0 +1,54 @@
+# Dependencies
+node_modules/
+vendor/
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Build outputs
+.next/
+build/
+dist/
+*.egg-info/
+
+# Logs
+*.log
+logs/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Docker volumes
+postgres_data/
+redis_data/
+clickhouse_data/
+kafka_data/
+
+# Laravel
+storage/*.key
+storage/logs/*
+bootstrap/cache/*
+
+# Models & Data (large files)
+ai-services/models/*.pt
+ai-services/models/*.bin
+ai-services/data/*.csv
+
+# Secrets
+*.pem
+*.key
+secrets/
+

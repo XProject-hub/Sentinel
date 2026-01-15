@@ -1,0 +1,354 @@
+?? SENTINEL AI
+Autonomous Market Intelligence & Trading System
+
+User NE RAZMIŠLJA.
+AI razmišlja, planira, analizira, uci, trguje i štiti kapital.
+
+1?? CORE IDEJA (ULTRA JASNO)
+
+User:
+
+registruje se
+
+plati subscription
+
+poveže exchange API
+
+ne donosi odluke
+
+AI:
+
+prati tržište
+
+prati vijesti
+
+analizira sentiment
+
+planira strategiju
+
+trguje
+
+štiti kapital
+
+pravi statistiku
+
+uci iz svega
+
+User samo gleda profit i izvještaje.
+
+2?? MARKET INTELLIGENCE LAYER (NAJBITNIJI DIO)
+?? AI NE GLEDA SAMO CIJENU
+
+On gleda SVE OKO CIJENE.
+
+?? Izvori podataka (AUTOMATSKI)
+?? Tržišni podaci
+
+Price (tick-level)
+
+Order book (level 2)
+
+Volume
+
+Volatility
+
+Open Interest
+
+Funding rate
+
+Liquidations heatmap
+
+?? News & Information (REAL TIME)
+
+Crypto news portali
+
+Breaking news API
+
+Exchange announcements
+
+Whale alerts
+
+Macro news (FED, CPI, rates)
+
+On-chain metrics
+
+?? Sve ide u Market Data Lake
+
+3?? NEWS & SENTIMENT AI (JAKO VAŽNO)
+?? News Intelligence Engine (Python)
+
+AI:
+
+skuplja vijesti
+
+cisti tekst
+
+klasifikuje ih
+
+mjeri sentiment
+
+povezuje vijesti sa tržišnom reakcijom
+
+Koristi:
+
+NLP Transformers
+
+Sentiment scoring
+
+Topic detection
+
+Impact prediction
+
+?? Primjer:
+
+“ETF approved”
+?? bullish + high impact
+?? povecaj exposure
+?? smanji stop-loss
+
+4?? PLANNING & STRATEGY AI (AI NE RADI NASUMICNO)
+?? STRATEGIC BRAIN
+
+AI ima 3 nivoa razmišljanja:
+
+1?? Market Regime Detection
+
+bull market
+
+bear market
+
+sideways
+
+high volatility
+
+low liquidity
+
+2?? Strategy Selector
+
+AI automatski bira:
+
+scalping
+
+grid
+
+momentum
+
+mean reversion
+
+breakout
+
+hedge mode
+
+3?? Execution Optimizer
+
+optimal entry
+
+optimal exit
+
+position sizing
+
+fee optimization
+
+slippage control
+
+?? NIJEDNA strategija nije stalna
+Sve je dinamicno i adaptivno.
+
+5?? RISK & CAPITAL PROTECTION (SVETINJA)
+??? AI = BODYGUARD KAPITALA
+
+AI ima stroga pravila:
+
+max loss per trade
+
+max loss per day
+
+max exposure per asset
+
+auto cooldown
+
+emergency exit
+
+global kill switch
+
+Ako se tržište ponaša “ludo”:
+
+? AI NE TRGUJE
+
+?? Bolje ne zaraditi nego izgubiti.
+
+6?? FULL AUTOMATION FLOW (END-TO-END)
+Market + News + Sentiment
+        ?
+Market Regime AI
+        ?
+Strategy Planning AI
+        ?
+Risk Engine
+        ?
+Execution Engine
+        ?
+Post-Trade Analysis
+        ?
+Learning & Optimization
+
+
+?? Ovo se vrti svakih par sekundi.
+
+7?? STATISTICS & SELF-IMPROVEMENT
+?? AI vodi STATISTIKU O SVEMU
+
+win rate
+
+average profit
+
+drawdown
+
+best strategy per market
+
+worst conditions
+
+user profile performance
+
+AI koristi:
+
+Reinforcement Learning
+
+Reward = profit + risk score
+
+Penalizacija = drawdown
+
+?? AI POSTAJE PAMETNIJI ŠTO DUŽE RADI.
+
+8?? DASHBOARD (USER NE MISLI)
+?? USER VIDI SAMO BITNO
+
+Total Balance
+
+Today Profit
+
+Weekly Profit
+
+AI Confidence %
+
+Active Trades
+
+Risk Status (SAFE / CAUTION)
+
+AI Insight (1–2 recenice)
+
+Primjer:
+
+“Market volatility high, exposure reduced.”
+
+User:
+
+NE bira strategije
+
+NE analizira chartove
+
+NE cita vijesti
+
+Samo gleda rezultat.
+
+9?? TEHNOLOGIJE (CUTTING EDGE)
+?? AI & DATA (Python)
+
+PyTorch
+
+Transformers (NLP)
+
+Reinforcement Learning
+
+Online learning
+
+Vector databases
+
+Feature stores
+
+?? Backend
+
+Laravel 11 (Auth, Billing, API)
+
+FastAPI (AI services)
+
+Redis (real-time)
+
+Kafka (events)
+
+PostgreSQL
+
+ClickHouse
+
+?? Frontend
+
+Next.js 14
+
+WebSockets
+
+TradingView charts
+
+Dark premium UI
+
+?? Security
+
+Encrypted API keys
+
+No withdraw permissions
+
+Vault
+
+Audit logs
+
+?? SUBSCRIPTION MODEL (AUTOMATION BASED)
+
+User placa:
+
+za AI
+
+za automation
+
+za intelligence
+
+za capital protection
+
+?? Ne placa “trading bot” — placa “AI trader”
+
+?? REALNOST (PROFESIONALNO)
+
+? “99% profit guarantee” – ne koristi se
+? “AI-driven capital protection & profit optimization”
+
+Ovo:
+
+izgleda ozbiljno
+
+može se prodavati
+
+može skalirati
+
+može dobiti investitore
+
+1??1?? ŠTA CURSOR TREBA TACNO
+Cursor treba da:
+
+Napravi AI Market Intelligence Service
+
+Napravi News & Sentiment pipeline
+
+Napravi Strategy Planning Engine
+
+Napravi Risk Engine
+
+Spoji sa exchange API-jem
+
+Izgradi minimal, brutalno cist dashboard
+
+Sve AUTOMATSKI
+
+?? FINALNA PORUKA
+
+Ovo što praviš nije bot.
+Ovo je:
+
+AUTONOMOUS DIGITAL TRADER

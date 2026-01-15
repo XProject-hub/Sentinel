@@ -1,0 +1,195 @@
+version: '3.9'
+
+services:
+  # ===========================================
+  # NGINX REVERSE PROXY
+  # ===========================================
+  nginx:
+    image: nginx:alpine
+    container_name: sentinel_nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/sites:/etc/nginx/sites-enabled:ro
+      - ./certbot/conf:/etc/letsencrypt:ro
+      - ./certbot/www:/var/www/certbot:ro
+      - ./frontend/.next/static:/var/www/static:ro
+    depends_on:
+      - backend
+      - ai-services
+      - frontend
+    networks:
+      - sentinel_network
+    restart: unless-stopped
+
+  # ===========================================
+  # LARAVEL BACKEND (Auth, Billing, API Gateway)
+  # ===========================================
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: sentinel_backend
+    environment:
+      - APP_ENV=production
+      - APP_DEBUG=false
+      - APP_URL=https://sentinel.xproject.live
+      - DB_CONNECTION=pgsql
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_DATABASE=sentinel
+      - DB_USERNAME=sentinel
+      - DB_PASSWORD=${DB_PASSWORD}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - CACHE_DRIVER=redis
+      - SESSION_DRIVER=redis
+      - QUEUE_CONNECTION=redis
+    volumes:
+      - ./backend:/var/www/html
+      - ./backend/storage:/var/www/html/storage
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - sentinel_network
+    restart: unless-stopped
+
+  # ===========================================
+  # FASTAPI AI SERVICES
+  # ===========================================
+  ai-services:
+    build:
+      context: ./ai-services
+      dockerfile: Dockerfile
+    container_name: sentinel_ai
+    environment:
+      - ENVIRONMENT=production
+      - DATABASE_URL=postgresql://sentinel:${DB_PASSWORD}@postgres:5432/sentinel
+      - REDIS_URL=redis://redis:6379
+      - CLICKHOUSE_HOST=clickhouse
+      - CLICKHOUSE_PORT=9000
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+    volumes:
+      - ./ai-services:/app
+      - ./ai-services/models:/app/models
+      - ./ai-services/data:/app/data
+    depends_on:
+      - postgres
+      - redis
+      - clickhouse
+      - kafka
+    networks:
+      - sentinel_network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+
+  # ===========================================
+  # NEXT.JS FRONTEND
+  # ===========================================
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: sentinel_frontend
+    environment:
+      - NODE_ENV=production
+      - NEXT_PUBLIC_API_URL=https://sentinel.xproject.live/api
+      - NEXT_PUBLIC_WS_URL=wss://sentinel.xproject.live/ws
+    depends_on:
+      - backend
+      - ai-services
+    networks:
+      - sentinel_network
+    restart: unless-stopped
+
+  # ===========================================
+  # POSTGRESQL DATABASE
+  # ===========================================
+  postgres:
+    image: postgres:16-alpine
+    container_name: sentinel_postgres
+    environment:
+      - POSTGRES_DB=sentinel
+      - POSTGRES_USER=sentinel
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - sentinel_network
+    restart: unless-stopped
+
+  # ===========================================
+  # REDIS (Real-time, Cache, Queue)
+  # ===========================================
+  redis:
+    image: redis:7-alpine
+    container_name: sentinel_redis
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    networks:
+      - sentinel_network
+    restart: unless-stopped
+
+  # ===========================================
+  # CLICKHOUSE (Time-series Analytics)
+  # ===========================================
+  clickhouse:
+    image: clickhouse/clickhouse-server:latest
+    container_name: sentinel_clickhouse
+    environment:
+      - CLICKHOUSE_DB=sentinel_analytics
+      - CLICKHOUSE_USER=sentinel
+      - CLICKHOUSE_PASSWORD=${DB_PASSWORD}
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      - ./database/clickhouse-init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - sentinel_network
+    restart: unless-stopped
+
+  # ===========================================
+  # KAFKA (Event Streaming)
+  # ===========================================
+  zookeeper:
+    image: confluentinc/cp-zookeeper:latest
+    container_name: sentinel_zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+    networks:
+      - sentinel_network
+    restart: unless-stopped
+
+  kafka:
+    image: confluentinc/cp-kafka:latest
+    container_name: sentinel_kafka
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    depends_on:
+      - zookeeper
+    networks:
+      - sentinel_network
+    restart: unless-stopped
+
+networks:
+  sentinel_network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+  clickhouse_data:
+  kafka_data:
+
