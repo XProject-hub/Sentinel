@@ -292,3 +292,90 @@ async def get_connection_status():
         "serverIp": "109.104.154.183"
     }
 
+
+# ========================================
+# AUTONOMOUS TRADING ENDPOINTS
+# ========================================
+
+from services.autonomous_trader import autonomous_trader
+
+
+class EnableTradingRequest(BaseModel):
+    user_id: str = "default"
+    api_key: str
+    api_secret: str
+
+
+@router.post("/trading/enable")
+async def enable_autonomous_trading(request: EnableTradingRequest):
+    """Enable 24/7 autonomous trading for a user"""
+    
+    success = await autonomous_trader.connect_user(
+        user_id=request.user_id,
+        api_key=request.api_key,
+        api_secret=request.api_secret,
+    )
+    
+    if success:
+        return {
+            "success": True,
+            "message": "Autonomous trading enabled. AI will trade 24/7 using your funds.",
+            "warning": "REAL MONEY WILL BE USED FOR TRADING"
+        }
+    else:
+        return {
+            "success": False,
+            "error": "Failed to enable autonomous trading. Check API credentials."
+        }
+
+
+@router.post("/trading/disable")
+async def disable_autonomous_trading(user_id: str = "default"):
+    """Disable autonomous trading for a user"""
+    
+    await autonomous_trader.disconnect_user(user_id)
+    
+    return {
+        "success": True,
+        "message": "Autonomous trading disabled"
+    }
+
+
+@router.get("/trading/status")
+async def get_trading_status(user_id: str = "default"):
+    """Get autonomous trading status"""
+    
+    is_trading = user_id in autonomous_trader.user_clients
+    
+    # Get recent trades
+    trades = []
+    if autonomous_trader.redis_client:
+        trade_data = await autonomous_trader.redis_client.lrange(f"trades:completed:{user_id}", 0, 9)
+        trades = [json.loads(t) for t in trade_data]
+        
+    return {
+        "success": True,
+        "data": {
+            "is_autonomous_trading": is_trading,
+            "trading_pairs": autonomous_trader.trading_pairs if is_trading else [],
+            "max_positions": autonomous_trader.max_open_positions,
+            "min_confidence": autonomous_trader.min_confidence,
+            "recent_trades": trades,
+        }
+    }
+
+
+@router.get("/trading/log")
+async def get_trading_log(limit: int = 50):
+    """Get trading activity log"""
+    
+    if not autonomous_trader.redis_client:
+        return {"success": False, "error": "Not initialized"}
+        
+    trades = await autonomous_trader.redis_client.lrange('trades:log', 0, limit - 1)
+    
+    return {
+        "success": True,
+        "data": [json.loads(t) for t in trades]
+    }
+

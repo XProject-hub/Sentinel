@@ -18,6 +18,7 @@ from services.trading_executor import TradingExecutor
 from services.websocket_manager import WebSocketManager
 from services.data_aggregator import DataAggregator
 from services.learning_engine import LearningEngine
+from services.autonomous_trader import autonomous_trader
 from routers import market, sentiment, strategy, risk, trading, exchange, admin
 
 # Initialize services
@@ -43,12 +44,14 @@ async def lifespan(app: FastAPI):
     await risk_engine.initialize()
     await data_aggregator.initialize()
     await learning_engine.initialize()
+    await autonomous_trader.initialize(learning_engine)
     
     # Start background tasks
     asyncio.create_task(market_intelligence.start_data_collection())
     asyncio.create_task(sentiment_analyzer.start_news_monitoring())
     asyncio.create_task(data_aggregator.start_collection())
     asyncio.create_task(run_main_loop())
+    asyncio.create_task(autonomous_trader.run_trading_loop())  # 24/7 TRADING
     
     logger.info("SENTINEL AI Services Ready")
     
@@ -60,6 +63,7 @@ async def lifespan(app: FastAPI):
     await sentiment_analyzer.shutdown()
     await data_aggregator.shutdown()
     await learning_engine.shutdown()
+    await autonomous_trader.shutdown()
 
 
 async def run_main_loop():

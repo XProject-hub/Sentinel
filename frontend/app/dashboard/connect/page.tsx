@@ -4,7 +4,8 @@ import { useState } from 'react'
 import { motion } from 'framer-motion'
 import { 
   Shield, Key, Eye, EyeOff, Server, Copy, Check,
-  AlertTriangle, ExternalLink, ArrowRight, ArrowLeft
+  AlertTriangle, ExternalLink, ArrowRight, ArrowLeft,
+  Zap, Bot, TrendingUp
 } from 'lucide-react'
 import Link from 'next/link'
 
@@ -16,8 +17,10 @@ export default function ConnectExchangePage() {
   const [showSecret, setShowSecret] = useState(false)
   const [copied, setCopied] = useState(false)
   const [isConnecting, setIsConnecting] = useState(false)
+  const [isEnablingTrading, setIsEnablingTrading] = useState(false)
   const [connectionStatus, setConnectionStatus] = useState<'idle' | 'success' | 'error'>('idle')
   const [errorMessage, setErrorMessage] = useState('')
+  const [enableAutoTrading, setEnableAutoTrading] = useState(true)
   
   const [formData, setFormData] = useState({
     exchange: 'bybit',
@@ -37,7 +40,8 @@ export default function ConnectExchangePage() {
     setErrorMessage('')
 
     try {
-      const response = await fetch('/api/exchanges/test', {
+      // Call real AI service API
+      const response = await fetch('/ai/exchange/test', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -51,7 +55,7 @@ export default function ConnectExchangePage() {
 
       if (data.success) {
         setConnectionStatus('success')
-        setTimeout(() => setStep(3), 1500)
+        setTimeout(() => setStep(3), 1000)
       } else {
         setConnectionStatus('error')
         setErrorMessage(data.error || 'Failed to connect. Check your API credentials.')
@@ -64,23 +68,56 @@ export default function ConnectExchangePage() {
     }
   }
 
-  const saveConnection = async () => {
-    setIsConnecting(true)
+  const saveAndEnableTrading = async () => {
+    setIsEnablingTrading(true)
     
     try {
-      const response = await fetch('/api/exchanges', {
+      // First, connect the exchange
+      const connectResponse = await fetch('/ai/exchange/connect', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData)
+        body: JSON.stringify({
+          exchange: formData.exchange,
+          apiKey: formData.apiKey,
+          apiSecret: formData.apiSecret,
+          testnet: false,
+        })
       })
 
-      if (response.ok) {
-        window.location.href = '/dashboard'
+      const connectData = await connectResponse.json()
+
+      if (!connectData.success) {
+        setErrorMessage(connectData.error || 'Failed to connect exchange')
+        setIsEnablingTrading(false)
+        return
       }
+
+      // Enable autonomous trading if selected
+      if (enableAutoTrading) {
+        const tradingResponse = await fetch('/ai/exchange/trading/enable', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            user_id: 'default',
+            api_key: formData.apiKey,
+            api_secret: formData.apiSecret,
+          })
+        })
+
+        const tradingData = await tradingResponse.json()
+        
+        if (!tradingData.success) {
+          console.warn('Auto trading could not be enabled:', tradingData.error)
+        }
+      }
+
+      // Redirect to dashboard
+      window.location.href = '/dashboard'
+      
     } catch (error) {
       setErrorMessage('Failed to save connection')
     } finally {
-      setIsConnecting(false)
+      setIsEnablingTrading(false)
     }
   }
 
@@ -242,8 +279,6 @@ export default function ConnectExchangePage() {
                   className="w-full px-4 py-3 rounded-xl bg-sentinel-bg-secondary border border-sentinel-border focus:border-sentinel-accent-cyan focus:outline-none"
                 >
                   <option value="bybit">Bybit</option>
-                  <option value="binance">Binance (Coming Soon)</option>
-                  <option value="okx">OKX (Coming Soon)</option>
                 </select>
               </div>
 
@@ -299,7 +334,7 @@ export default function ConnectExchangePage() {
               {connectionStatus === 'success' && (
                 <div className="p-4 rounded-xl bg-sentinel-accent-emerald/10 border border-sentinel-accent-emerald/30 text-sentinel-accent-emerald text-sm flex items-center gap-2">
                   <Check className="w-5 h-5" />
-                  Connection successful! Redirecting...
+                  Connection successful! Setting up...
                 </div>
               )}
             </div>
@@ -326,52 +361,110 @@ export default function ConnectExchangePage() {
           </motion.div>
         )}
 
-        {/* Step 3: Success */}
+        {/* Step 3: Enable Trading */}
         {step === 3 && (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="space-y-8 text-center"
+            className="space-y-8"
           >
-            <div className="w-24 h-24 mx-auto rounded-full bg-sentinel-accent-emerald/20 flex items-center justify-center">
-              <Check className="w-12 h-12 text-sentinel-accent-emerald" />
-            </div>
-
-            <div>
+            <div className="text-center">
+              <div className="w-24 h-24 mx-auto rounded-full bg-sentinel-accent-emerald/20 flex items-center justify-center mb-6">
+                <Check className="w-12 h-12 text-sentinel-accent-emerald" />
+              </div>
               <h1 className="text-3xl font-bold mb-4">Exchange Connected!</h1>
               <p className="text-sentinel-text-secondary">
-                Your Bybit account is now connected to SENTINEL AI.
-                The AI will start analyzing markets and executing trades.
+                Now configure your trading preferences
               </p>
             </div>
 
-            <div className="p-6 rounded-2xl glass-card text-left">
-              <h3 className="font-semibold mb-4">What happens next:</h3>
-              <ul className="space-y-3 text-sentinel-text-secondary">
-                <li className="flex gap-3">
-                  <Check className="w-5 h-5 text-sentinel-accent-emerald flex-shrink-0" />
-                  <span>AI starts monitoring your connected exchange</span>
-                </li>
-                <li className="flex gap-3">
-                  <Check className="w-5 h-5 text-sentinel-accent-emerald flex-shrink-0" />
-                  <span>Market analysis and sentiment tracking begins</span>
-                </li>
-                <li className="flex gap-3">
-                  <Check className="w-5 h-5 text-sentinel-accent-emerald flex-shrink-0" />
-                  <span>Risk management rules are applied automatically</span>
-                </li>
-                <li className="flex gap-3">
-                  <Check className="w-5 h-5 text-sentinel-accent-emerald flex-shrink-0" />
-                  <span>All trades and profits shown in real-time on dashboard</span>
-                </li>
-              </ul>
+            {/* Auto Trading Option */}
+            <div 
+              onClick={() => setEnableAutoTrading(!enableAutoTrading)}
+              className={`p-6 rounded-2xl cursor-pointer transition-all ${
+                enableAutoTrading 
+                  ? 'glass-card border-2 border-sentinel-accent-cyan' 
+                  : 'glass-card border-2 border-transparent hover:border-sentinel-border'
+              }`}
+            >
+              <div className="flex items-start gap-4">
+                <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${
+                  enableAutoTrading ? 'bg-sentinel-accent-cyan/20' : 'bg-sentinel-bg-tertiary'
+                }`}>
+                  <Bot className={`w-6 h-6 ${enableAutoTrading ? 'text-sentinel-accent-cyan' : 'text-sentinel-text-muted'}`} />
+                </div>
+                <div className="flex-1">
+                  <div className="flex items-center justify-between">
+                    <h3 className="font-semibold text-lg">Enable 24/7 Autonomous Trading</h3>
+                    <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center ${
+                      enableAutoTrading ? 'border-sentinel-accent-cyan bg-sentinel-accent-cyan' : 'border-sentinel-text-muted'
+                    }`}>
+                      {enableAutoTrading && <Check className="w-4 h-4 text-sentinel-bg-primary" />}
+                    </div>
+                  </div>
+                  <p className="text-sentinel-text-secondary mt-1">
+                    AI will automatically trade using your funds, 24/7, learning and optimizing continuously.
+                  </p>
+                  
+                  {enableAutoTrading && (
+                    <div className="mt-4 p-4 rounded-xl bg-sentinel-bg-tertiary">
+                      <div className="grid grid-cols-2 gap-4 text-sm">
+                        <div className="flex items-center gap-2">
+                          <Zap className="w-4 h-4 text-sentinel-accent-amber" />
+                          <span>20+ crypto pairs</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <TrendingUp className="w-4 h-4 text-sentinel-accent-emerald" />
+                          <span>Auto compound profits</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Shield className="w-4 h-4 text-sentinel-accent-cyan" />
+                          <span>Risk management</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Bot className="w-4 h-4 text-sentinel-accent-violet" />
+                          <span>AI learns from trades</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
 
+            {/* REAL MONEY Warning */}
+            {enableAutoTrading && (
+              <div className="p-4 rounded-xl bg-sentinel-accent-crimson/10 border border-sentinel-accent-crimson/30 flex gap-3">
+                <AlertTriangle className="w-5 h-5 text-sentinel-accent-crimson flex-shrink-0 mt-0.5" />
+                <div className="text-sm">
+                  <strong className="text-sentinel-accent-crimson">REAL MONEY TRADING</strong>
+                  <p className="text-sentinel-text-secondary mt-1">
+                    The AI will use your actual funds to trade. While risk management is in place,
+                    trading always carries risk. Only use funds you can afford to lose.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {errorMessage && (
+              <div className="p-4 rounded-xl bg-sentinel-accent-crimson/10 border border-sentinel-accent-crimson/30 text-sentinel-accent-crimson text-sm">
+                {errorMessage}
+              </div>
+            )}
+
             <button
-              onClick={saveConnection}
-              className="w-full py-4 rounded-xl bg-gradient-to-r from-sentinel-accent-cyan to-sentinel-accent-emerald text-sentinel-bg-primary font-bold text-lg"
+              onClick={saveAndEnableTrading}
+              disabled={isEnablingTrading}
+              className="w-full py-4 rounded-xl bg-gradient-to-r from-sentinel-accent-cyan to-sentinel-accent-emerald text-sentinel-bg-primary font-bold text-lg flex items-center justify-center gap-3"
             >
-              Go to Dashboard
+              {isEnablingTrading ? (
+                <div className="w-6 h-6 border-2 border-sentinel-bg-primary border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <>
+                  {enableAutoTrading ? 'Start Autonomous Trading' : 'Go to Dashboard'}
+                  <ArrowRight className="w-5 h-5" />
+                </>
+              )}
             </button>
           </motion.div>
         )}
@@ -386,4 +479,3 @@ export default function ConnectExchangePage() {
     </div>
   )
 }
-
