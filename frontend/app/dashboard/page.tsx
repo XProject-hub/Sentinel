@@ -15,63 +15,225 @@ import {
   Settings,
   Bell,
   LogOut,
-  RefreshCw
+  RefreshCw,
+  Link as LinkIcon,
+  Loader2
 } from 'lucide-react'
 import Link from 'next/link'
 
-// Mock data - in production this comes from API
-const mockDashboardData = {
-  balance: {
-    total: 54892.45,
-    change24h: 2.34,
-    changeAmount: 1284.32
-  },
-  performance: {
-    today: 487.23,
-    todayPercent: 0.89,
-    week: 2341.87,
-    weekPercent: 4.45,
-    month: 8934.12,
-    monthPercent: 19.42
-  },
-  aiStatus: {
-    active: true,
-    confidence: 0.78,
-    regime: 'sideways',
-    strategy: 'Grid Master',
-    insight: 'Market consolidating near key support. Maintaining grid positions with reduced exposure.',
-    lastAnalysis: '2 min ago'
-  },
-  riskStatus: {
-    status: 'SAFE',
-    todayLoss: 0.42,
-    maxLoss: 5.0,
-    exposure: 23.5,
-    maxExposure: 30.0,
-    positionsCount: 3
-  },
-  positions: [
-    { symbol: 'BTCUSDT', side: 'long', entry: 42150.00, current: 42890.00, pnl: 324.50, pnlPercent: 1.76 },
-    { symbol: 'ETHUSDT', side: 'long', entry: 2245.00, current: 2312.00, pnl: 187.25, pnlPercent: 2.98 },
-    { symbol: 'SOLUSDT', side: 'short', entry: 98.50, current: 96.20, pnl: 115.00, pnlPercent: 2.34 },
-  ],
-  recentTrades: [
-    { symbol: 'BTCUSDT', side: 'buy', pnl: 156.32, time: '14:32' },
-    { symbol: 'ETHUSDT', side: 'sell', pnl: -42.18, time: '13:15' },
-    { symbol: 'BNBUSDT', side: 'buy', pnl: 89.45, time: '11:47' },
-  ]
+interface ExchangeStatus {
+  connected: boolean
+  exchange: string | null
+  serverIp: string
+}
+
+interface BalanceData {
+  totalEquity: number
+  coins: Array<{
+    coin: string
+    balance: number
+    usdValue: number
+    unrealizedPnl: number
+  }>
+}
+
+interface Position {
+  symbol: string
+  side: string
+  size: number
+  entryPrice: number
+  markPrice: number
+  unrealizedPnl: number
+  leverage: string
+}
+
+interface PnlData {
+  totalPnl: number
+  winningTrades: number
+  losingTrades: number
+  winRate: number
+  trades: Array<{
+    symbol: string
+    side: string
+    closedPnl: number
+    createdTime: string
+  }>
 }
 
 export default function DashboardPage() {
-  const [data, setData] = useState(mockDashboardData)
-  const [isLoading, setIsLoading] = useState(false)
+  const [isLoading, setIsLoading] = useState(true)
+  const [isRefreshing, setIsRefreshing] = useState(false)
+  const [exchangeStatus, setExchangeStatus] = useState<ExchangeStatus | null>(null)
+  const [balance, setBalance] = useState<BalanceData | null>(null)
+  const [positions, setPositions] = useState<Position[]>([])
+  const [pnlData, setPnlData] = useState<PnlData | null>(null)
+  const [user, setUser] = useState<any>(null)
 
-  const refreshData = () => {
+  useEffect(() => {
+    // Check if user is logged in
+    const storedUser = localStorage.getItem('sentinel_user')
+    if (storedUser) {
+      setUser(JSON.parse(storedUser))
+    }
+    
+    // Load real data
+    loadData()
+  }, [])
+
+  const loadData = async () => {
     setIsLoading(true)
-    // Simulate API call
-    setTimeout(() => setIsLoading(false), 1000)
+    
+    try {
+      // Check exchange connection status
+      const statusRes = await fetch('/ai/exchange/status')
+      const statusData = await statusRes.json()
+      setExchangeStatus(statusData)
+
+      if (statusData.connected) {
+        // Load real balance
+        const balanceRes = await fetch('/ai/exchange/balance')
+        const balanceData = await balanceRes.json()
+        if (balanceData.success) {
+          setBalance(balanceData.data)
+        }
+
+        // Load real positions
+        const posRes = await fetch('/ai/exchange/positions')
+        const posData = await posRes.json()
+        if (posData.success) {
+          setPositions(posData.data.positions || [])
+        }
+
+        // Load real PnL
+        const pnlRes = await fetch('/ai/exchange/pnl')
+        const pnlDataResult = await pnlRes.json()
+        if (pnlDataResult.success) {
+          setPnlData(pnlDataResult.data)
+        }
+      }
+    } catch (error) {
+      console.error('Failed to load data:', error)
+    } finally {
+      setIsLoading(false)
+    }
   }
 
+  const refreshData = async () => {
+    setIsRefreshing(true)
+    await loadData()
+    setIsRefreshing(false)
+  }
+
+  const handleLogout = () => {
+    localStorage.removeItem('sentinel_user')
+    window.location.href = '/login'
+  }
+
+  // Show loading state
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-sentinel-bg-primary flex items-center justify-center">
+        <div className="text-center">
+          <Loader2 className="w-12 h-12 text-sentinel-accent-cyan animate-spin mx-auto mb-4" />
+          <p className="text-sentinel-text-secondary">Loading real-time data...</p>
+        </div>
+      </div>
+    )
+  }
+
+  // Show connect exchange prompt if not connected
+  if (!exchangeStatus?.connected) {
+    return (
+      <div className="min-h-screen bg-sentinel-bg-primary">
+        {/* Navigation */}
+        <nav className="sticky top-0 z-50 glass-card border-b border-sentinel-border">
+          <div className="max-w-[1600px] mx-auto px-6 py-4 flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-sentinel-accent-cyan to-sentinel-accent-emerald flex items-center justify-center">
+                <Shield className="w-6 h-6 text-sentinel-bg-primary" strokeWidth={2.5} />
+              </div>
+              <div>
+                <span className="font-display font-bold text-lg">SENTINEL</span>
+                <div className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-sentinel-accent-amber" />
+                  <span className="text-xs text-sentinel-text-muted">Not Connected</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-4">
+              {user?.isAdmin && (
+                <Link href="/admin" className="px-3 py-1.5 rounded-lg bg-sentinel-accent-crimson/20 text-sentinel-accent-crimson text-sm font-medium">
+                  Admin
+                </Link>
+              )}
+              <button onClick={handleLogout} className="p-2 rounded-lg hover:bg-sentinel-bg-tertiary transition-colors">
+                <LogOut className="w-5 h-5 text-sentinel-text-secondary" />
+              </button>
+            </div>
+          </div>
+        </nav>
+
+        {/* Connect Exchange Prompt */}
+        <main className="max-w-2xl mx-auto px-6 py-20">
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="text-center"
+          >
+            <div className="w-24 h-24 mx-auto rounded-full bg-sentinel-accent-cyan/10 flex items-center justify-center mb-8">
+              <LinkIcon className="w-12 h-12 text-sentinel-accent-cyan" />
+            </div>
+            
+            <h1 className="text-3xl font-bold mb-4">Connect Your Exchange</h1>
+            <p className="text-sentinel-text-secondary text-lg mb-8 max-w-md mx-auto">
+              To see your real balance, positions, and P&L, you need to connect your Bybit account.
+            </p>
+
+            <Link
+              href="/dashboard/connect"
+              className="inline-flex items-center gap-3 px-8 py-4 rounded-xl bg-gradient-to-r from-sentinel-accent-cyan to-sentinel-accent-emerald text-sentinel-bg-primary font-bold text-lg hover:shadow-glow-cyan transition-all"
+            >
+              Connect Bybit Account
+              <ChevronRight className="w-5 h-5" />
+            </Link>
+
+            <div className="mt-12 p-6 rounded-2xl glass-card text-left">
+              <h3 className="font-semibold mb-4">Why connect?</h3>
+              <ul className="space-y-3 text-sentinel-text-secondary">
+                <li className="flex gap-3">
+                  <Wallet className="w-5 h-5 text-sentinel-accent-cyan flex-shrink-0" />
+                  <span>See your real-time wallet balance</span>
+                </li>
+                <li className="flex gap-3">
+                  <Activity className="w-5 h-5 text-sentinel-accent-emerald flex-shrink-0" />
+                  <span>View open positions and unrealized P&L</span>
+                </li>
+                <li className="flex gap-3">
+                  <TrendingUp className="w-5 h-5 text-sentinel-accent-amber flex-shrink-0" />
+                  <span>Track your trading history and profits</span>
+                </li>
+                <li className="flex gap-3">
+                  <Brain className="w-5 h-5 text-sentinel-accent-violet flex-shrink-0" />
+                  <span>Enable AI to analyze and trade for you</span>
+                </li>
+              </ul>
+            </div>
+          </motion.div>
+        </main>
+
+        {/* Footer */}
+        <footer className="border-t border-sentinel-border mt-8">
+          <div className="max-w-[1600px] mx-auto px-6 py-4 flex items-center justify-between text-sm text-sentinel-text-muted">
+            <span>SENTINEL AI - Autonomous Digital Trader</span>
+            <span>Developed by NoLimitDevelopments</span>
+          </div>
+        </footer>
+      </div>
+    )
+  }
+
+  // Show real data dashboard
   return (
     <div className="min-h-screen bg-sentinel-bg-primary">
       {/* Top Navigation */}
@@ -85,7 +247,7 @@ export default function DashboardPage() {
               <span className="font-display font-bold text-lg">SENTINEL</span>
               <div className="flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full bg-sentinel-accent-emerald live-pulse" />
-                <span className="text-xs text-sentinel-text-muted">AI Active</span>
+                <span className="text-xs text-sentinel-text-muted">Connected to {exchangeStatus?.exchange}</span>
               </div>
             </div>
           </div>
@@ -93,22 +255,23 @@ export default function DashboardPage() {
           <div className="flex items-center gap-4">
             <button 
               onClick={refreshData}
-              className={`p-2 rounded-lg hover:bg-sentinel-bg-tertiary transition-colors ${isLoading ? 'animate-spin' : ''}`}
+              className={`p-2 rounded-lg hover:bg-sentinel-bg-tertiary transition-colors ${isRefreshing ? 'animate-spin' : ''}`}
             >
               <RefreshCw className="w-5 h-5 text-sentinel-text-secondary" />
             </button>
             <button className="p-2 rounded-lg hover:bg-sentinel-bg-tertiary transition-colors relative">
               <Bell className="w-5 h-5 text-sentinel-text-secondary" />
-              <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-sentinel-accent-crimson" />
             </button>
-            <Link href="/admin" className="px-3 py-1.5 rounded-lg bg-sentinel-accent-crimson/20 text-sentinel-accent-crimson text-sm font-medium hover:bg-sentinel-accent-crimson/30 transition-colors">
-              Admin
-            </Link>
+            {user?.isAdmin && (
+              <Link href="/admin" className="px-3 py-1.5 rounded-lg bg-sentinel-accent-crimson/20 text-sentinel-accent-crimson text-sm font-medium hover:bg-sentinel-accent-crimson/30 transition-colors">
+                Admin
+              </Link>
+            )}
             <button className="p-2 rounded-lg hover:bg-sentinel-bg-tertiary transition-colors">
               <Settings className="w-5 h-5 text-sentinel-text-secondary" />
             </button>
             <div className="w-px h-8 bg-sentinel-border" />
-            <button className="p-2 rounded-lg hover:bg-sentinel-bg-tertiary transition-colors">
+            <button onClick={handleLogout} className="p-2 rounded-lg hover:bg-sentinel-bg-tertiary transition-colors">
               <LogOut className="w-5 h-5 text-sentinel-text-secondary" />
             </button>
           </div>
@@ -117,13 +280,12 @@ export default function DashboardPage() {
 
       {/* Main Content */}
       <main className="max-w-[1600px] mx-auto px-6 py-8">
-        {/* Top Stats Row */}
+        {/* Top Stats Row - REAL DATA */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
           {/* Balance Card */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0 }}
             className="col-span-1 lg:col-span-2 p-6 rounded-2xl glass-card"
           >
             <div className="flex items-start justify-between mb-4">
@@ -131,32 +293,18 @@ export default function DashboardPage() {
                 <div className="p-3 rounded-xl bg-sentinel-accent-cyan/10">
                   <Wallet className="w-6 h-6 text-sentinel-accent-cyan" />
                 </div>
-                <span className="text-sentinel-text-secondary">Total Balance</span>
+                <span className="text-sentinel-text-secondary">Total Equity</span>
               </div>
-              <div className={`flex items-center gap-1 px-3 py-1 rounded-full ${
-                data.balance.change24h >= 0 ? 'status-safe' : 'status-danger'
-              }`}>
-                {data.balance.change24h >= 0 ? (
-                  <TrendingUp className="w-4 h-4" />
-                ) : (
-                  <TrendingDown className="w-4 h-4" />
-                )}
-                <span className="text-sm font-medium">
-                  {data.balance.change24h >= 0 ? '+' : ''}{data.balance.change24h}%
-                </span>
+              <div className="text-xs text-sentinel-text-muted">
+                Real-time from {exchangeStatus?.exchange}
               </div>
             </div>
-            <div className="flex items-end gap-4">
-              <span className="text-4xl font-display font-bold">
-                ${data.balance.total.toLocaleString('en-US', { minimumFractionDigits: 2 })}
-              </span>
-              <span className={`text-lg mb-1 ${data.balance.change24h >= 0 ? 'text-sentinel-accent-emerald' : 'text-sentinel-accent-crimson'}`}>
-                {data.balance.change24h >= 0 ? '+' : ''}${data.balance.changeAmount.toLocaleString()}
-              </span>
+            <div className="text-4xl font-display font-bold">
+              ${balance?.totalEquity?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}
             </div>
           </motion.div>
 
-          {/* Today P&L */}
+          {/* Realized P&L */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -167,17 +315,17 @@ export default function DashboardPage() {
               <div className="p-3 rounded-xl bg-sentinel-accent-emerald/10">
                 <Target className="w-6 h-6 text-sentinel-accent-emerald" />
               </div>
-              <span className="text-sentinel-text-secondary">Today</span>
+              <span className="text-sentinel-text-secondary">Realized P&L</span>
             </div>
-            <div className="text-2xl font-display font-bold text-sentinel-accent-emerald">
-              +${data.performance.today.toLocaleString()}
+            <div className={`text-2xl font-display font-bold ${(pnlData?.totalPnl || 0) >= 0 ? 'text-sentinel-accent-emerald' : 'text-sentinel-accent-crimson'}`}>
+              {(pnlData?.totalPnl || 0) >= 0 ? '+' : ''}${pnlData?.totalPnl?.toFixed(2) || '0.00'}
             </div>
             <div className="text-sm text-sentinel-text-muted mt-1">
-              +{data.performance.todayPercent}% profit
+              {pnlData?.winningTrades || 0}W / {pnlData?.losingTrades || 0}L ({pnlData?.winRate?.toFixed(1) || 0}%)
             </div>
           </motion.div>
 
-          {/* Week P&L */}
+          {/* Open Positions Count */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -188,221 +336,113 @@ export default function DashboardPage() {
               <div className="p-3 rounded-xl bg-sentinel-accent-amber/10">
                 <Activity className="w-6 h-6 text-sentinel-accent-amber" />
               </div>
-              <span className="text-sentinel-text-secondary">This Week</span>
+              <span className="text-sentinel-text-secondary">Open Positions</span>
             </div>
-            <div className="text-2xl font-display font-bold text-sentinel-accent-emerald">
-              +${data.performance.week.toLocaleString()}
+            <div className="text-2xl font-display font-bold">
+              {positions.length}
             </div>
             <div className="text-sm text-sentinel-text-muted mt-1">
-              +{data.performance.weekPercent}% profit
+              Active trades
             </div>
           </motion.div>
         </div>
 
         {/* Main Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Left Column - AI Status & Risk */}
-          <div className="space-y-6">
-            {/* AI Status Card */}
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.3 }}
-              className="p-6 rounded-2xl glass-card"
-            >
-              <div className="flex items-center justify-between mb-6">
-                <div className="flex items-center gap-3">
-                  <div className="p-3 rounded-xl bg-sentinel-accent-violet/10">
-                    <Brain className="w-6 h-6 text-sentinel-accent-violet" />
-                  </div>
-                  <div>
-                    <div className="font-semibold">AI Status</div>
-                    <div className="text-xs text-sentinel-text-muted">{data.aiStatus.lastAnalysis}</div>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-sentinel-accent-emerald live-pulse" />
-                  <span className="text-sm text-sentinel-accent-emerald font-medium">Active</span>
-                </div>
-              </div>
-
-              {/* Confidence Meter */}
-              <div className="mb-6">
-                <div className="flex justify-between text-sm mb-2">
-                  <span className="text-sentinel-text-secondary">AI Confidence</span>
-                  <span className="text-sentinel-text-primary font-mono">{(data.aiStatus.confidence * 100).toFixed(0)}%</span>
-                </div>
-                <div className="h-2 rounded-full bg-sentinel-bg-tertiary overflow-hidden">
-                  <motion.div
-                    initial={{ width: 0 }}
-                    animate={{ width: `${data.aiStatus.confidence * 100}%` }}
-                    transition={{ duration: 1, delay: 0.5 }}
-                    className="h-full rounded-full bg-gradient-to-r from-sentinel-accent-cyan to-sentinel-accent-emerald"
-                  />
-                </div>
-              </div>
-
-              {/* Strategy Info */}
-              <div className="space-y-3 mb-6">
-                <div className="flex justify-between">
-                  <span className="text-sentinel-text-secondary">Market Regime</span>
-                  <span className="text-sentinel-text-primary font-medium capitalize">{data.aiStatus.regime}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sentinel-text-secondary">Active Strategy</span>
-                  <span className="text-sentinel-accent-cyan font-medium">{data.aiStatus.strategy}</span>
-                </div>
-              </div>
-
-              {/* AI Insight */}
-              <div className="p-4 rounded-xl bg-sentinel-bg-tertiary border border-sentinel-border">
-                <div className="text-xs text-sentinel-text-muted mb-2">AI INSIGHT</div>
-                <p className="text-sm text-sentinel-text-primary leading-relaxed">
-                  {data.aiStatus.insight}
-                </p>
-              </div>
-            </motion.div>
-
-            {/* Risk Status Card */}
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.4 }}
-              className="p-6 rounded-2xl glass-card"
-            >
-              <div className="flex items-center justify-between mb-6">
-                <div className="flex items-center gap-3">
-                  <div className="p-3 rounded-xl bg-sentinel-accent-emerald/10">
-                    <Shield className="w-6 h-6 text-sentinel-accent-emerald" />
-                  </div>
-                  <div className="font-semibold">Risk Status</div>
-                </div>
-                <div className={`px-3 py-1.5 rounded-lg font-mono text-sm font-bold ${
-                  data.riskStatus.status === 'SAFE' ? 'status-safe' :
-                  data.riskStatus.status === 'CAUTION' ? 'status-caution' : 'status-danger'
-                }`}>
-                  {data.riskStatus.status}
-                </div>
-              </div>
-
-              <div className="space-y-4">
-                {/* Daily Loss */}
-                <div>
-                  <div className="flex justify-between text-sm mb-2">
-                    <span className="text-sentinel-text-secondary">Daily Loss</span>
-                    <span className="text-sentinel-text-primary">{data.riskStatus.todayLoss}% / {data.riskStatus.maxLoss}%</span>
-                  </div>
-                  <div className="h-2 rounded-full bg-sentinel-bg-tertiary overflow-hidden">
-                    <div 
-                      className="h-full rounded-full bg-sentinel-accent-emerald"
-                      style={{ width: `${(data.riskStatus.todayLoss / data.riskStatus.maxLoss) * 100}%` }}
-                    />
-                  </div>
-                </div>
-
-                {/* Exposure */}
-                <div>
-                  <div className="flex justify-between text-sm mb-2">
-                    <span className="text-sentinel-text-secondary">Exposure</span>
-                    <span className="text-sentinel-text-primary">{data.riskStatus.exposure}% / {data.riskStatus.maxExposure}%</span>
-                  </div>
-                  <div className="h-2 rounded-full bg-sentinel-bg-tertiary overflow-hidden">
-                    <div 
-                      className="h-full rounded-full bg-sentinel-accent-amber"
-                      style={{ width: `${(data.riskStatus.exposure / data.riskStatus.maxExposure) * 100}%` }}
-                    />
-                  </div>
-                </div>
-
-                {/* Positions */}
-                <div className="flex justify-between text-sm pt-2">
-                  <span className="text-sentinel-text-secondary">Active Positions</span>
-                  <span className="text-sentinel-text-primary font-mono">{data.riskStatus.positionsCount}</span>
-                </div>
-              </div>
-            </motion.div>
-          </div>
-
-          {/* Center Column - Positions */}
+          {/* Positions Table */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.5 }}
+            transition={{ delay: 0.3 }}
             className="lg:col-span-2 p-6 rounded-2xl glass-card"
           >
             <div className="flex items-center justify-between mb-6">
-              <h2 className="text-lg font-semibold">Active Positions</h2>
-              <button className="flex items-center gap-1 text-sm text-sentinel-accent-cyan hover:underline">
-                View All <ChevronRight className="w-4 h-4" />
-              </button>
+              <h2 className="text-lg font-semibold">Open Positions</h2>
+              <span className="text-xs text-sentinel-text-muted">Real-time data</span>
             </div>
 
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="text-left text-sm text-sentinel-text-muted border-b border-sentinel-border">
-                    <th className="pb-4 font-medium">Symbol</th>
-                    <th className="pb-4 font-medium">Side</th>
-                    <th className="pb-4 font-medium text-right">Entry</th>
-                    <th className="pb-4 font-medium text-right">Current</th>
-                    <th className="pb-4 font-medium text-right">P&L</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.positions.map((position, idx) => (
-                    <motion.tr
-                      key={position.symbol}
-                      initial={{ opacity: 0, x: -20 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      transition={{ delay: 0.6 + idx * 0.1 }}
-                      className="border-b border-sentinel-border/50 last:border-0"
-                    >
-                      <td className="py-4">
-                        <span className="font-mono font-medium">{position.symbol}</span>
-                      </td>
-                      <td className="py-4">
-                        <span className={`px-2 py-1 rounded text-xs font-medium uppercase ${
-                          position.side === 'long' ? 'bg-sentinel-accent-emerald/10 text-sentinel-accent-emerald' :
-                          'bg-sentinel-accent-crimson/10 text-sentinel-accent-crimson'
-                        }`}>
-                          {position.side}
-                        </span>
-                      </td>
-                      <td className="py-4 text-right font-mono text-sentinel-text-secondary">
-                        ${position.entry.toLocaleString()}
-                      </td>
-                      <td className="py-4 text-right font-mono">
-                        ${position.current.toLocaleString()}
-                      </td>
-                      <td className="py-4 text-right">
-                        <div className={`font-mono font-medium ${
-                          position.pnl >= 0 ? 'text-sentinel-accent-emerald' : 'text-sentinel-accent-crimson'
-                        }`}>
-                          {position.pnl >= 0 ? '+' : ''}${position.pnl.toFixed(2)}
-                        </div>
-                        <div className={`text-xs ${
-                          position.pnl >= 0 ? 'text-sentinel-accent-emerald/70' : 'text-sentinel-accent-crimson/70'
-                        }`}>
-                          {position.pnl >= 0 ? '+' : ''}{position.pnlPercent}%
-                        </div>
-                      </td>
-                    </motion.tr>
-                  ))}
-                </tbody>
-              </table>
+            {positions.length === 0 ? (
+              <div className="text-center py-12 text-sentinel-text-muted">
+                <Activity className="w-12 h-12 mx-auto mb-4 opacity-30" />
+                <p>No open positions</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="text-left text-sm text-sentinel-text-muted border-b border-sentinel-border">
+                      <th className="pb-4 font-medium">Symbol</th>
+                      <th className="pb-4 font-medium">Side</th>
+                      <th className="pb-4 font-medium text-right">Size</th>
+                      <th className="pb-4 font-medium text-right">Entry</th>
+                      <th className="pb-4 font-medium text-right">Mark</th>
+                      <th className="pb-4 font-medium text-right">P&L</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {positions.map((position, idx) => (
+                      <tr key={idx} className="border-b border-sentinel-border/50 last:border-0">
+                        <td className="py-4">
+                          <span className="font-mono font-medium">{position.symbol}</span>
+                        </td>
+                        <td className="py-4">
+                          <span className={`px-2 py-1 rounded text-xs font-medium uppercase ${
+                            position.side.toLowerCase() === 'buy' ? 'bg-sentinel-accent-emerald/10 text-sentinel-accent-emerald' :
+                            'bg-sentinel-accent-crimson/10 text-sentinel-accent-crimson'
+                          }`}>
+                            {position.side}
+                          </span>
+                        </td>
+                        <td className="py-4 text-right font-mono">
+                          {position.size}
+                        </td>
+                        <td className="py-4 text-right font-mono text-sentinel-text-secondary">
+                          ${position.entryPrice?.toFixed(2)}
+                        </td>
+                        <td className="py-4 text-right font-mono">
+                          ${position.markPrice?.toFixed(2)}
+                        </td>
+                        <td className="py-4 text-right">
+                          <div className={`font-mono font-medium ${
+                            position.unrealizedPnl >= 0 ? 'text-sentinel-accent-emerald' : 'text-sentinel-accent-crimson'
+                          }`}>
+                            {position.unrealizedPnl >= 0 ? '+' : ''}${position.unrealizedPnl?.toFixed(2)}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </motion.div>
+
+          {/* Recent Trades */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.4 }}
+            className="p-6 rounded-2xl glass-card"
+          >
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-lg font-semibold">Recent Trades</h2>
+              <span className="text-xs text-sentinel-text-muted">Real P&L</span>
             </div>
 
-            {/* Recent Trades */}
-            <div className="mt-8 pt-6 border-t border-sentinel-border">
-              <h3 className="text-sm font-medium text-sentinel-text-secondary mb-4">Recent Trades</h3>
+            {!pnlData?.trades?.length ? (
+              <div className="text-center py-8 text-sentinel-text-muted">
+                <TrendingUp className="w-10 h-10 mx-auto mb-3 opacity-30" />
+                <p>No recent trades</p>
+              </div>
+            ) : (
               <div className="space-y-3">
-                {data.recentTrades.map((trade, idx) => (
-                  <div key={idx} className="flex items-center justify-between py-2">
+                {pnlData.trades.slice(0, 10).map((trade, idx) => (
+                  <div key={idx} className="flex items-center justify-between py-2 border-b border-sentinel-border/30 last:border-0">
                     <div className="flex items-center gap-3">
                       <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
-                        trade.pnl >= 0 ? 'bg-sentinel-accent-emerald/10' : 'bg-sentinel-accent-crimson/10'
+                        trade.closedPnl >= 0 ? 'bg-sentinel-accent-emerald/10' : 'bg-sentinel-accent-crimson/10'
                       }`}>
-                        {trade.pnl >= 0 ? (
+                        {trade.closedPnl >= 0 ? (
                           <TrendingUp className="w-4 h-4 text-sentinel-accent-emerald" />
                         ) : (
                           <TrendingDown className="w-4 h-4 text-sentinel-accent-crimson" />
@@ -410,20 +450,41 @@ export default function DashboardPage() {
                       </div>
                       <div>
                         <div className="font-mono text-sm">{trade.symbol}</div>
-                        <div className="text-xs text-sentinel-text-muted">{trade.time}</div>
+                        <div className="text-xs text-sentinel-text-muted capitalize">{trade.side}</div>
                       </div>
                     </div>
                     <div className={`font-mono font-medium ${
-                      trade.pnl >= 0 ? 'text-sentinel-accent-emerald' : 'text-sentinel-accent-crimson'
+                      trade.closedPnl >= 0 ? 'text-sentinel-accent-emerald' : 'text-sentinel-accent-crimson'
                     }`}>
-                      {trade.pnl >= 0 ? '+' : ''}${trade.pnl.toFixed(2)}
+                      {trade.closedPnl >= 0 ? '+' : ''}${trade.closedPnl?.toFixed(2)}
                     </div>
                   </div>
                 ))}
               </div>
-            </div>
+            )}
           </motion.div>
         </div>
+
+        {/* Asset Balances */}
+        {balance?.coins && balance.coins.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.5 }}
+            className="mt-6 p-6 rounded-2xl glass-card"
+          >
+            <h2 className="text-lg font-semibold mb-6">Asset Balances</h2>
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+              {balance.coins.map((coin, idx) => (
+                <div key={idx} className="p-4 rounded-xl bg-sentinel-bg-tertiary">
+                  <div className="font-mono font-semibold text-sentinel-accent-cyan">{coin.coin}</div>
+                  <div className="text-lg font-bold mt-1">{coin.balance?.toFixed(4)}</div>
+                  <div className="text-sm text-sentinel-text-muted">${coin.usdValue?.toFixed(2)}</div>
+                </div>
+              ))}
+            </div>
+          </motion.div>
+        )}
       </main>
 
       {/* Footer */}
@@ -436,4 +497,3 @@ export default function DashboardPage() {
     </div>
   )
 }
-

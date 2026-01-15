@@ -5,6 +5,10 @@ import { motion } from 'framer-motion'
 import { Shield, Eye, EyeOff, ArrowRight, AlertCircle } from 'lucide-react'
 import Link from 'next/link'
 
+// Admin credentials
+const ADMIN_EMAIL = 'admin@sentinel.ai'
+const ADMIN_PASSWORD = 'SentinelAdmin2026!'
+
 export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
@@ -20,19 +24,52 @@ export default function LoginPage() {
     setError('')
 
     try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1500))
-      
-      // In production, call actual API
-      // const response = await fetch('/api/auth/login', {
-      //   method: 'POST',
-      //   headers: { 'Content-Type': 'application/json' },
-      //   body: JSON.stringify(formData)
-      // })
-      
-      window.location.href = '/dashboard'
+      // Check if admin login
+      if (formData.email === ADMIN_EMAIL && formData.password === ADMIN_PASSWORD) {
+        // Store admin session
+        localStorage.setItem('sentinel_user', JSON.stringify({
+          email: ADMIN_EMAIL,
+          name: 'Admin',
+          role: 'admin',
+          isAdmin: true
+        }))
+        // Redirect to admin panel
+        window.location.href = '/admin'
+        return
+      }
+
+      // Regular user login - call API
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(formData)
+      })
+
+      const data = await response.json()
+
+      if (data.success) {
+        localStorage.setItem('sentinel_user', JSON.stringify({
+          ...data.data.user,
+          token: data.data.token,
+          isAdmin: false
+        }))
+        window.location.href = '/dashboard'
+      } else {
+        setError(data.message || 'Invalid email or password')
+      }
     } catch (err) {
-      setError('Invalid email or password')
+      // For demo - check admin credentials only
+      if (formData.email === ADMIN_EMAIL && formData.password === ADMIN_PASSWORD) {
+        localStorage.setItem('sentinel_user', JSON.stringify({
+          email: ADMIN_EMAIL,
+          name: 'Admin',
+          role: 'admin',
+          isAdmin: true
+        }))
+        window.location.href = '/admin'
+      } else {
+        setError('Invalid email or password')
+      }
     } finally {
       setIsLoading(false)
     }
@@ -59,7 +96,7 @@ export default function LoginPage() {
           {/* Header */}
           <h1 className="text-3xl font-bold mb-2">Welcome back</h1>
           <p className="text-sentinel-text-secondary mb-8">
-            Sign in to access your autonomous trading dashboard.
+            Sign in to access your trading dashboard.
           </p>
 
           {/* Error Message */}
@@ -169,29 +206,12 @@ export default function LoginPage() {
               <span className="text-gradient-cyan">Capital Protection</span>
             </h2>
             <p className="text-xl text-sentinel-text-secondary leading-relaxed max-w-md">
-              While you rest, SENTINEL AI monitors markets, analyzes trends, 
-              and protects your investments 24/7.
+              Connect your exchange and let SENTINEL AI handle the trading.
+              Real-time data, real profits.
             </p>
-
-            {/* Stats */}
-            <div className="flex gap-8 mt-12">
-              <div>
-                <div className="text-3xl font-display font-bold text-sentinel-accent-cyan">94.2%</div>
-                <div className="text-sm text-sentinel-text-muted">AI Accuracy</div>
-              </div>
-              <div>
-                <div className="text-3xl font-display font-bold text-sentinel-accent-emerald">24/7</div>
-                <div className="text-sm text-sentinel-text-muted">Active Trading</div>
-              </div>
-              <div>
-                <div className="text-3xl font-display font-bold text-sentinel-accent-amber">0</div>
-                <div className="text-sm text-sentinel-text-muted">Emotions</div>
-              </div>
-            </div>
           </motion.div>
         </div>
       </div>
     </div>
   )
 }
-

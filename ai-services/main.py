@@ -16,7 +16,7 @@ from services.strategy_planner import StrategyPlanner
 from services.risk_engine import RiskEngine
 from services.trading_executor import TradingExecutor
 from services.websocket_manager import WebSocketManager
-from routers import market, sentiment, strategy, risk, trading, exchange
+from routers import market, sentiment, strategy, risk, trading, exchange, admin
 
 # Initialize services
 market_intelligence = MarketIntelligenceService()
@@ -100,6 +100,7 @@ app.include_router(strategy.router, prefix="/ai/strategy", tags=["Strategy Plann
 app.include_router(risk.router, prefix="/ai/risk", tags=["Risk Management"])
 app.include_router(trading.router, prefix="/ai/trading", tags=["Trading"])
 app.include_router(exchange.router, prefix="/ai/exchange", tags=["Exchange Connection"])
+app.include_router(admin.router, prefix="/ai/admin", tags=["Admin"])
 
 
 # ============================================
