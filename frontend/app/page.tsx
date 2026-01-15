@@ -122,7 +122,7 @@ export default function LandingPage() {
       <section className="border-t border-sentinel-border glass-card">
         <div className="max-w-7xl mx-auto px-6 py-8">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-8">
-            <StatItem label="Total Volume" value="$847M" />
+            <StatItem label="Total Volume" value="€847M" />
             <StatItem label="Active Users" value="12,459" />
             <StatItem label="AI Accuracy" value="94.2%" />
             <StatItem label="Uptime" value="99.99%" />

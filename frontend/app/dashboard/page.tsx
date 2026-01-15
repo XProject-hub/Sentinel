@@ -614,7 +614,7 @@ export default function DashboardPage() {
               </div>
             </div>
             <div className="text-4xl font-display font-bold">
-              ${balance?.totalEquity?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}
+              €{balance?.totalEquity?.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0,00'}
             </div>
           </motion.div>
 
@@ -632,7 +632,7 @@ export default function DashboardPage() {
               <span className="text-sentinel-text-secondary">Realized P&L</span>
             </div>
             <div className={`text-2xl font-display font-bold ${(pnlData?.totalPnl || 0) >= 0 ? 'text-sentinel-accent-emerald' : 'text-sentinel-accent-crimson'}`}>
-              {(pnlData?.totalPnl || 0) >= 0 ? '+' : ''}${pnlData?.totalPnl?.toFixed(2) || '0.00'}
+              {(pnlData?.totalPnl || 0) >= 0 ? '+' : ''}€{pnlData?.totalPnl?.toFixed(2) || '0,00'}
             </div>
             <div className="text-sm text-sentinel-text-muted mt-1">
               {pnlData?.winningTrades || 0}W / {pnlData?.losingTrades || 0}L ({pnlData?.winRate?.toFixed(1) || 0}%)
@@ -711,16 +711,16 @@ export default function DashboardPage() {
                           {position.size}
                         </td>
                         <td className="py-4 text-right font-mono text-sentinel-text-secondary">
-                          ${position.entryPrice?.toFixed(2)}
+                          €{position.entryPrice?.toFixed(2)}
                         </td>
                         <td className="py-4 text-right font-mono">
-                          ${position.markPrice?.toFixed(2)}
+                          €{position.markPrice?.toFixed(2)}
                         </td>
                         <td className="py-4 text-right">
                           <div className={`font-mono font-medium ${
                             position.unrealizedPnl >= 0 ? 'text-sentinel-accent-emerald' : 'text-sentinel-accent-crimson'
                           }`}>
-                            {position.unrealizedPnl >= 0 ? '+' : ''}${position.unrealizedPnl?.toFixed(2)}
+                            {position.unrealizedPnl >= 0 ? '+' : ''}€{position.unrealizedPnl?.toFixed(2)}
                           </div>
                         </td>
                       </tr>
@@ -770,7 +770,7 @@ export default function DashboardPage() {
                     <div className={`font-mono font-medium ${
                       trade.closedPnl >= 0 ? 'text-sentinel-accent-emerald' : 'text-sentinel-accent-crimson'
                     }`}>
-                      {trade.closedPnl >= 0 ? '+' : ''}${trade.closedPnl?.toFixed(2)}
+                      {trade.closedPnl >= 0 ? '+' : ''}€{trade.closedPnl?.toFixed(2)}
                     </div>
                   </div>
                 ))}
@@ -793,7 +793,7 @@ export default function DashboardPage() {
                 <div key={idx} className="p-4 rounded-xl bg-sentinel-bg-tertiary">
                   <div className="font-mono font-semibold text-sentinel-accent-cyan">{coin.coin}</div>
                   <div className="text-lg font-bold mt-1">{coin.balance?.toFixed(4)}</div>
-                  <div className="text-sm text-sentinel-text-muted">${coin.usdValue?.toFixed(2)}</div>
+                  <div className="text-sm text-sentinel-text-muted">€{coin.usdValue?.toFixed(2)}</div>
                 </div>
               ))}
             </div>
