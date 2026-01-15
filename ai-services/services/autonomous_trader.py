@@ -53,12 +53,33 @@ class AutonomousTrader:
         # Connected exchange clients per user
         self.user_clients: Dict[str, BybitV5Client] = {}
         
-        # Trading pairs to monitor (will be expanded dynamically)
+        # ALL major crypto trading pairs
         self.trading_pairs = [
+            # Top 10
             'BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT',
-            'ADAUSDT', 'DOGEUSDT', 'AVAXUSDT', 'DOTUSDT', 'MATICUSDT',
-            'LINKUSDT', 'ATOMUSDT', 'LTCUSDT', 'UNIUSDT', 'APTUSDT',
-            'ARBUSDT', 'OPUSDT', 'NEARUSDT', 'FILUSDT', 'INJUSDT',
+            'ADAUSDT', 'DOGEUSDT', 'AVAXUSDT', 'DOTUSDT', 'TRXUSDT',
+            # Top 20
+            'MATICUSDT', 'LINKUSDT', 'ATOMUSDT', 'LTCUSDT', 'UNIUSDT',
+            'APTUSDT', 'ARBUSDT', 'OPUSDT', 'NEARUSDT', 'FILUSDT',
+            # Top 30
+            'INJUSDT', 'SEIUSDT', 'SUIUSDT', 'TIAUSDT', 'JUPUSDT',
+            'STXUSDT', 'IMXUSDT', 'RUNEUSDT', 'AAVEUSDT', 'MKRUSDT',
+            # Top 50
+            'GRTUSDT', 'FTMUSDT', 'ALGOUSDT', 'SANDUSDT', 'MANAUSDT',
+            'AXSUSDT', 'GALAUSDT', 'APEUSDT', 'LDOUSDT', 'CROUSDT',
+            'EGLDUSDT', 'FLOWUSDT', 'XTZUSDT', 'EOSUSDT', 'ARUSDT',
+            'CFXUSDT', 'MINAUSDT', 'RNDRUSDT', 'AGIXUSDT', 'FETUSDT',
+            # DeFi
+            'COMPUSDT', 'SNXUSDT', 'CRVUSDT', 'YFIUSDT', 'SUSHIUSDT',
+            '1INCHUSDT', 'DYDXUSDT', 'GMXUSDT', 'PENDLEUSDT', 'ENSUSDT',
+            # Meme coins
+            'SHIBUSDT', 'PEPEUSDT', 'FLOKIUSDT', 'BONKUSDT', 'WIFUSDT',
+            # Layer 2
+            'STRKUSDT', 'ZKUSDT', 'SCROLLUSDT', 'MANTAUSDT', 'BLASTUSDT',
+            # AI coins
+            'TAOUSDT', 'WLDUSDT', 'OCEANUSDT', 'RNDRAUSDT', 'AKTUSDT',
+            # Gaming
+            'ILVUSDT', 'MAGICUSDT', 'PRIMAUSDT', 'BEAMUSDT', 'PIXELUSDT',
         ]
         
         # Trading parameters

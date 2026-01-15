@@ -22,7 +22,10 @@ import {
   ShieldCheck,
   ShieldAlert,
   Zap,
-  BarChart3
+  BarChart3,
+  Play,
+  Square,
+  Bot
 } from 'lucide-react'
 import Link from 'next/link'
 
@@ -78,6 +81,13 @@ interface AIInsight {
   recommended_action: string
 }
 
+interface TradingStatus {
+  is_autonomous_trading: boolean
+  trading_pairs: string[]
+  max_positions: number
+  recent_trades: any[]
+}
+
 export default function DashboardPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [isRefreshing, setIsRefreshing] = useState(false)
@@ -87,6 +97,8 @@ export default function DashboardPage() {
   const [pnlData, setPnlData] = useState<PnlData | null>(null)
   const [aiInsight, setAiInsight] = useState<AIInsight | null>(null)
   const [user, setUser] = useState<any>(null)
+  const [tradingStatus, setTradingStatus] = useState<TradingStatus | null>(null)
+  const [isTogglingBot, setIsTogglingBot] = useState(false)
 
   useEffect(() => {
     // Check if user is logged in
@@ -151,6 +163,13 @@ export default function DashboardPage() {
         if (pnlDataResult.success) {
           setPnlData(pnlDataResult.data)
         }
+
+        // Load trading status
+        const tradingRes = await fetch('/ai/exchange/trading/status')
+        const tradingData = await tradingRes.json()
+        if (tradingData.success) {
+          setTradingStatus(tradingData.data)
+        }
       }
     } catch (error) {
       console.error('Failed to load data:', error)
@@ -163,6 +182,58 @@ export default function DashboardPage() {
     setIsRefreshing(true)
     await loadData()
     setIsRefreshing(false)
+  }
+
+  const startTrading = async () => {
+    setIsTogglingBot(true)
+    try {
+      // Get stored credentials from localStorage or prompt user
+      const storedCreds = localStorage.getItem('sentinel_api_creds')
+      if (!storedCreds) {
+        // Redirect to connect page if no credentials
+        window.location.href = '/dashboard/connect'
+        return
+      }
+      
+      const creds = JSON.parse(storedCreds)
+      
+      const response = await fetch('/ai/exchange/trading/enable', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: 'default',
+          api_key: creds.apiKey,
+          api_secret: creds.apiSecret,
+        })
+      })
+      
+      const data = await response.json()
+      if (data.success) {
+        setTradingStatus(prev => prev ? { ...prev, is_autonomous_trading: true } : null)
+      }
+    } catch (error) {
+      console.error('Failed to start trading:', error)
+    } finally {
+      setIsTogglingBot(false)
+    }
+  }
+
+  const stopTrading = async () => {
+    setIsTogglingBot(true)
+    try {
+      const response = await fetch('/ai/exchange/trading/disable?user_id=default', {
+        method: 'POST',
+      })
+      
+      const data = await response.json()
+      if (data.success) {
+        setTradingStatus(prev => prev ? { ...prev, is_autonomous_trading: false } : null)
+      }
+    } catch (error) {
+      console.error('Failed to stop trading:', error)
+    } finally {
+      setIsTogglingBot(false)
+    }
   }
 
   const handleLogout = () => {
@@ -429,6 +500,97 @@ export default function DashboardPage() {
           </div>
         </div>
       )}
+
+      {/* Trading Control Panel */}
+      <div className="max-w-[1600px] mx-auto px-6 pt-6">
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className={`p-6 rounded-2xl border-2 ${
+            tradingStatus?.is_autonomous_trading 
+              ? 'glass-card border-sentinel-accent-emerald bg-sentinel-accent-emerald/5' 
+              : 'glass-card border-sentinel-border'
+          }`}
+        >
+          <div className="flex items-center justify-between flex-wrap gap-4">
+            <div className="flex items-center gap-4">
+              <div className={`w-14 h-14 rounded-xl flex items-center justify-center ${
+                tradingStatus?.is_autonomous_trading 
+                  ? 'bg-sentinel-accent-emerald/20' 
+                  : 'bg-sentinel-bg-tertiary'
+              }`}>
+                <Bot className={`w-8 h-8 ${
+                  tradingStatus?.is_autonomous_trading 
+                    ? 'text-sentinel-accent-emerald' 
+                    : 'text-sentinel-text-muted'
+                }`} />
+              </div>
+              <div>
+                <h2 className="text-xl font-bold">
+                  {tradingStatus?.is_autonomous_trading ? '24/7 Trading ACTIVE' : 'Autonomous Trading'}
+                </h2>
+                <p className="text-sentinel-text-secondary text-sm">
+                  {tradingStatus?.is_autonomous_trading 
+                    ? `AI is trading ${tradingStatus?.trading_pairs?.length || 0}+ crypto pairs with your real funds`
+                    : 'Start the AI to trade automatically 24/7'
+                  }
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-4">
+              {tradingStatus?.is_autonomous_trading && (
+                <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-sentinel-bg-tertiary">
+                  <div className="w-2 h-2 rounded-full bg-sentinel-accent-emerald live-pulse" />
+                  <span className="text-sm font-mono">{tradingStatus?.trading_pairs?.length || 80}+ pairs</span>
+                </div>
+              )}
+
+              {tradingStatus?.is_autonomous_trading ? (
+                <button
+                  onClick={stopTrading}
+                  disabled={isTogglingBot}
+                  className="flex items-center gap-3 px-6 py-3 rounded-xl bg-sentinel-accent-crimson text-white font-bold hover:bg-sentinel-accent-crimson/90 transition-all disabled:opacity-50"
+                >
+                  {isTogglingBot ? (
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                  ) : (
+                    <>
+                      <Square className="w-5 h-5" />
+                      STOP TRADING
+                    </>
+                  )}
+                </button>
+              ) : (
+                <button
+                  onClick={startTrading}
+                  disabled={isTogglingBot}
+                  className="flex items-center gap-3 px-8 py-3 rounded-xl bg-gradient-to-r from-sentinel-accent-emerald to-sentinel-accent-cyan text-sentinel-bg-primary font-bold hover:shadow-glow-cyan transition-all disabled:opacity-50"
+                >
+                  {isTogglingBot ? (
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                  ) : (
+                    <>
+                      <Play className="w-5 h-5" />
+                      START TRADING
+                    </>
+                  )}
+                </button>
+              )}
+            </div>
+          </div>
+
+          {tradingStatus?.is_autonomous_trading && (
+            <div className="mt-4 pt-4 border-t border-sentinel-border">
+              <div className="flex items-center gap-6 text-sm text-sentinel-text-secondary">
+                <span>Max positions: <strong className="text-sentinel-text-primary">{tradingStatus?.max_positions || 10}</strong></span>
+                <span>Strategy: <strong className="text-sentinel-text-primary capitalize">{aiInsight?.recommended_action || 'Auto'}</strong></span>
+                <span>Regime: <strong className="text-sentinel-text-primary capitalize">{aiInsight?.regime?.replace('_', ' ') || 'Analyzing'}</strong></span>
+              </div>
+            </div>
+          )}
+        </motion.div>
+      </div>
 
       {/* Main Content */}
       <main className="max-w-[1600px] mx-auto px-6 py-8">

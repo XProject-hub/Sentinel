@@ -92,6 +92,13 @@ export default function ConnectExchangePage() {
         return
       }
 
+      // Store API credentials for later use (for START/STOP)
+      localStorage.setItem('sentinel_api_creds', JSON.stringify({
+        apiKey: formData.apiKey,
+        apiSecret: formData.apiSecret,
+        exchange: formData.exchange,
+      }))
+
       // Enable autonomous trading if selected
       if (enableAutoTrading) {
         const tradingResponse = await fetch('/ai/exchange/trading/enable', {
