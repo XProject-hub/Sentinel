@@ -17,6 +17,7 @@ import {
   LogOut,
   RefreshCw
 } from 'lucide-react'
+import Link from 'next/link'
 
 // Mock data - in production this comes from API
 const mockDashboardData = {
@@ -100,6 +101,9 @@ export default function DashboardPage() {
               <Bell className="w-5 h-5 text-sentinel-text-secondary" />
               <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-sentinel-accent-crimson" />
             </button>
+            <Link href="/admin" className="px-3 py-1.5 rounded-lg bg-sentinel-accent-crimson/20 text-sentinel-accent-crimson text-sm font-medium hover:bg-sentinel-accent-crimson/30 transition-colors">
+              Admin
+            </Link>
             <button className="p-2 rounded-lg hover:bg-sentinel-bg-tertiary transition-colors">
               <Settings className="w-5 h-5 text-sentinel-text-secondary" />
             </button>
@@ -426,7 +430,7 @@ export default function DashboardPage() {
       <footer className="border-t border-sentinel-border mt-8">
         <div className="max-w-[1600px] mx-auto px-6 py-4 flex items-center justify-between text-sm text-sentinel-text-muted">
           <span>SENTINEL AI - Autonomous Digital Trader</span>
-          <span>sentinel.xproject.live</span>
+          <span>Developed by NoLimitDevelopments</span>
         </div>
       </footer>
     </div>

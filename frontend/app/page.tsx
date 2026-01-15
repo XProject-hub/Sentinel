@@ -137,7 +137,7 @@ export default function LandingPage() {
             SENTINEL AI - Autonomous Digital Trader
           </span>
           <span className="text-sentinel-text-muted text-sm">
-            sentinel.xproject.live
+            Developed by NoLimitDevelopments
           </span>
         </div>
       </footer>
