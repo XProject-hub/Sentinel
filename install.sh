@@ -115,22 +115,41 @@ cat >> /etc/security/limits.conf << 'EOF'
 * hard nofile 65535
 EOF
 
+# Generate .env with secure passwords
+echo "[9/9] Generating .env configuration..."
+cd /opt/sentinel
+chmod +x setup-env.sh
+./setup-env.sh
+
 echo ""
 echo "============================================"
 echo "   Installation Complete!"
 echo "============================================"
 echo ""
-echo "Docker version: $(docker --version)"
-echo "Docker Compose: $(docker compose version)"
+echo "Docker: $(docker --version)"
+echo "Compose: $(docker compose version)"
 echo ""
-echo "Next steps:"
+echo "Starting SENTINEL AI..."
 echo ""
-echo "  cd /opt/sentinel"
-echo "  nano .env           # Edit credentials"
-echo "  docker compose up -d"
+
+# Start services
+cd /opt/sentinel
+docker compose up -d
+
 echo ""
-echo "Then get SSL:"
+echo "============================================"
+echo "   SENTINEL AI is starting!"
+echo "============================================"
+echo ""
+echo "Wait 2-3 minutes for containers to build."
+echo ""
+echo "Check status:  docker compose ps"
+echo "View logs:     docker compose logs -f"
+echo ""
+echo "Get SSL certificate:"
 echo "  certbot --nginx -d $DOMAIN"
+echo ""
+echo "Dashboard: https://$DOMAIN"
 echo ""
 echo "============================================"
 
