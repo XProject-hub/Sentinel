@@ -17,7 +17,12 @@ import {
   LogOut,
   RefreshCw,
   Link as LinkIcon,
-  Loader2
+  Loader2,
+  Gauge,
+  ShieldCheck,
+  ShieldAlert,
+  Zap,
+  BarChart3
 } from 'lucide-react'
 import Link from 'next/link'
 
@@ -60,6 +65,19 @@ interface PnlData {
   }>
 }
 
+interface AIInsight {
+  confidence: number
+  confidence_label: string
+  risk_status: string
+  insight: string
+  regime: string
+  volatility: number
+  trend: string
+  fear_greed_index: number
+  fear_greed_label: string
+  recommended_action: string
+}
+
 export default function DashboardPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [isRefreshing, setIsRefreshing] = useState(false)
@@ -67,6 +85,7 @@ export default function DashboardPage() {
   const [balance, setBalance] = useState<BalanceData | null>(null)
   const [positions, setPositions] = useState<Position[]>([])
   const [pnlData, setPnlData] = useState<PnlData | null>(null)
+  const [aiInsight, setAiInsight] = useState<AIInsight | null>(null)
   const [user, setUser] = useState<any>(null)
 
   useEffect(() => {
@@ -78,12 +97,34 @@ export default function DashboardPage() {
     
     // Load real data
     loadData()
+    
+    // Refresh AI insight every 30 seconds
+    const interval = setInterval(() => {
+      loadAIInsight()
+    }, 30000)
+    
+    return () => clearInterval(interval)
   }, [])
+
+  const loadAIInsight = async () => {
+    try {
+      const insightRes = await fetch('/ai/insight')
+      const insightData = await insightRes.json()
+      if (insightData.success) {
+        setAiInsight(insightData.data)
+      }
+    } catch (error) {
+      console.error('Failed to load AI insight:', error)
+    }
+  }
 
   const loadData = async () => {
     setIsLoading(true)
     
     try {
+      // Load AI insight first (always available)
+      await loadAIInsight()
+      
       // Check exchange connection status
       const statusRes = await fetch('/ai/exchange/status')
       const statusData = await statusRes.json()
@@ -127,6 +168,33 @@ export default function DashboardPage() {
   const handleLogout = () => {
     localStorage.removeItem('sentinel_user')
     window.location.href = '/login'
+  }
+
+  const getRiskStatusColor = (status: string) => {
+    switch (status) {
+      case 'SAFE': return 'text-sentinel-accent-emerald'
+      case 'ELEVATED': return 'text-sentinel-accent-amber'
+      case 'CAUTION': return 'text-sentinel-accent-crimson'
+      default: return 'text-sentinel-text-secondary'
+    }
+  }
+
+  const getRiskStatusBg = (status: string) => {
+    switch (status) {
+      case 'SAFE': return 'bg-sentinel-accent-emerald/10'
+      case 'ELEVATED': return 'bg-sentinel-accent-amber/10'
+      case 'CAUTION': return 'bg-sentinel-accent-crimson/10'
+      default: return 'bg-sentinel-bg-tertiary'
+    }
+  }
+
+  const getRiskStatusIcon = (status: string) => {
+    switch (status) {
+      case 'SAFE': return ShieldCheck
+      case 'ELEVATED': return ShieldAlert
+      case 'CAUTION': return AlertTriangle
+      default: return Shield
+    }
   }
 
   // Show loading state
@@ -173,6 +241,28 @@ export default function DashboardPage() {
             </div>
           </div>
         </nav>
+
+        {/* AI Status Bar - Always visible */}
+        {aiInsight && (
+          <div className="bg-sentinel-bg-secondary border-b border-sentinel-border">
+            <div className="max-w-[1600px] mx-auto px-6 py-3 flex items-center justify-between">
+              <div className="flex items-center gap-6">
+                <div className="flex items-center gap-2">
+                  <Brain className="w-4 h-4 text-sentinel-accent-cyan" />
+                  <span className="text-sm text-sentinel-text-secondary">AI Confidence:</span>
+                  <span className="font-mono font-bold text-sentinel-accent-cyan">{aiInsight.confidence}%</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Gauge className="w-4 h-4 text-sentinel-accent-amber" />
+                  <span className="text-sm text-sentinel-text-secondary">Fear & Greed:</span>
+                  <span className="font-mono">{aiInsight.fear_greed_index}</span>
+                  <span className="text-xs text-sentinel-text-muted">({aiInsight.fear_greed_label})</span>
+                </div>
+              </div>
+              <div className="text-sm text-sentinel-text-muted">{aiInsight.insight}</div>
+            </div>
+          </div>
+        )}
 
         {/* Connect Exchange Prompt */}
         <main className="max-w-2xl mx-auto px-6 py-20">
@@ -234,6 +324,8 @@ export default function DashboardPage() {
   }
 
   // Show real data dashboard
+  const RiskIcon = getRiskStatusIcon(aiInsight?.risk_status || 'SAFE')
+  
   return (
     <div className="min-h-screen bg-sentinel-bg-primary">
       {/* Top Navigation */}
@@ -277,6 +369,66 @@ export default function DashboardPage() {
           </div>
         </div>
       </nav>
+
+      {/* AI Status Bar */}
+      {aiInsight && (
+        <div className="bg-sentinel-bg-secondary border-b border-sentinel-border">
+          <div className="max-w-[1600px] mx-auto px-6 py-3 flex items-center justify-between flex-wrap gap-4">
+            <div className="flex items-center gap-6 flex-wrap">
+              {/* AI Confidence */}
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 rounded-lg bg-sentinel-accent-cyan/10">
+                  <Brain className="w-4 h-4 text-sentinel-accent-cyan" />
+                </div>
+                <div>
+                  <span className="text-xs text-sentinel-text-muted block">AI Confidence</span>
+                  <span className="font-mono font-bold text-sentinel-accent-cyan">{aiInsight.confidence}%</span>
+                </div>
+              </div>
+
+              {/* Risk Status */}
+              <div className="flex items-center gap-2">
+                <div className={`p-1.5 rounded-lg ${getRiskStatusBg(aiInsight.risk_status)}`}>
+                  <RiskIcon className={`w-4 h-4 ${getRiskStatusColor(aiInsight.risk_status)}`} />
+                </div>
+                <div>
+                  <span className="text-xs text-sentinel-text-muted block">Risk Status</span>
+                  <span className={`font-bold ${getRiskStatusColor(aiInsight.risk_status)}`}>{aiInsight.risk_status}</span>
+                </div>
+              </div>
+
+              {/* Market Regime */}
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 rounded-lg bg-sentinel-accent-violet/10">
+                  <BarChart3 className="w-4 h-4 text-sentinel-accent-violet" />
+                </div>
+                <div>
+                  <span className="text-xs text-sentinel-text-muted block">Market Regime</span>
+                  <span className="font-medium capitalize">{aiInsight.regime.replace('_', ' ')}</span>
+                </div>
+              </div>
+
+              {/* Fear & Greed */}
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 rounded-lg bg-sentinel-accent-amber/10">
+                  <Gauge className="w-4 h-4 text-sentinel-accent-amber" />
+                </div>
+                <div>
+                  <span className="text-xs text-sentinel-text-muted block">Fear & Greed</span>
+                  <span className="font-mono">{aiInsight.fear_greed_index}</span>
+                  <span className="text-xs text-sentinel-text-muted ml-1">({aiInsight.fear_greed_label})</span>
+                </div>
+              </div>
+            </div>
+
+            {/* AI Insight */}
+            <div className="flex items-center gap-2 bg-sentinel-bg-tertiary px-4 py-2 rounded-lg">
+              <Zap className="w-4 h-4 text-sentinel-accent-amber" />
+              <span className="text-sm">{aiInsight.insight}</span>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Main Content */}
       <main className="max-w-[1600px] mx-auto px-6 py-8">

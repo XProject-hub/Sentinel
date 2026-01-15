@@ -16,6 +16,8 @@ from services.strategy_planner import StrategyPlanner
 from services.risk_engine import RiskEngine
 from services.trading_executor import TradingExecutor
 from services.websocket_manager import WebSocketManager
+from services.data_aggregator import DataAggregator
+from services.learning_engine import LearningEngine
 from routers import market, sentiment, strategy, risk, trading, exchange, admin
 
 # Initialize services
@@ -25,6 +27,8 @@ strategy_planner = StrategyPlanner()
 risk_engine = RiskEngine()
 trading_executor = TradingExecutor()
 ws_manager = WebSocketManager()
+data_aggregator = DataAggregator()
+learning_engine = LearningEngine()
 
 
 @asynccontextmanager
@@ -37,10 +41,13 @@ async def lifespan(app: FastAPI):
     await sentiment_analyzer.initialize()
     await strategy_planner.initialize()
     await risk_engine.initialize()
+    await data_aggregator.initialize()
+    await learning_engine.initialize()
     
     # Start background tasks
     asyncio.create_task(market_intelligence.start_data_collection())
     asyncio.create_task(sentiment_analyzer.start_news_monitoring())
+    asyncio.create_task(data_aggregator.start_collection())
     asyncio.create_task(run_main_loop())
     
     logger.info("SENTINEL AI Services Ready")
@@ -51,6 +58,8 @@ async def lifespan(app: FastAPI):
     logger.info("SENTINEL AI Services Shutting Down...")
     await market_intelligence.shutdown()
     await sentiment_analyzer.shutdown()
+    await data_aggregator.shutdown()
+    await learning_engine.shutdown()
 
 
 async def run_main_loop():
@@ -169,6 +178,131 @@ async def get_market_regime(symbol: str):
         "volatility": regime["volatility"],
         "trend_strength": regime["trend_strength"],
         "recommended_strategy": regime["recommended_strategy"],
+    }
+
+
+@app.get("/ai/insight")
+async def get_ai_insight():
+    """Get AI-generated market insight and confidence"""
+    try:
+        # Get current market state
+        market_state = await market_intelligence.get_current_state()
+        sentiment_data = await sentiment_analyzer.get_current_sentiment()
+        aggregated_data = await data_aggregator.get_aggregated_data()
+        
+        # Detect regime for BTC (primary indicator)
+        btc_state = market_state.get('BTCUSDT', {})
+        btc_sentiment = sentiment_data.get('BTC', {})
+        regime = await strategy_planner.detect_regime({'BTCUSDT': btc_state}, sentiment_data)
+        
+        # Calculate overall AI confidence
+        confidence = regime.get('confidence', 0.5)
+        
+        # Adjust confidence based on data freshness
+        market_age = await market_intelligence.get_data_age()
+        sentiment_age = await sentiment_analyzer.get_data_age()
+        
+        if market_age > 60:  # Data older than 60 seconds
+            confidence *= 0.9
+        if sentiment_age > 600:  # Sentiment older than 10 minutes
+            confidence *= 0.95
+            
+        # Get AI insight text
+        insight = await data_aggregator.get_market_insight()
+        
+        # Determine risk status
+        volatility = regime.get('volatility', 1.5)
+        if volatility > 4.0:
+            risk_status = 'CAUTION'
+        elif volatility > 2.5:
+            risk_status = 'ELEVATED'
+        else:
+            risk_status = 'SAFE'
+            
+        # Get Fear & Greed
+        fng = aggregated_data.get('fear_greed', {})
+        
+        return {
+            "success": True,
+            "data": {
+                "confidence": round(confidence * 100, 1),
+                "confidence_label": "High" if confidence > 0.7 else "Medium" if confidence > 0.5 else "Low",
+                "risk_status": risk_status,
+                "insight": insight,
+                "regime": regime.get('regime', 'sideways'),
+                "volatility": round(volatility, 2),
+                "trend": regime.get('trend', 'sideways'),
+                "fear_greed_index": int(fng.get('value', 50)),
+                "fear_greed_label": fng.get('classification', 'Neutral'),
+                "recommended_action": regime.get('recommended_strategy', 'hold'),
+                "timestamp": regime.get('timestamp')
+            }
+        }
+    except Exception as e:
+        logger.error(f"AI insight error: {e}")
+        return {
+            "success": True,
+            "data": {
+                "confidence": 50.0,
+                "confidence_label": "Medium",
+                "risk_status": "SAFE",
+                "insight": "Initializing market analysis...",
+                "regime": "initializing",
+                "volatility": 0,
+                "trend": "neutral",
+                "fear_greed_index": 50,
+                "fear_greed_label": "Neutral",
+                "recommended_action": "hold",
+                "timestamp": None
+            }
+        }
+
+
+@app.get("/ai/aggregated-data")
+async def get_all_aggregated_data():
+    """Get all aggregated market data (whale alerts, on-chain, etc.)"""
+    data = await data_aggregator.get_aggregated_data()
+    return {
+        "success": True,
+        "data": data
+    }
+
+
+@app.get("/ai/learning/stats")
+async def get_learning_statistics():
+    """Get AI learning statistics and performance"""
+    stats = await learning_engine.get_learning_stats()
+    return {
+        "success": True,
+        "data": stats
+    }
+
+
+@app.get("/ai/learning/events")
+async def get_learning_events(limit: int = 20):
+    """Get recent AI learning events"""
+    events = await learning_engine.get_recent_learning_events(limit)
+    return {
+        "success": True,
+        "data": events
+    }
+
+
+@app.get("/ai/learning/strategy/{regime}")
+async def get_best_strategy_for_regime(regime: str):
+    """Get AI-recommended strategy for a market regime"""
+    strategy, q_value = learning_engine.get_best_strategy(regime)
+    confidence = learning_engine.get_strategy_confidence(regime, strategy)
+    
+    return {
+        "success": True,
+        "data": {
+            "regime": regime,
+            "recommended_strategy": strategy,
+            "confidence": confidence,
+            "q_value": q_value,
+            "exploration_rate": learning_engine.exploration_rate * 100,
+        }
     }
 
 

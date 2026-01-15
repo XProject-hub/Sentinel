@@ -2,12 +2,13 @@
 
 import { useState } from 'react'
 import { motion } from 'framer-motion'
-import { Shield, Eye, EyeOff, ArrowRight, Check } from 'lucide-react'
+import { Shield, Eye, EyeOff, ArrowRight, Check, AlertCircle } from 'lucide-react'
 import Link from 'next/link'
 
 export default function RegisterPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState('')
   const [formData, setFormData] = useState({
     name: '',
     email: '',
@@ -18,12 +19,56 @@ export default function RegisterPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsLoading(true)
+    setError('')
+
+    // Validate passwords match
+    if (formData.password !== formData.confirmPassword) {
+      setError('Passwords do not match')
+      setIsLoading(false)
+      return
+    }
+
+    // Validate password strength
+    if (passwordStrength() < 2) {
+      setError('Password is too weak. Use at least 8 characters with uppercase and numbers.')
+      setIsLoading(false)
+      return
+    }
 
     try {
-      await new Promise(resolve => setTimeout(resolve, 1500))
-      window.location.href = '/dashboard'
+      // Call real backend API
+      const response = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: formData.name,
+          email: formData.email,
+          password: formData.password,
+          password_confirmation: formData.confirmPassword,
+        })
+      })
+
+      const data = await response.json()
+
+      if (data.success) {
+        // Store user session
+        localStorage.setItem('sentinel_user', JSON.stringify({
+          ...data.data.user,
+          token: data.data.token,
+          isAdmin: false
+        }))
+        window.location.href = '/dashboard'
+      } else {
+        // Handle validation errors
+        if (data.errors) {
+          const firstError = Object.values(data.errors)[0]
+          setError(Array.isArray(firstError) ? firstError[0] : String(firstError))
+        } else {
+          setError(data.message || 'Registration failed. Please try again.')
+        }
+      }
     } catch (err) {
-      console.error(err)
+      setError('Unable to connect to server. Please try again later.')
     } finally {
       setIsLoading(false)
     }
@@ -112,6 +157,18 @@ export default function RegisterPage() {
           <p className="text-sentinel-text-secondary mb-8">
             Start your journey with autonomous AI trading.
           </p>
+
+          {/* Error Message */}
+          {error && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="flex items-center gap-3 p-4 rounded-xl bg-sentinel-accent-crimson/10 border border-sentinel-accent-crimson/30 mb-6"
+            >
+              <AlertCircle className="w-5 h-5 text-sentinel-accent-crimson flex-shrink-0" />
+              <span className="text-sentinel-accent-crimson text-sm">{error}</span>
+            </motion.div>
+          )}
 
           {/* Form */}
           <form onSubmit={handleSubmit} className="space-y-5">
@@ -259,4 +316,3 @@ export default function RegisterPage() {
     </div>
   )
 }
-

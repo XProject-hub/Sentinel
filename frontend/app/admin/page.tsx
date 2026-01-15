@@ -76,11 +76,21 @@ export default function AdminPage() {
         setUsers(usersData.data.users || [])
       }
 
-      // Load AI learning stats
-      const aiRes = await fetch('/ai/admin/ai-stats')
+      // Load AI learning stats from real learning engine
+      const aiRes = await fetch('/ai/learning/stats')
       const aiData = await aiRes.json()
       if (aiData.success) {
         setAiStats(aiData.data)
+      }
+
+      // Load recent learning events
+      const eventsRes = await fetch('/ai/learning/events?limit=10')
+      const eventsData = await eventsRes.json()
+      if (eventsData.success && aiData.success) {
+        setAiStats({
+          ...aiData.data,
+          recentDecisions: eventsData.data || []
+        })
       }
     } catch (error) {
       console.error('Failed to load admin data:', error)
@@ -337,95 +347,109 @@ export default function AdminPage() {
             >
               <h1 className="text-2xl font-bold mb-8">AI Learning Statistics</h1>
               
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+                <div className="p-6 rounded-2xl glass-card">
+                  <div className="text-3xl font-bold text-sentinel-accent-cyan">{aiStats?.total_trades || 0}</div>
+                  <div className="text-sm text-sentinel-text-muted">Total Trades Learned</div>
+                </div>
+                <div className="p-6 rounded-2xl glass-card">
+                  <div className="text-3xl font-bold text-sentinel-accent-emerald">{aiStats?.win_rate?.toFixed(1) || 0}%</div>
+                  <div className="text-sm text-sentinel-text-muted">Win Rate</div>
+                </div>
+                <div className="p-6 rounded-2xl glass-card">
+                  <div className={`text-3xl font-bold ${(aiStats?.total_pnl || 0) >= 0 ? 'text-sentinel-accent-emerald' : 'text-sentinel-accent-crimson'}`}>
+                    ${aiStats?.total_pnl?.toFixed(2) || '0.00'}
+                  </div>
+                  <div className="text-sm text-sentinel-text-muted">Total P&L</div>
+                </div>
+                <div className="p-6 rounded-2xl glass-card">
+                  <div className="text-3xl font-bold text-sentinel-accent-amber">{aiStats?.strategies_learned || 0}</div>
+                  <div className="text-sm text-sentinel-text-muted">Strategies Learned</div>
+                </div>
+              </div>
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
                 <div className="p-6 rounded-2xl glass-card">
-                  <h3 className="text-lg font-semibold mb-4">Model Status</h3>
+                  <h3 className="text-lg font-semibold mb-4">Exploration Rate</h3>
                   <div className="space-y-4">
-                    <div className="flex items-center justify-between p-4 rounded-xl bg-sentinel-bg-tertiary">
-                      <div className="flex items-center gap-3">
-                        <Brain className="w-5 h-5 text-sentinel-accent-cyan" />
-                        <span>Sentiment Model</span>
+                    <div>
+                      <div className="flex justify-between mb-2">
+                        <span className="text-sentinel-text-secondary">AI Exploration</span>
+                        <span className="font-medium">{aiStats?.exploration_rate?.toFixed(1) || 10}%</span>
                       </div>
-                      <span className={`px-2 py-1 rounded text-xs font-medium ${
-                        aiStats?.sentimentModel === 'loaded' ? 'bg-sentinel-accent-emerald/10 text-sentinel-accent-emerald' :
-                        'bg-sentinel-accent-amber/10 text-sentinel-accent-amber'
-                      }`}>
-                        {aiStats?.sentimentModel || 'Not loaded'}
-                      </span>
+                      <div className="h-3 bg-sentinel-bg-tertiary rounded-full overflow-hidden">
+                        <div 
+                          className="h-full bg-gradient-to-r from-sentinel-accent-cyan to-sentinel-accent-emerald rounded-full"
+                          style={{ width: `${aiStats?.exploration_rate || 10}%` }}
+                        />
+                      </div>
+                      <p className="text-xs text-sentinel-text-muted mt-2">
+                        Higher = more experimentation, Lower = more exploitation of learned strategies
+                      </p>
                     </div>
-                    <div className="flex items-center justify-between p-4 rounded-xl bg-sentinel-bg-tertiary">
-                      <div className="flex items-center gap-3">
-                        <Activity className="w-5 h-5 text-sentinel-accent-emerald" />
-                        <span>Strategy Model</span>
+                    <div>
+                      <div className="flex justify-between mb-2">
+                        <span className="text-sentinel-text-secondary">Max Drawdown</span>
+                        <span className="font-medium text-sentinel-accent-crimson">{aiStats?.max_drawdown?.toFixed(2) || 0}%</span>
                       </div>
-                      <span className={`px-2 py-1 rounded text-xs font-medium ${
-                        aiStats?.strategyModel === 'loaded' ? 'bg-sentinel-accent-emerald/10 text-sentinel-accent-emerald' :
-                        'bg-sentinel-accent-amber/10 text-sentinel-accent-amber'
-                      }`}>
-                        {aiStats?.strategyModel || 'Not loaded'}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between p-4 rounded-xl bg-sentinel-bg-tertiary">
-                      <div className="flex items-center gap-3">
-                        <AlertTriangle className="w-5 h-5 text-sentinel-accent-amber" />
-                        <span>Risk Model</span>
+                      <div className="h-3 bg-sentinel-bg-tertiary rounded-full overflow-hidden">
+                        <div 
+                          className="h-full bg-sentinel-accent-crimson rounded-full"
+                          style={{ width: `${Math.min(100, (aiStats?.max_drawdown || 0) * 10)}%` }}
+                        />
                       </div>
-                      <span className={`px-2 py-1 rounded text-xs font-medium ${
-                        aiStats?.riskModel === 'loaded' ? 'bg-sentinel-accent-emerald/10 text-sentinel-accent-emerald' :
-                        'bg-sentinel-accent-amber/10 text-sentinel-accent-amber'
-                      }`}>
-                        {aiStats?.riskModel || 'Not loaded'}
-                      </span>
                     </div>
                   </div>
                 </div>
 
                 <div className="p-6 rounded-2xl glass-card">
-                  <h3 className="text-lg font-semibold mb-4">Learning Metrics</h3>
-                  <div className="space-y-4">
-                    <div>
-                      <div className="flex justify-between mb-2">
-                        <span className="text-sentinel-text-secondary">Training Progress</span>
-                        <span className="font-medium">{aiStats?.trainingProgress || 0}%</span>
-                      </div>
-                      <div className="h-2 bg-sentinel-bg-tertiary rounded-full overflow-hidden">
-                        <div 
-                          className="h-full bg-gradient-to-r from-sentinel-accent-cyan to-sentinel-accent-emerald rounded-full"
-                          style={{ width: `${aiStats?.trainingProgress || 0}%` }}
-                        />
-                      </div>
+                  <h3 className="text-lg font-semibold mb-4">Best Performing Strategies</h3>
+                  {aiStats?.best_performing?.length ? (
+                    <div className="space-y-3">
+                      {aiStats.best_performing.map((item: any, idx: number) => (
+                        <div key={idx} className="flex items-center justify-between p-3 rounded-xl bg-sentinel-bg-tertiary">
+                          <div>
+                            <span className="font-medium capitalize">{item.strategy}</span>
+                            <span className="text-sentinel-text-muted ml-2 text-sm">in {item.regime.replace('_', ' ')}</span>
+                          </div>
+                          <div className="text-right">
+                            <div className="text-sentinel-accent-emerald font-mono">{item.confidence.toFixed(0)}%</div>
+                            <div className="text-xs text-sentinel-text-muted">confidence</div>
+                          </div>
+                        </div>
+                      ))}
                     </div>
-                    <div className="grid grid-cols-2 gap-4 pt-4">
-                      <div className="p-4 rounded-xl bg-sentinel-bg-tertiary">
-                        <div className="text-2xl font-bold text-sentinel-accent-cyan">{aiStats?.decisionsToday || 0}</div>
-                        <div className="text-sm text-sentinel-text-muted">Decisions Today</div>
-                      </div>
-                      <div className="p-4 rounded-xl bg-sentinel-bg-tertiary">
-                        <div className="text-2xl font-bold text-sentinel-accent-emerald">{aiStats?.dataPoints || 0}</div>
-                        <div className="text-sm text-sentinel-text-muted">Data Points</div>
-                      </div>
+                  ) : (
+                    <div className="text-center py-8 text-sentinel-text-muted">
+                      <Brain className="w-10 h-10 mx-auto mb-3 opacity-30" />
+                      <p>Learning in progress...</p>
                     </div>
-                  </div>
+                  )}
                 </div>
               </div>
 
               <div className="p-6 rounded-2xl glass-card">
-                <h3 className="text-lg font-semibold mb-4">Recent AI Decisions</h3>
+                <h3 className="text-lg font-semibold mb-4">Recent Learning Events</h3>
                 {aiStats?.recentDecisions?.length ? (
                   <div className="space-y-3">
-                    {aiStats.recentDecisions.map((decision: any, idx: number) => (
+                    {aiStats.recentDecisions.map((event: any, idx: number) => (
                       <div key={idx} className="flex items-center justify-between p-4 rounded-xl bg-sentinel-bg-tertiary">
                         <div className="flex items-center gap-3">
                           <div className={`w-2 h-2 rounded-full ${
-                            decision.type === 'buy' ? 'bg-sentinel-accent-emerald' :
-                            decision.type === 'sell' ? 'bg-sentinel-accent-crimson' :
+                            event.reward > 0 ? 'bg-sentinel-accent-emerald' :
+                            event.reward < 0 ? 'bg-sentinel-accent-crimson' :
                             'bg-sentinel-accent-amber'
                           }`} />
-                          <span className="font-mono">{decision.symbol}</span>
-                          <span className="text-sentinel-text-secondary">{decision.action}</span>
+                          <span className="font-mono capitalize">{event.strategy}</span>
+                          <span className="text-sentinel-text-secondary text-sm">in {event.regime?.replace('_', ' ')}</span>
                         </div>
-                        <div className="text-sm text-sentinel-text-muted">
-                          {new Date(decision.timestamp).toLocaleTimeString()}
+                        <div className="flex items-center gap-4">
+                          <div className={`font-mono ${event.reward >= 0 ? 'text-sentinel-accent-emerald' : 'text-sentinel-accent-crimson'}`}>
+                            {event.reward >= 0 ? '+' : ''}{event.reward?.toFixed(2)} reward
+                          </div>
+                          <div className="text-sm text-sentinel-text-muted">
+                            Q={event.new_q?.toFixed(2)}
+                          </div>
                         </div>
                       </div>
                     ))}
@@ -433,7 +457,7 @@ export default function AdminPage() {
                 ) : (
                   <div className="text-center py-8 text-sentinel-text-muted">
                     <Brain className="w-12 h-12 mx-auto mb-3 opacity-30" />
-                    <p>No AI decisions yet</p>
+                    <p>No learning events yet - AI will learn from trades</p>
                   </div>
                 )}
               </div>
