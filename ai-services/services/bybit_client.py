@@ -196,9 +196,9 @@ class BybitV5Client:
         params = {"accountType": account_type}
         return await self._request("GET", "/v5/account/wallet-balance", params, auth=True)
         
-    async def get_positions(self, category: str = "linear", symbol: Optional[str] = None) -> Dict:
+    async def get_positions(self, category: str = "linear", symbol: Optional[str] = None, settle_coin: str = "USDT") -> Dict:
         """Get open positions"""
-        params = {"category": category}
+        params = {"category": category, "settleCoin": settle_coin}
         if symbol:
             params["symbol"] = symbol
         return await self._request("GET", "/v5/position/list", params, auth=True)
