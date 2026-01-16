@@ -57,6 +57,16 @@ async def lifespan(app: FastAPI):
     asyncio.create_task(auto_reconnect_on_startup())
     
     logger.info("SENTINEL AI Services Ready")
+    
+    yield  # THIS IS REQUIRED FOR LIFESPAN!
+    
+    # Cleanup on shutdown
+    logger.info("SENTINEL AI Services Shutting Down...")
+    await market_intelligence.shutdown()
+    await sentiment_analyzer.shutdown()
+    await data_aggregator.shutdown()
+    await learning_engine.shutdown()
+    await autonomous_trader.shutdown()
 
 
 async def auto_reconnect_on_startup():
@@ -106,16 +116,6 @@ async def auto_reconnect_on_startup():
             
     except Exception as e:
         logger.error(f"Auto-reconnect on startup failed: {e}")
-    
-    yield
-    
-    # Cleanup
-    logger.info("SENTINEL AI Services Shutting Down...")
-    await market_intelligence.shutdown()
-    await sentiment_analyzer.shutdown()
-    await data_aggregator.shutdown()
-    await learning_engine.shutdown()
-    await autonomous_trader.shutdown()
 
 
 async def run_main_loop():
