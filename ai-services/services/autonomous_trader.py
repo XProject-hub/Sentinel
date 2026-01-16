@@ -87,7 +87,7 @@ class AutonomousTrader:
         # ============================================
         
         # Analysis settings
-        self.analysis_interval_seconds = 30  # Analyze every 30 seconds (not 10)
+        self.analysis_interval_seconds = 30  # Analyze every 30 seconds
         self.min_confidence = 65.0  # Only trade when 65%+ confident
         
         # Position sizing - DYNAMIC based on confidence
@@ -95,10 +95,9 @@ class AutonomousTrader:
         self.max_position_percent = 20.0  # Maximum 20% per trade (high confidence)
         self.max_open_positions = 10      # Reasonable diversification
         
-        # EXIT STRATEGY - SMART TRAILING
-        self.stop_loss_percent = 0.5          # Stop loss at -0.5% from entry
-        self.trailing_activation = 0.8        # Activate trailing at +0.8% profit
-        self.trailing_drop_percent = 0.4      # Sell if drops 0.4% from peak
+        # EXIT STRATEGY - ALWAYS TRAIL FROM PEAK
+        self.emergency_stop_loss = 2.0    # Emergency stop: -2% from entry (protection)
+        self.trail_from_peak = 0.8        # Sell when drops 0.8% from PEAK (highest price)
         
         # Market filters
         self.min_24h_volume = 10_000_000  # Only trade pairs with $10M+ daily volume
@@ -467,11 +466,11 @@ class AutonomousTrader:
             if final_confidence < self.min_confidence:
                 return None
                 
-            # Calculate stop loss
+            # Calculate emergency stop loss (only for extreme cases)
             if action == 'buy':
-                stop_loss = last_price * (1 - self.stop_loss_percent / 100)
+                stop_loss = last_price * (1 - self.emergency_stop_loss / 100)
             else:
-                stop_loss = last_price * (1 + self.stop_loss_percent / 100)
+                stop_loss = last_price * (1 + self.emergency_stop_loss / 100)
                 
             # Dynamic position size based on confidence
             # 65% confidence = 5% position, 95% confidence = 20% position
@@ -586,11 +585,22 @@ class AutonomousTrader:
             logger.error(f"Smart trade execution error: {e}")
             
     async def _check_smart_exit(self, user_id: str, client: BybitV5Client, position: Dict):
-        """Check position for smart exit using trailing stop from peak"""
+        """
+        TRAILING STOP from PEAK - Always active!
+        
+        Logic:
+        - Buy at €100
+        - Price goes: €100 → €105 → €107 (peak updates to €107)
+        - Price drops to €106 (not 0.8% from peak, HOLD)
+        - Price goes: €106 → €110 (peak updates to €110)
+        - Price drops to €109 (0.8% from €110 = €109.12, so SELL!)
+        
+        The peak ALWAYS updates when price goes higher.
+        We SELL when price drops 0.8% from the PEAK (not from entry!).
+        """
         
         symbol = position['symbol']
         entry_price = position['entryPrice']
-        unrealized_pnl = position['unrealizedPnl']
         
         # Get current price
         ticker_result = await client.get_tickers(symbol=symbol)
@@ -603,62 +613,64 @@ class AutonomousTrader:
             
         current_price = safe_float(tickers[0].get('lastPrice'))
         
-        # Calculate profit/loss from entry
+        # Calculate profit/loss from ENTRY (for emergency stop only)
         if position['side'].lower() == 'buy':
-            pnl_percent = ((current_price - entry_price) / entry_price) * 100
+            pnl_from_entry = ((current_price - entry_price) / entry_price) * 100
         else:
-            pnl_percent = ((entry_price - current_price) / entry_price) * 100
+            pnl_from_entry = ((entry_price - current_price) / entry_price) * 100
             
-        # Get/update peak price
+        # Get/update PEAK price - ALWAYS track highest
         peak_key = f"peak:{user_id}:{symbol}"
         peak_data = await self.redis_client.get(peak_key)
         
         if peak_data:
             peak_price = float(peak_data)
             
-            # Update peak if we're higher (for longs) or lower (for shorts)
+            # UPDATE PEAK if current price is HIGHER (for longs) or LOWER (for shorts)
             if position['side'].lower() == 'buy' and current_price > peak_price:
                 peak_price = current_price
                 await self.redis_client.set(peak_key, str(peak_price))
+                logger.debug(f"{symbol}: New peak! ${peak_price:.2f}")
             elif position['side'].lower() == 'sell' and current_price < peak_price:
                 peak_price = current_price
                 await self.redis_client.set(peak_key, str(peak_price))
         else:
-            peak_price = current_price
+            # First check - initialize peak as entry price
+            peak_price = entry_price
             await self.redis_client.set(peak_key, str(peak_price))
             
-        # Calculate drop from peak
+        # Calculate DROP FROM PEAK (not from entry!)
         if position['side'].lower() == 'buy':
             drop_from_peak = ((peak_price - current_price) / peak_price) * 100
-            peak_pnl = ((peak_price - entry_price) / entry_price) * 100
         else:
             drop_from_peak = ((current_price - peak_price) / peak_price) * 100
-            peak_pnl = ((entry_price - peak_price) / entry_price) * 100
+            
+        # Calculate profit from entry (for logging)
+        if position['side'].lower() == 'buy':
+            profit_from_entry = ((current_price - entry_price) / entry_price) * 100
+        else:
+            profit_from_entry = ((entry_price - current_price) / entry_price) * 100
             
         should_close = False
         close_reason = ""
         
-        # === SMART EXIT LOGIC ===
+        # === EXIT LOGIC ===
         
-        # 1. STOP LOSS: Exit if down from entry
-        if pnl_percent <= -self.stop_loss_percent:
+        # 1. EMERGENCY STOP: Exit if down -2% from ENTRY (protection against big loss)
+        if pnl_from_entry <= -self.emergency_stop_loss:
             should_close = True
-            close_reason = f"STOP LOSS: {pnl_percent:.2f}% from entry"
+            close_reason = f"EMERGENCY STOP: {pnl_from_entry:.2f}% from entry"
             
-        # 2. TRAILING STOP: Activated after +0.8% profit
-        elif peak_pnl >= self.trailing_activation:
-            if drop_from_peak >= self.trailing_drop_percent:
-                should_close = True
-                close_reason = f"TRAILING STOP: Dropped {drop_from_peak:.2f}% from peak (+{peak_pnl:.2f}%)"
+        # 2. TRAILING STOP: Exit if dropped 0.8% from PEAK
+        #    This is ALWAYS active - no activation threshold!
+        elif drop_from_peak >= self.trail_from_peak:
+            should_close = True
+            close_reason = f"TRAILING STOP: Dropped {drop_from_peak:.2f}% from peak (profit: +{profit_from_entry:.2f}%)"
                 
-        # 3. LOCK SMALL PROFIT: If up +0.3% but not reached trailing activation, 
-        #    and starts dropping, lock it
-        elif pnl_percent >= 0.3 and pnl_percent < self.trailing_activation:
-            # If we're losing more than half our gains
-            if pnl_percent < peak_pnl * 0.5 and peak_pnl > 0.3:
-                should_close = True
-                close_reason = f"LOCK PROFIT: Securing +{pnl_percent:.2f}% (was +{peak_pnl:.2f}%)"
-                
+        # Log position status
+        logger.debug(f"{symbol}: entry=${entry_price:.2f}, current=${current_price:.2f}, "
+                    f"peak=${peak_price:.2f}, drop_from_peak={drop_from_peak:.2f}%")
+                    
         if should_close:
             await self.redis_client.delete(peak_key)
             await self._close_position(user_id, client, position, close_reason)
