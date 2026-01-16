@@ -206,16 +206,32 @@ class AutonomousTrader:
         
         for account in balance_data.get('list', []):
             total_equity = float(account.get('totalEquity', 0))
-            # Get available margin for trading (not withdrawable amount)
+            # Get available margin for trading
             available_margin = float(account.get('totalAvailableBalance', 0))
             
-            for coin in account.get('coin', []):
-                if coin.get('coin') == 'USDT':
-                    # Use walletBalance or availableBalance, not availableToWithdraw
-                    wallet_bal = float(coin.get('walletBalance', 0))
-                    avail_bal = float(coin.get('availableBalance', wallet_bal))
-                    available_usdt = max(avail_bal, available_margin)
-                    logger.debug(f"USDT: wallet={wallet_bal}, available={avail_bal}, margin={available_margin}")
+            # Log raw account data to debug
+            logger.info(f"Account type: {account.get('accountType')}, equity={total_equity}, availableMargin={available_margin}")
+            
+            coins = account.get('coin', [])
+            logger.info(f"Found {len(coins)} coins in account")
+            
+            for coin in coins:
+                coin_name = coin.get('coin')
+                wallet_bal = float(coin.get('walletBalance', 0))
+                avail_bal = float(coin.get('availableToWithdraw', 0))
+                equity = float(coin.get('equity', 0))
+                
+                if wallet_bal > 0:
+                    logger.info(f"Coin {coin_name}: wallet={wallet_bal}, available={avail_bal}, equity={equity}")
+                
+                if coin_name == 'USDT':
+                    # For trading, use equity (total value including positions) or wallet balance
+                    available_usdt = max(wallet_bal, available_margin, equity * 0.9)  # 90% of equity
+                    
+            # If no USDT found but we have equity, use equity as available (cross margin)
+            if available_usdt == 0 and total_equity > 0:
+                available_usdt = available_margin if available_margin > 0 else total_equity * 0.5
+                logger.info(f"No USDT coin, using available_margin={available_margin} or 50% equity")
                     
         if total_equity < 10:  # Minimum $10 to trade
             return
