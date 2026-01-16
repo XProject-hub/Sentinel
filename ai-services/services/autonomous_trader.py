@@ -282,7 +282,11 @@ class AutonomousTrader:
             last_price = float(ticker.get('lastPrice', 0))
             price_change_24h = float(ticker.get('price24hPcnt', 0)) * 100
             volume_24h = float(ticker.get('volume24h', 0))
-            funding_rate = float(ticker.get('fundingRate', 0)) * 100
+            funding_rate = float(ticker.get('fundingRate', 0) or 0) * 100
+            
+            # Debug log for first few symbols
+            if symbol in ['BTCUSDT', 'ETHUSDT', 'SOLUSDT']:
+                logger.debug(f"{symbol}: price=${last_price:.2f}, change24h={price_change_24h:.2f}%, funding={funding_rate:.4f}%")
             
             # Get market regime from Redis (set by strategy planner)
             regime_data = await self.redis_client.hgetall(f"regime:{symbol}")
@@ -310,52 +314,66 @@ class AutonomousTrader:
             best_strategy, q_value = self.learning_engine.get_best_strategy(regime)
             confidence = self.learning_engine.get_strategy_confidence(regime, best_strategy)
             
-            # Generate signal based on strategy
+            # Generate signal based on strategy - AGGRESSIVE MODE for more trades
             action = 'hold'
             reasoning = ""
             
             if best_strategy == 'momentum':
-                if trend == 'bullish' and rsi < 70:
+                # More relaxed conditions - trade on any direction hint
+                if price_change_24h > 0.5 and rsi < 75:  # Slight bullish
                     action = 'buy'
-                    reasoning = f"Momentum strategy: Bullish trend, RSI={rsi:.0f}"
-                elif trend == 'bearish' and rsi > 30:
+                    reasoning = f"Momentum: +{price_change_24h:.1f}%, RSI={rsi:.0f}"
+                elif price_change_24h < -0.5 and rsi > 25:  # Slight bearish
                     action = 'sell'
-                    reasoning = f"Momentum strategy: Bearish trend, RSI={rsi:.0f}"
+                    reasoning = f"Momentum: {price_change_24h:.1f}%, RSI={rsi:.0f}"
                     
             elif best_strategy == 'mean_reversion':
-                if rsi < 30:
+                # Wider bands for more trades
+                if rsi < 45:  # Was 30, now 45
                     action = 'buy'
-                    reasoning = f"Mean reversion: Oversold RSI={rsi:.0f}"
-                elif rsi > 70:
+                    reasoning = f"Mean reversion: RSI={rsi:.0f} (below 45)"
+                elif rsi > 55:  # Was 70, now 55
                     action = 'sell'
-                    reasoning = f"Mean reversion: Overbought RSI={rsi:.0f}"
+                    reasoning = f"Mean reversion: RSI={rsi:.0f} (above 55)"
                     
             elif best_strategy == 'breakout':
-                if price_change_24h > 3 and volume_24h > 100000:
+                # Lower thresholds
+                if price_change_24h > 1.0:  # Was 3%, now 1%
                     action = 'buy'
-                    reasoning = f"Breakout: +{price_change_24h:.1f}% with high volume"
-                elif price_change_24h < -3 and volume_24h > 100000:
+                    reasoning = f"Breakout: +{price_change_24h:.1f}%"
+                elif price_change_24h < -1.0:
                     action = 'sell'
-                    reasoning = f"Breakdown: {price_change_24h:.1f}% with high volume"
+                    reasoning = f"Breakdown: {price_change_24h:.1f}%"
                     
             elif best_strategy == 'scalping':
-                # Quick trades based on micro movements
-                if abs(funding_rate) > 0.01:
-                    if funding_rate > 0:
-                        action = 'sell'  # Too many longs, short
-                        reasoning = f"Scalping: High funding rate {funding_rate:.3f}%"
-                    else:
-                        action = 'buy'  # Too many shorts, long
-                        reasoning = f"Scalping: Negative funding {funding_rate:.3f}%"
+                # Scalp on any funding imbalance OR price momentum
+                if funding_rate > 0.005:  # Was 0.01, now 0.005
+                    action = 'sell'
+                    reasoning = f"Scalping: Funding {funding_rate:.4f}% (longs paying)"
+                elif funding_rate < -0.005:
+                    action = 'buy'
+                    reasoning = f"Scalping: Funding {funding_rate:.4f}% (shorts paying)"
+                elif abs(price_change_24h) > 0.3:  # Quick momentum scalp
+                    action = 'buy' if price_change_24h > 0 else 'sell'
+                    reasoning = f"Scalping: Quick move {price_change_24h:.2f}%"
                         
             elif best_strategy == 'grid':
-                # Range trading
-                if volatility < 2 and rsi < 40:
+                # Much more relaxed
+                if rsi < 50:  # Was 40
                     action = 'buy'
-                    reasoning = f"Grid: Low volatility, RSI={rsi:.0f}"
-                elif volatility < 2 and rsi > 60:
+                    reasoning = f"Grid: RSI={rsi:.0f} (below 50)"
+                elif rsi > 50:  # Was 60
                     action = 'sell'
-                    reasoning = f"Grid: Low volatility, RSI={rsi:.0f}"
+                    reasoning = f"Grid: RSI={rsi:.0f} (above 50)"
+            
+            # FALLBACK: If no specific strategy matched, use simple momentum
+            if action == 'hold':
+                if price_change_24h > 0.2:
+                    action = 'buy'
+                    reasoning = f"Fallback momentum: +{price_change_24h:.2f}%"
+                elif price_change_24h < -0.2:
+                    action = 'sell'
+                    reasoning = f"Fallback momentum: {price_change_24h:.2f}%"
                     
             if action == 'hold':
                 return None
