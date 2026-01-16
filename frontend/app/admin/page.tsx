@@ -358,7 +358,7 @@ export default function AdminPage() {
                 </div>
                 <div className="p-6 rounded-2xl glass-card">
                   <div className={`text-3xl font-bold ${(aiStats?.total_pnl || 0) >= 0 ? 'text-sentinel-accent-emerald' : 'text-sentinel-accent-crimson'}`}>
-                    ${aiStats?.total_pnl?.toFixed(2) || '0.00'}
+                    €{aiStats?.total_pnl?.toFixed(2) || '0.00'}
                   </div>
                   <div className="text-sm text-sentinel-text-muted">Total P&L</div>
                 </div>
