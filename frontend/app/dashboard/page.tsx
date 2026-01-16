@@ -1145,7 +1145,7 @@ export default function DashboardPage() {
             </div>
 
             <div className="mt-4 pt-4 border-t border-sentinel-border text-xs text-sentinel-text-muted">
-              Strategy: SAFE PROFIT MODE | Trailing Stop: -0.3% from peak | Stop Loss: -0.3% | HOLD while rising | Auto-refresh every 3s
+              Strategy: SMART AI | Trailing: -0.8% from PEAK | Emergency Stop: -2% | HOLD while rising | Auto-refresh 3s
             </div>
           </motion.div>
         )}
