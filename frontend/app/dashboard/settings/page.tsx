@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
 import { 
   Settings, 
-  Shield, 
+  ShieldCheck,
   Zap, 
   TrendingUp,
   AlertTriangle,
@@ -23,8 +23,7 @@ import {
   Activity,
   BarChart3,
   Coins,
-  Building2,
-  Bell
+  Building2
 } from 'lucide-react'
 import Link from 'next/link'
 import Image from 'next/image'
@@ -298,7 +297,7 @@ export default function SettingsPage() {
           className="p-6 rounded-2xl glass-card"
         >
           <h2 className="text-lg font-semibold mb-6 flex items-center gap-2">
-            <Shield className="w-5 h-5 text-sentinel-accent-cyan" />
+            <ShieldCheck className="w-5 h-5 text-sentinel-accent-cyan" />
             Risk Mode
           </h2>
           
@@ -316,7 +315,7 @@ export default function SettingsPage() {
                 <div className={`p-4 rounded-full ${
                   settings.riskMode === 'safe' ? 'bg-sentinel-accent-emerald/20' : 'bg-sentinel-bg-tertiary'
                 }`}>
-                  <Shield className={`w-8 h-8 ${
+                  <ShieldCheck className={`w-8 h-8 ${
                     settings.riskMode === 'safe' ? 'text-sentinel-accent-emerald' : 'text-sentinel-text-muted'
                   }`} />
                 </div>
