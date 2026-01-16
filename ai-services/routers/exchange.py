@@ -588,3 +588,190 @@ async def get_trading_pairs():
         }
     }
 
+
+# ============================================
+# BOT SETTINGS
+# ============================================
+
+@router.get("/settings")
+async def get_settings():
+    """Get current bot settings"""
+    
+    r = await redis.from_url(settings.REDIS_URL)
+    
+    try:
+        settings_data = await r.hgetall('bot:settings')
+        
+        if settings_data:
+            parsed = {
+                k.decode() if isinstance(k, bytes) else k: 
+                v.decode() if isinstance(v, bytes) else v 
+                for k, v in settings_data.items()
+            }
+            
+            # Convert string values to proper types
+            return {
+                "success": True,
+                "data": {
+                    "riskMode": parsed.get('riskMode', 'neutral'),
+                    "takeProfitPercent": float(parsed.get('takeProfitPercent', 2.0)),
+                    "stopLossPercent": float(parsed.get('stopLossPercent', 1.5)),
+                    "trailingStopPercent": float(parsed.get('trailingStopPercent', 1.2)),
+                    "minProfitToTrail": float(parsed.get('minProfitToTrail', 1.0)),
+                    "minConfidence": int(float(parsed.get('minConfidence', 70))),
+                    "maxPositionPercent": int(float(parsed.get('maxPositionPercent', 8))),
+                    "maxOpenPositions": int(float(parsed.get('maxOpenPositions', 8))),
+                    "cryptoBudget": float(parsed.get('cryptoBudget', 100)),
+                    "tradFiBudget": float(parsed.get('tradFiBudget', 50)),
+                    "enableCrypto": parsed.get('enableCrypto', 'true') == 'true',
+                    "enableTradFi": parsed.get('enableTradFi', 'false') == 'true',
+                    "useAiSignals": parsed.get('useAiSignals', 'true') == 'true',
+                    "learnFromTrades": parsed.get('learnFromTrades', 'true') == 'true',
+                }
+            }
+        else:
+            # Return defaults
+            return {
+                "success": True,
+                "data": {
+                    "riskMode": "neutral",
+                    "takeProfitPercent": 2.0,
+                    "stopLossPercent": 1.5,
+                    "trailingStopPercent": 1.2,
+                    "minProfitToTrail": 1.0,
+                    "minConfidence": 70,
+                    "maxPositionPercent": 8,
+                    "maxOpenPositions": 8,
+                    "cryptoBudget": 100,
+                    "tradFiBudget": 50,
+                    "enableCrypto": True,
+                    "enableTradFi": False,
+                    "useAiSignals": True,
+                    "learnFromTrades": True,
+                }
+            }
+    finally:
+        await r.close()
+
+
+@router.post("/settings")
+async def save_settings(request: Request):
+    """Save bot settings and apply them to trader"""
+    
+    body = await request.json()
+    
+    r = await redis.from_url(settings.REDIS_URL)
+    
+    try:
+        # Save to Redis
+        settings_to_save = {
+            'riskMode': str(body.get('riskMode', 'neutral')),
+            'takeProfitPercent': str(body.get('takeProfitPercent', 2.0)),
+            'stopLossPercent': str(body.get('stopLossPercent', 1.5)),
+            'trailingStopPercent': str(body.get('trailingStopPercent', 1.2)),
+            'minProfitToTrail': str(body.get('minProfitToTrail', 1.0)),
+            'minConfidence': str(body.get('minConfidence', 70)),
+            'maxPositionPercent': str(body.get('maxPositionPercent', 8)),
+            'maxOpenPositions': str(body.get('maxOpenPositions', 8)),
+            'cryptoBudget': str(body.get('cryptoBudget', 100)),
+            'tradFiBudget': str(body.get('tradFiBudget', 50)),
+            'enableCrypto': str(body.get('enableCrypto', True)).lower(),
+            'enableTradFi': str(body.get('enableTradFi', False)).lower(),
+            'useAiSignals': str(body.get('useAiSignals', True)).lower(),
+            'learnFromTrades': str(body.get('learnFromTrades', True)).lower(),
+        }
+        
+        await r.hset('bot:settings', mapping=settings_to_save)
+        
+        # Apply settings to autonomous trader
+        autonomous_trader.emergency_stop_loss = float(body.get('stopLossPercent', 1.5))
+        autonomous_trader.trail_from_peak = float(body.get('trailingStopPercent', 1.2))
+        autonomous_trader.min_profit_to_trail = float(body.get('minProfitToTrail', 1.0))
+        autonomous_trader.min_confidence = float(body.get('minConfidence', 70))
+        autonomous_trader.max_position_percent = float(body.get('maxPositionPercent', 8))
+        autonomous_trader.max_open_positions = int(body.get('maxOpenPositions', 8))
+        
+        # Store take profit for use (not directly in trader but in settings)
+        await r.set('bot:take_profit_percent', str(body.get('takeProfitPercent', 2.0)))
+        
+        logger.info(f"Bot settings updated: {body.get('riskMode')} mode, "
+                   f"TP={body.get('takeProfitPercent')}%, SL={body.get('stopLossPercent')}%")
+        
+        return {"success": True, "message": "Settings saved and applied"}
+        
+    except Exception as e:
+        logger.error(f"Failed to save settings: {e}")
+        return {"success": False, "error": str(e)}
+    finally:
+        await r.close()
+
+
+@router.post("/sell-all")
+async def sell_all_positions():
+    """Emergency: Close ALL open positions immediately"""
+    
+    if "default" not in exchange_connections:
+        return {"success": False, "error": "No exchange connected"}
+    
+    client = exchange_connections["default"]
+    
+    try:
+        # Get all open positions
+        positions_result = await client.get_positions()
+        
+        if not positions_result.get('success'):
+            return {"success": False, "error": "Failed to get positions"}
+        
+        positions = positions_result.get('data', {}).get('list', [])
+        closed_count = 0
+        total_pnl = 0.0
+        errors = []
+        
+        for pos in positions:
+            size = float(pos.get('size', 0))
+            if size <= 0:
+                continue
+                
+            symbol = pos.get('symbol')
+            side = pos.get('side')
+            unrealized_pnl = float(pos.get('unrealisedPnl', 0))
+            
+            # Close position
+            close_side = 'Sell' if side == 'Buy' else 'Buy'
+            
+            order_result = await client.place_order(
+                symbol=symbol,
+                side=close_side,
+                order_type='Market',
+                qty=str(size),
+                reduce_only=True
+            )
+            
+            if order_result.get('success'):
+                closed_count += 1
+                total_pnl += unrealized_pnl
+                logger.info(f"SELL ALL: Closed {symbol} {side} size={size} PnL={unrealized_pnl}")
+            else:
+                errors.append(f"{symbol}: {order_result.get('error')}")
+                logger.error(f"SELL ALL: Failed to close {symbol}: {order_result.get('error')}")
+        
+        # Clear peak tracking
+        r = await redis.from_url(settings.REDIS_URL)
+        keys = await r.keys('peak:*')
+        if keys:
+            await r.delete(*keys)
+        await r.close()
+        
+        return {
+            "success": True,
+            "data": {
+                "closedCount": closed_count,
+                "totalPnl": total_pnl,
+                "errors": errors if errors else None
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Sell all error: {e}")
+        return {"success": False, "error": str(e)}
+

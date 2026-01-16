@@ -635,9 +635,9 @@ export default function DashboardPage() {
                 Admin
               </Link>
             )}
-            <button className="p-2 rounded-lg hover:bg-sentinel-bg-tertiary transition-colors">
+            <Link href="/dashboard/settings" className="p-2 rounded-lg hover:bg-sentinel-bg-tertiary transition-colors">
               <Settings className="w-5 h-5 text-sentinel-text-secondary" />
-            </button>
+            </Link>
             <div className="w-px h-8 bg-sentinel-border" />
             <button onClick={handleLogout} className="p-2 rounded-lg hover:bg-sentinel-bg-tertiary transition-colors">
               <LogOut className="w-5 h-5 text-sentinel-text-secondary" />

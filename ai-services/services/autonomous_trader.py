@@ -232,8 +232,44 @@ class AutonomousTrader:
         # Dynamically load available symbols after first user connects
         self.dynamic_symbols_loaded = False
         
+        # Load saved settings from Redis
+        await self._load_settings_from_redis()
+        
         logger.info(f"SMART AI Trading System initialized with {len(self.trading_pairs)} default pairs")
         logger.info("Will fetch ALL available Bybit pairs when first user connects")
+    
+    async def _load_settings_from_redis(self):
+        """Load user settings from Redis"""
+        try:
+            settings_data = await self.redis_client.hgetall('bot:settings')
+            
+            if settings_data:
+                parsed = {
+                    k.decode() if isinstance(k, bytes) else k: 
+                    v.decode() if isinstance(v, bytes) else v 
+                    for k, v in settings_data.items()
+                }
+                
+                # Apply settings
+                self.emergency_stop_loss = float(parsed.get('stopLossPercent', self.emergency_stop_loss))
+                self.trail_from_peak = float(parsed.get('trailingStopPercent', self.trail_from_peak))
+                self.min_profit_to_trail = float(parsed.get('minProfitToTrail', self.min_profit_to_trail))
+                self.min_confidence = float(parsed.get('minConfidence', self.min_confidence))
+                self.max_position_percent = float(parsed.get('maxPositionPercent', self.max_position_percent))
+                self.max_open_positions = int(float(parsed.get('maxOpenPositions', self.max_open_positions)))
+                
+                # Take profit (new)
+                self.take_profit_percent = float(parsed.get('takeProfitPercent', 5.0))
+                
+                logger.info(f"Loaded settings: SL={self.emergency_stop_loss}%, "
+                           f"Trail={self.trail_from_peak}%, MinProfit={self.min_profit_to_trail}%, "
+                           f"TP={self.take_profit_percent}%, Confidence={self.min_confidence}%")
+            else:
+                self.take_profit_percent = 5.0  # Default
+                
+        except Exception as e:
+            logger.error(f"Failed to load settings: {e}")
+            self.take_profit_percent = 5.0
     
     async def _load_all_bybit_symbols(self, client: BybitV5Client):
         """Dynamically fetch ALL available USDT perpetual pairs from Bybit"""
@@ -822,25 +858,28 @@ class AutonomousTrader:
         close_reason = ""
         
         # === PROFITABLE EXIT LOGIC ===
+        # Uses settings from user configuration
         
-        # 1. STOP LOSS: Exit if down -1.5% from ENTRY (cut losers fast!)
+        # Get take profit from settings (reloaded periodically)
+        take_profit = getattr(self, 'take_profit_percent', 5.0)
+        
+        # 1. STOP LOSS: Exit if down from ENTRY (cut losers fast!)
         if pnl_from_entry <= -self.emergency_stop_loss:
             should_close = True
-            close_reason = f"STOP LOSS: {pnl_from_entry:.2f}% loss (cut loser)"
+            close_reason = f"STOP LOSS: {pnl_from_entry:.2f}% loss (limit: -{self.emergency_stop_loss}%)"
             
-        # 2. TRAILING STOP: Only activates AFTER we have +1% profit!
+        # 2. TAKE PROFIT: Exit when profit reaches target
+        elif profit_from_entry >= take_profit:
+            should_close = True
+            close_reason = f"TAKE PROFIT: +{profit_from_entry:.2f}% (target: +{take_profit}%)"
+            
+        # 3. TRAILING STOP: Only activates AFTER minimum profit
         #    This lets winners run while protecting profits
         elif profit_from_entry >= self.min_profit_to_trail:
             # We're in profit! Now use trailing stop from peak
             if drop_from_peak >= self.trail_from_peak:
                 should_close = True
-                close_reason = f"PROFIT SECURED: +{profit_from_entry:.2f}% (dropped {drop_from_peak:.2f}% from peak)"
-                
-        # 3. TAKE PROFIT: If profit exceeds 5%, consider taking it
-        elif profit_from_entry >= 5.0:
-            # Exceptional profit - take it!
-            should_close = True
-            close_reason = f"TAKE PROFIT: +{profit_from_entry:.2f}% excellent gain!"
+                close_reason = f"TRAILING STOP: +{profit_from_entry:.2f}% (dropped {drop_from_peak:.2f}% from peak)"
                 
         # Log position status
         logger.debug(f"{symbol}: entry=${entry_price:.2f}, current=${current_price:.2f}, "
