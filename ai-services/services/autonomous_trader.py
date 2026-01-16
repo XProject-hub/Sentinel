@@ -376,15 +376,11 @@ class AutonomousTrader:
             if action == 'hold':
                 return None
                 
-            # Calculate stop loss and take profit - SAFE PROFIT MODE
-            # Very tight stops for consistent small gains
-            
+            # Calculate stop loss only - we use trailing stop from PEAK, no hard take profit
             if action == 'buy':
-                stop_loss = last_price * (1 - self.stop_loss_percent / 100)  # -0.3%
-                take_profit = last_price * (1 + self.take_profit_percent / 100)  # +0.5%
+                stop_loss = last_price * (1 - self.stop_loss_percent / 100)  # -0.3% from entry
             else:
-                stop_loss = last_price * (1 + self.stop_loss_percent / 100)  # +0.3%
-                take_profit = last_price * (1 - self.take_profit_percent / 100)  # -0.5%
+                stop_loss = last_price * (1 + self.stop_loss_percent / 100)  # +0.3% from entry
                 
             # Position size based on confidence
             position_size_percent = min(
@@ -400,7 +396,7 @@ class AutonomousTrader:
                 regime=regime,
                 entry_price=last_price,
                 stop_loss=stop_loss,
-                take_profit=take_profit,
+                take_profit=0,  # No hard take profit - we use trailing stop from peak
                 position_size_percent=position_size_percent,
                 reasoning=reasoning,
             )
