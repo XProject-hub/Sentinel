@@ -182,26 +182,40 @@ class AutonomousTrader:
         self.trading_pairs = unique_pairs
         
         # ============================================
-        # SMART MODE PARAMETERS - OPTIMIZED FOR SMALL ACCOUNTS
+        # ============================================
+        # PROFITABLE BOT PARAMETERS
+        # Key: Quality over quantity, let winners run!
         # ============================================
         
-        # Analysis settings - More active trading
-        self.analysis_interval_seconds = 20  # Analyze every 20 seconds (faster)
-        self.min_confidence = 55.0  # Trade when 55%+ confident (more opportunities)
+        # Analysis settings - QUALITY SIGNALS ONLY
+        self.analysis_interval_seconds = 30  # Analyze every 30s (patience)
+        self.min_confidence = 70.0           # Only HIGH confidence trades!
         
-        # Position sizing - DYNAMIC based on confidence
-        # For small accounts (~€140), we need smaller positions
-        self.min_position_percent = 3.0   # Minimum 3% per trade (~€4.2)
-        self.max_position_percent = 10.0  # Maximum 10% per trade (~€14) for safety
-        self.max_open_positions = 15      # More diversification with smaller positions
+        # Position sizing - Conservative for safety
+        self.min_position_percent = 4.0      # 4% per trade (~€5.6)
+        self.max_position_percent = 8.0      # Max 8% per trade (~€11.2)
+        self.max_open_positions = 8          # Max 8 positions (focus)
         
-        # EXIT STRATEGY - ALWAYS TRAIL FROM PEAK
-        self.emergency_stop_loss = 1.5    # Tighter emergency stop: -1.5% from entry
-        self.trail_from_peak = 0.5        # Sell when drops 0.5% from PEAK (take profits quicker)
+        # === PROFITABLE EXIT STRATEGY ===
+        # The KEY to profitability: Let winners run, cut losers fast
         
-        # Market filters - Less restrictive for more opportunities
-        self.min_24h_volume = 1_000_000   # Lowered to $1M daily volume (more pairs)
-        self.max_spread_percent = 0.3     # Allow up to 0.3% spread
+        # STOP LOSS: Cut losers at -1.5%
+        self.emergency_stop_loss = 1.5       # Exit if -1.5% from entry
+        
+        # TAKE PROFIT: Activate trailing ONLY after +1% profit
+        self.min_profit_to_trail = 1.0       # Need +1% profit before trailing activates
+        
+        # TRAILING STOP: Once in profit, trail at 1.2% from peak
+        self.trail_from_peak = 1.2           # Wider trailing (was 0.5%)
+        
+        # This gives us:
+        # - Risk: -1.5% (stop loss)
+        # - Reward: +1% minimum, potentially unlimited with trailing
+        # - Risk/Reward ratio: At least 1:0.67, improves as profits run
+        
+        # Market filters - Focus on liquid pairs
+        self.min_24h_volume = 5_000_000      # $5M daily volume minimum
+        self.max_spread_percent = 0.15       # Max 0.15% spread (liquidity)
         
         # Track state
         self.last_trade_time: Dict[str, datetime] = {}
@@ -588,21 +602,32 @@ class AutonomousTrader:
                 bearish_score += 10
                 reasoning_parts.append("Longs paying funding")
                 
-            # === DECISION ===
+            # === DECISION - ONLY HIGH QUALITY SIGNALS ===
             
-            # Need significant edge to trade
-            if bullish_score >= 30 and bullish_score > bearish_score + 10:
+            # Need STRONG edge to trade (was 30, now 40)
+            # Also need to beat opposite score by at least 15 (was 10)
+            if bullish_score >= 40 and bullish_score > bearish_score + 15:
                 action = 'buy'
                 confidence_adjustments = bullish_score
-            elif bearish_score >= 30 and bearish_score > bullish_score + 10:
+            elif bearish_score >= 40 and bearish_score > bullish_score + 15:
                 action = 'sell'
                 confidence_adjustments = bearish_score
                 
             if action == 'hold':
                 return None
                 
-            # Calculate final confidence
-            final_confidence = min(95, base_confidence + (confidence_adjustments * 0.5))
+            # Extra filter: Don't buy when market is extremely greedy
+            if action == 'buy' and fear_greed > 75:
+                logger.debug(f"{symbol}: Skip BUY - market too greedy ({fear_greed})")
+                return None
+                
+            # Extra filter: Don't sell when market is extremely fearful
+            if action == 'sell' and fear_greed < 25:
+                logger.debug(f"{symbol}: Skip SELL - market too fearful ({fear_greed})")
+                return None
+                
+            # Calculate final confidence (stricter formula)
+            final_confidence = min(95, base_confidence + (confidence_adjustments * 0.4))
             
             # Skip if below threshold
             if final_confidence < self.min_confidence:
@@ -796,18 +821,26 @@ class AutonomousTrader:
         should_close = False
         close_reason = ""
         
-        # === EXIT LOGIC ===
+        # === PROFITABLE EXIT LOGIC ===
         
-        # 1. EMERGENCY STOP: Exit if down -2% from ENTRY (protection against big loss)
+        # 1. STOP LOSS: Exit if down -1.5% from ENTRY (cut losers fast!)
         if pnl_from_entry <= -self.emergency_stop_loss:
             should_close = True
-            close_reason = f"EMERGENCY STOP: {pnl_from_entry:.2f}% from entry"
+            close_reason = f"STOP LOSS: {pnl_from_entry:.2f}% loss (cut loser)"
             
-        # 2. TRAILING STOP: Exit if dropped 0.8% from PEAK
-        #    This is ALWAYS active - no activation threshold!
-        elif drop_from_peak >= self.trail_from_peak:
+        # 2. TRAILING STOP: Only activates AFTER we have +1% profit!
+        #    This lets winners run while protecting profits
+        elif profit_from_entry >= self.min_profit_to_trail:
+            # We're in profit! Now use trailing stop from peak
+            if drop_from_peak >= self.trail_from_peak:
+                should_close = True
+                close_reason = f"PROFIT SECURED: +{profit_from_entry:.2f}% (dropped {drop_from_peak:.2f}% from peak)"
+                
+        # 3. TAKE PROFIT: If profit exceeds 5%, consider taking it
+        elif profit_from_entry >= 5.0:
+            # Exceptional profit - take it!
             should_close = True
-            close_reason = f"TRAILING STOP: Dropped {drop_from_peak:.2f}% from peak (profit: +{profit_from_entry:.2f}%)"
+            close_reason = f"TAKE PROFIT: +{profit_from_entry:.2f}% excellent gain!"
                 
         # Log position status
         logger.debug(f"{symbol}: entry=${entry_price:.2f}, current=${current_price:.2f}, "
