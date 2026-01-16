@@ -486,7 +486,8 @@ async def auto_reconnect_trading():
         r = await get_redis()
         
         # Find all users with trading enabled
-        keys = await r.keys("trading:enabled:*")
+        keys_raw = await r.keys("trading:enabled:*")
+        keys = list(keys_raw) if keys_raw else []
         
         for key in keys:
             user_id = key.decode().split(":")[-1]

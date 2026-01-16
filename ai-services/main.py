@@ -68,7 +68,8 @@ async def auto_reconnect_on_startup():
         r = await aioredis.from_url(settings.REDIS_URL)
         
         # Find all users with trading enabled
-        keys = await r.keys("trading:enabled:*")
+        keys_raw = await r.keys("trading:enabled:*")
+        keys = list(keys_raw) if keys_raw else []
         reconnected = 0
         
         for key in keys:
