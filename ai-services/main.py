@@ -75,19 +75,56 @@ async def auto_reconnect_on_startup():
     
     try:
         import redis.asyncio as aioredis
+        import base64
         r = await aioredis.from_url(settings.REDIS_URL)
+        reconnected = 0
         
-        # Find all users with trading enabled
+        # Method 1: Check exchange:credentials:default (main storage)
+        creds = await r.hgetall("exchange:credentials:default")
+        if creds:
+            api_key_enc = creds.get(b"api_key", b"").decode() if creds.get(b"api_key") else ""
+            api_secret_enc = creds.get(b"api_secret", b"").decode() if creds.get(b"api_secret") else ""
+            
+            if api_key_enc and api_secret_enc:
+                try:
+                    # Decrypt (simple base64)
+                    api_key = base64.b64decode(api_key_enc.encode()).decode()
+                    api_secret = base64.b64decode(api_secret_enc.encode()).decode()
+                    
+                    if api_key and api_secret:
+                        # Import and connect
+                        from services.bybit_client import BybitV5Client
+                        from routers.exchange import exchange_connections
+                        
+                        client = BybitV5Client(api_key, api_secret)
+                        result = await client.test_connection()
+                        
+                        if result.get("success"):
+                            exchange_connections["default"] = client
+                            
+                            # Also connect to autonomous trader
+                            success = await autonomous_trader.connect_user(
+                                user_id="default",
+                                api_key=api_key,
+                                api_secret=api_secret,
+                            )
+                            if success:
+                                reconnected += 1
+                                logger.info("Auto-reconnected exchange from saved credentials!")
+                        else:
+                            logger.warning(f"Auto-reconnect failed: {result.get('error')}")
+                except Exception as e:
+                    logger.error(f"Failed to decode credentials: {e}")
+        
+        # Method 2: Check trading:enabled:* keys (legacy)
         keys_raw = await r.keys("trading:enabled:*")
         keys = list(keys_raw) if keys_raw else []
-        reconnected = 0
         
         for key in keys:
             user_id = key.decode().split(":")[-1]
             data = await r.hgetall(key)
             
             if data.get(b"enabled", b"0").decode() == "1":
-                import base64
                 api_key_enc = data.get(b"api_key", b"").decode()
                 api_secret_enc = data.get(b"api_secret", b"").decode()
                 
