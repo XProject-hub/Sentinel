@@ -93,39 +93,104 @@ async def connect_exchange(credentials: ExchangeCredentials):
 
 @router.get("/balance")
 async def get_balance():
-    """Get real wallet balance from connected exchange"""
+    """Get real wallet balance from connected exchange - checks ALL account types"""
     
     if "default" not in exchange_connections:
         return {"success": False, "error": "No exchange connected"}
         
     client = exchange_connections["default"]
-    result = await client.get_wallet_balance()
     
-    if not result.get("success"):
-        return result
-        
-    # Parse balance data
-    data = result.get("data", {})
     coins = []
     total_equity = 0
+    account_type_found = None
     
-    for account in data.get("list", []):
-        total_equity = float(account.get("totalEquity", 0))
-        for coin in account.get("coin", []):
-            if float(coin.get("walletBalance", 0)) > 0:
-                coins.append({
-                    "coin": coin.get("coin"),
-                    "balance": float(coin.get("walletBalance", 0)),
-                    "equity": float(coin.get("equity", 0)),
-                    "usdValue": float(coin.get("usdValue", 0)),
-                    "unrealizedPnl": float(coin.get("unrealisedPnl", 0))
-                })
+    # Try UNIFIED account first (derivatives + spot combined)
+    result = await client.get_wallet_balance(account_type="UNIFIED")
+    if result.get("success"):
+        data = result.get("data", {})
+        for account in data.get("list", []):
+            eq = float(account.get("totalEquity", 0))
+            if eq > 0:
+                total_equity = eq
+                account_type_found = "UNIFIED"
+                for coin in account.get("coin", []):
+                    if float(coin.get("walletBalance", 0)) > 0:
+                        coins.append({
+                            "coin": coin.get("coin"),
+                            "balance": float(coin.get("walletBalance", 0)),
+                            "equity": float(coin.get("equity", 0)),
+                            "usdValue": float(coin.get("usdValue", 0)),
+                            "unrealizedPnl": float(coin.get("unrealisedPnl", 0))
+                        })
+    
+    # Try SPOT account if UNIFIED is empty
+    if total_equity == 0:
+        result = await client.get_wallet_balance(account_type="SPOT")
+        if result.get("success"):
+            data = result.get("data", {})
+            for account in data.get("list", []):
+                for coin in account.get("coin", []):
+                    balance = float(coin.get("walletBalance", 0))
+                    if balance > 0:
+                        usd_value = float(coin.get("usdValue", 0))
+                        total_equity += usd_value
+                        account_type_found = "SPOT"
+                        coins.append({
+                            "coin": coin.get("coin"),
+                            "balance": balance,
+                            "equity": balance,
+                            "usdValue": usd_value,
+                            "unrealizedPnl": 0
+                        })
+    
+    # Try CONTRACT account
+    if total_equity == 0:
+        result = await client.get_wallet_balance(account_type="CONTRACT")
+        if result.get("success"):
+            data = result.get("data", {})
+            for account in data.get("list", []):
+                eq = float(account.get("totalEquity", 0))
+                if eq > 0:
+                    total_equity = eq
+                    account_type_found = "CONTRACT"
+                    for coin in account.get("coin", []):
+                        if float(coin.get("walletBalance", 0)) > 0:
+                            coins.append({
+                                "coin": coin.get("coin"),
+                                "balance": float(coin.get("walletBalance", 0)),
+                                "equity": float(coin.get("equity", 0)),
+                                "usdValue": float(coin.get("usdValue", 0)),
+                                "unrealizedPnl": float(coin.get("unrealisedPnl", 0))
+                            })
+
+    # Try FUND account (for holdings)
+    if total_equity == 0:
+        result = await client.get_wallet_balance(account_type="FUND")
+        if result.get("success"):
+            data = result.get("data", {})
+            for account in data.get("list", []):
+                for coin in account.get("coin", []):
+                    balance = float(coin.get("walletBalance", 0))
+                    if balance > 0:
+                        usd_value = float(coin.get("usdValue", 0))
+                        total_equity += usd_value
+                        account_type_found = "FUND"
+                        coins.append({
+                            "coin": coin.get("coin"),
+                            "balance": balance,
+                            "equity": balance,
+                            "usdValue": usd_value,
+                            "unrealizedPnl": 0
+                        })
+    
+    logger.info(f"Balance fetched: €{total_equity:.2f} from {account_type_found} account, {len(coins)} coins")
                 
     return {
         "success": True,
         "data": {
             "totalEquity": total_equity,
-            "coins": coins
+            "coins": coins,
+            "accountType": account_type_found
         }
     }
 
@@ -377,5 +442,74 @@ async def get_trading_log(limit: int = 50):
     return {
         "success": True,
         "data": [json.loads(t) for t in trades]
+    }
+
+
+@router.get("/trading/activity")
+async def get_live_activity(user_id: str = "default"):
+    """Get LIVE bot activity - what is the bot doing right now?"""
+    
+    activity = {
+        "is_running": autonomous_trader.is_running,
+        "is_user_connected": user_id in autonomous_trader.user_clients,
+        "total_pairs_monitoring": len(autonomous_trader.trading_pairs),
+        "active_trades": [],
+        "recent_completed": [],
+        "bot_actions": [],
+        "current_analysis": None,
+    }
+    
+    if not autonomous_trader.redis_client:
+        return {"success": True, "data": activity}
+    
+    try:
+        # Get active trades for this user
+        active_trades = await autonomous_trader.redis_client.lrange(f"trades:active:{user_id}", 0, -1)
+        activity["active_trades"] = [json.loads(t) for t in active_trades]
+        
+        # Get recent completed trades
+        completed = await autonomous_trader.redis_client.lrange(f"trades:completed:{user_id}", 0, 9)
+        activity["recent_completed"] = [json.loads(t) for t in completed]
+        
+        # Get last bot actions/decisions
+        bot_log = await autonomous_trader.redis_client.lrange('trades:log', 0, 19)
+        activity["bot_actions"] = [json.loads(t) for t in bot_log]
+        
+        # Get current market analysis if available
+        analysis = await autonomous_trader.redis_client.hgetall('market:current_analysis')
+        if analysis:
+            activity["current_analysis"] = {
+                k.decode(): v.decode() for k, v in analysis.items()
+            }
+            
+        # Get trading stats
+        trading_status = await autonomous_trader.redis_client.hgetall('trading:status')
+        if trading_status:
+            activity["trading_stats"] = {
+                k.decode(): v.decode() for k, v in trading_status.items()
+            }
+            
+    except Exception as e:
+        logger.error(f"Error getting activity: {e}")
+        
+    return {"success": True, "data": activity}
+
+
+@router.get("/trading/pairs")
+async def get_trading_pairs():
+    """Get all crypto pairs the bot monitors"""
+    
+    return {
+        "success": True,
+        "data": {
+            "pairs": autonomous_trader.trading_pairs,
+            "total": len(autonomous_trader.trading_pairs),
+            "categories": {
+                "top10": autonomous_trader.trading_pairs[:10],
+                "defi": [p for p in autonomous_trader.trading_pairs if p in ['COMPUSDT', 'SNXUSDT', 'CRVUSDT', 'YFIUSDT', 'SUSHIUSDT', '1INCHUSDT', 'DYDXUSDT', 'GMXUSDT', 'PENDLEUSDT', 'ENSUSDT']],
+                "meme": [p for p in autonomous_trader.trading_pairs if p in ['SHIBUSDT', 'PEPEUSDT', 'FLOKIUSDT', 'BONKUSDT', 'WIFUSDT']],
+                "ai": [p for p in autonomous_trader.trading_pairs if p in ['TAOUSDT', 'WLDUSDT', 'OCEANUSDT', 'RNDRAUSDT', 'AKTUSDT']],
+            }
+        }
     }
 

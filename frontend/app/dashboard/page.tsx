@@ -88,6 +88,15 @@ interface TradingStatus {
   recent_trades: any[]
 }
 
+interface BotActivity {
+  is_running: boolean
+  is_user_connected: boolean
+  total_pairs_monitoring: number
+  active_trades: any[]
+  recent_completed: any[]
+  bot_actions: any[]
+}
+
 export default function DashboardPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [isRefreshing, setIsRefreshing] = useState(false)
@@ -99,6 +108,7 @@ export default function DashboardPage() {
   const [user, setUser] = useState<any>(null)
   const [tradingStatus, setTradingStatus] = useState<TradingStatus | null>(null)
   const [isTogglingBot, setIsTogglingBot] = useState(false)
+  const [botActivity, setBotActivity] = useState<BotActivity | null>(null)
 
   useEffect(() => {
     // Check if user is logged in
@@ -110,13 +120,29 @@ export default function DashboardPage() {
     // Load real data
     loadData()
     
-    // Refresh AI insight every 30 seconds
+    // Refresh data every 10 seconds for live updates
     const interval = setInterval(() => {
       loadAIInsight()
-    }, 30000)
+      // Also refresh activity if trading
+      if (tradingStatus?.is_autonomous_trading) {
+        loadBotActivity()
+      }
+    }, 10000)
     
     return () => clearInterval(interval)
-  }, [])
+  }, [tradingStatus?.is_autonomous_trading])
+
+  const loadBotActivity = async () => {
+    try {
+      const activityRes = await fetch('/ai/exchange/trading/activity')
+      const activityData = await activityRes.json()
+      if (activityData.success) {
+        setBotActivity(activityData.data)
+      }
+    } catch (error) {
+      console.error('Failed to load bot activity:', error)
+    }
+  }
 
   const loadAIInsight = async () => {
     try {
@@ -169,6 +195,13 @@ export default function DashboardPage() {
         const tradingData = await tradingRes.json()
         if (tradingData.success) {
           setTradingStatus(tradingData.data)
+        }
+
+        // Load bot activity
+        const activityRes = await fetch('/ai/exchange/trading/activity')
+        const activityData = await activityRes.json()
+        if (activityData.success) {
+          setBotActivity(activityData.data)
         }
       }
     } catch (error) {
@@ -778,6 +811,115 @@ export default function DashboardPage() {
             )}
           </motion.div>
         </div>
+
+        {/* Bot Activity Log */}
+        {tradingStatus?.is_autonomous_trading && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.5 }}
+            className="mt-8 p-6 rounded-2xl glass-card border-2 border-sentinel-accent-cyan/30"
+          >
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center gap-3">
+                <div className="w-3 h-3 rounded-full bg-sentinel-accent-emerald live-pulse" />
+                <h2 className="text-lg font-semibold">Bot Activity - LIVE</h2>
+              </div>
+              <span className="text-xs text-sentinel-text-muted">
+                Monitoring {botActivity?.total_pairs_monitoring || 0} crypto pairs
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              {/* Active Trades */}
+              <div>
+                <h3 className="text-sm font-medium text-sentinel-text-secondary mb-3">Active Trades</h3>
+                {botActivity?.active_trades?.length === 0 ? (
+                  <div className="text-sm text-sentinel-text-muted py-4">
+                    Analyzing markets...
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {botActivity?.active_trades?.slice(0, 5).map((trade: any, idx: number) => (
+                      <div key={idx} className="p-3 rounded-lg bg-sentinel-bg-tertiary">
+                        <div className="flex justify-between items-center">
+                          <span className="font-mono text-sm">{trade.symbol}</span>
+                          <span className={`text-xs px-2 py-0.5 rounded ${
+                            trade.side === 'buy' ? 'bg-sentinel-accent-emerald/20 text-sentinel-accent-emerald' : 
+                            'bg-sentinel-accent-crimson/20 text-sentinel-accent-crimson'
+                          }`}>
+                            {trade.side?.toUpperCase()}
+                          </span>
+                        </div>
+                        <div className="text-xs text-sentinel-text-muted mt-1">
+                          {trade.strategy} - {trade.confidence?.toFixed(0)}% confident
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Recent Actions */}
+              <div>
+                <h3 className="text-sm font-medium text-sentinel-text-secondary mb-3">Recent Bot Actions</h3>
+                {botActivity?.bot_actions?.length === 0 ? (
+                  <div className="text-sm text-sentinel-text-muted py-4">
+                    Waiting for trading signals...
+                  </div>
+                ) : (
+                  <div className="space-y-2 max-h-48 overflow-y-auto">
+                    {botActivity?.bot_actions?.slice(0, 8).map((action: any, idx: number) => (
+                      <div key={idx} className="text-xs py-1 border-b border-sentinel-border/30">
+                        <div className="flex justify-between">
+                          <span className="font-mono">{action.symbol}</span>
+                          <span className={action.side === 'buy' ? 'text-sentinel-accent-emerald' : 'text-sentinel-accent-crimson'}>
+                            {action.side?.toUpperCase()}
+                          </span>
+                        </div>
+                        <div className="text-sentinel-text-muted truncate">
+                          {action.reasoning || action.strategy}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Completed Trades */}
+              <div>
+                <h3 className="text-sm font-medium text-sentinel-text-secondary mb-3">Bot Completed Trades</h3>
+                {botActivity?.recent_completed?.length === 0 ? (
+                  <div className="text-sm text-sentinel-text-muted py-4">
+                    No completed trades yet. Bot is learning...
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {botActivity?.recent_completed?.slice(0, 5).map((trade: any, idx: number) => (
+                      <div key={idx} className="p-3 rounded-lg bg-sentinel-bg-tertiary">
+                        <div className="flex justify-between items-center">
+                          <span className="font-mono text-sm">{trade.symbol}</span>
+                          <span className={`font-mono font-medium ${
+                            trade.pnl >= 0 ? 'text-sentinel-accent-emerald' : 'text-sentinel-accent-crimson'
+                          }`}>
+                            {trade.pnl >= 0 ? '+' : ''}€{trade.pnl?.toFixed(2)}
+                          </span>
+                        </div>
+                        <div className="text-xs text-sentinel-text-muted mt-1">
+                          {trade.close_reason}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="mt-4 pt-4 border-t border-sentinel-border text-xs text-sentinel-text-muted">
+              Strategy: SAFE PROFIT MODE | Take Profit: +0.5% | Stop Loss: -0.3% | Auto-refresh every 30s
+            </div>
+          </motion.div>
+        )}
 
         {/* Asset Balances */}
         {balance?.coins && balance.coins.length > 0 && (
