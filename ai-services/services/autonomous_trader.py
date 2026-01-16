@@ -457,8 +457,8 @@ class AutonomousTrader:
             
             logger.info(f"Trade calc: equity={total_equity:.2f}, available={available_usdt:.2f}, trade_value={trade_value:.2f}")
             
-            if trade_value < 5:  # Minimum $5 trade (lowered from $10)
-                logger.warning(f"Trade value too low: ${trade_value:.2f} < $5 minimum")
+            if trade_value < 4.5:  # Minimum ~$5 trade (with buffer for float precision)
+                logger.warning(f"Trade value too low: ${trade_value:.2f} < $4.50 minimum")
                 return
                 
             quantity = trade_value / signal.entry_price
