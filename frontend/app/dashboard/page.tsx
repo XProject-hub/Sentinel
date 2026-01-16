@@ -231,18 +231,22 @@ export default function DashboardPage() {
   // Watch for new completed trades and show notifications
   useEffect(() => {
     if (botActivity?.recent_completed) {
+      // Load seen trades from localStorage
+      const seenTradesKey = 'sentinel_seen_trades'
+      const seenTrades: string[] = JSON.parse(localStorage.getItem(seenTradesKey) || '[]')
+      
       const currentTradeIds = botActivity.recent_completed.map((t: any) => 
-        `${t.symbol}-${t.closed_time || t.pnl}`
+        `${t.symbol}-${t.closed_time || t.pnl}-${t.entry_price}`
       )
       
-      // Find new trades that weren't in the previous list
+      // Find new trades that weren't seen before
       const newTrades = botActivity.recent_completed.filter((trade: any) => {
-        const tradeId = `${trade.symbol}-${trade.closed_time || trade.pnl}`
-        return !previousTradesRef.current.includes(tradeId)
+        const tradeId = `${trade.symbol}-${trade.closed_time || trade.pnl}-${trade.entry_price}`
+        return !seenTrades.includes(tradeId) && !previousTradesRef.current.includes(tradeId)
       })
       
-      // Show notification for each new trade
-      newTrades.forEach((trade: any) => {
+      // Show notification for each new trade (max 3 at a time)
+      newTrades.slice(0, 3).forEach((trade: any, index: number) => {
         const pnl = parseFloat(trade.pnl) || 0
         const notification: TradeNotification = {
           id: `${Date.now()}-${Math.random()}`,
@@ -253,13 +257,20 @@ export default function DashboardPage() {
           timestamp: Date.now()
         }
         
-        setNotifications(prev => [...prev, notification])
-        
-        // Remove notification after 5 seconds
+        // Stagger notifications slightly
         setTimeout(() => {
-          setNotifications(prev => prev.filter(n => n.id !== notification.id))
-        }, 5000)
+          setNotifications(prev => [...prev, notification])
+          
+          // Remove notification after 5 seconds
+          setTimeout(() => {
+            setNotifications(prev => prev.filter(n => n.id !== notification.id))
+          }, 5000)
+        }, index * 300)
       })
+      
+      // Update localStorage with all current trade IDs (keep last 100)
+      const updatedSeenTrades = [...new Set([...seenTrades, ...currentTradeIds])].slice(-100)
+      localStorage.setItem(seenTradesKey, JSON.stringify(updatedSeenTrades))
       
       // Update the ref with current trade IDs
       previousTradesRef.current = currentTradeIds
