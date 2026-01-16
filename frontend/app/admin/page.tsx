@@ -76,22 +76,24 @@ export default function AdminPage() {
         setUsers(usersData.data.users || [])
       }
 
+      // Load AI stats from admin endpoint (for modelsLoaded count)
+      const aiAdminRes = await fetch('/ai/admin/ai-stats')
+      const aiAdminData = await aiAdminRes.json()
+      
       // Load AI learning stats from real learning engine
       const aiRes = await fetch('/ai/learning/stats')
       const aiData = await aiRes.json()
-      if (aiData.success) {
-        setAiStats(aiData.data)
-      }
-
+      
       // Load recent learning events
       const eventsRes = await fetch('/ai/learning/events?limit=10')
       const eventsData = await eventsRes.json()
-      if (eventsData.success && aiData.success) {
-        setAiStats({
-          ...aiData.data,
-          recentDecisions: eventsData.data || []
-        })
-      }
+      
+      // Combine all AI data
+      setAiStats({
+        ...(aiData.success ? aiData.data : {}),
+        ...(aiAdminData.success ? aiAdminData.data : {}),
+        recentDecisions: eventsData.success ? eventsData.data : []
+      })
     } catch (error) {
       console.error('Failed to load admin data:', error)
     } finally {
@@ -351,24 +353,100 @@ export default function AdminPage() {
             >
               <h1 className="text-2xl font-bold mb-8">AI Learning Statistics</h1>
               
+              {/* AI Models Status */}
+              <div className="p-6 rounded-2xl glass-card mb-8">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-semibold">AI Learning Models</h3>
+                  <div className="text-2xl font-bold text-sentinel-accent-cyan">
+                    {aiStats?.modelsLoaded || 0} / {aiStats?.totalModels || 5} Active
+                  </div>
+                </div>
+                <div className="grid grid-cols-5 gap-4">
+                  <div className={`p-4 rounded-xl text-center ${aiStats?.strategyModel === 'active' ? 'bg-sentinel-accent-emerald/10 border border-sentinel-accent-emerald/30' : 'bg-sentinel-bg-tertiary'}`}>
+                    <div className={`w-3 h-3 rounded-full mx-auto mb-2 ${aiStats?.strategyModel === 'active' ? 'bg-sentinel-accent-emerald' : 'bg-sentinel-text-muted'}`} />
+                    <div className="text-sm font-medium">Strategy</div>
+                    <div className="text-xs text-sentinel-text-muted capitalize">{aiStats?.strategyModel || 'loading'}</div>
+                  </div>
+                  <div className={`p-4 rounded-xl text-center ${aiStats?.patternModel === 'active' ? 'bg-sentinel-accent-emerald/10 border border-sentinel-accent-emerald/30' : 'bg-sentinel-bg-tertiary'}`}>
+                    <div className={`w-3 h-3 rounded-full mx-auto mb-2 ${aiStats?.patternModel === 'active' ? 'bg-sentinel-accent-emerald' : 'bg-sentinel-text-muted'}`} />
+                    <div className="text-sm font-medium">Patterns</div>
+                    <div className="text-xs text-sentinel-text-muted capitalize">{aiStats?.patternModel || 'loading'}</div>
+                  </div>
+                  <div className={`p-4 rounded-xl text-center ${aiStats?.marketModel === 'active' ? 'bg-sentinel-accent-emerald/10 border border-sentinel-accent-emerald/30' : 'bg-sentinel-bg-tertiary'}`}>
+                    <div className={`w-3 h-3 rounded-full mx-auto mb-2 ${aiStats?.marketModel === 'active' ? 'bg-sentinel-accent-emerald' : 'bg-sentinel-text-muted'}`} />
+                    <div className="text-sm font-medium">Market</div>
+                    <div className="text-xs text-sentinel-text-muted capitalize">{aiStats?.marketModel || 'loading'}</div>
+                  </div>
+                  <div className={`p-4 rounded-xl text-center ${aiStats?.sentimentModel === 'active' ? 'bg-sentinel-accent-emerald/10 border border-sentinel-accent-emerald/30' : 'bg-sentinel-bg-tertiary'}`}>
+                    <div className={`w-3 h-3 rounded-full mx-auto mb-2 ${aiStats?.sentimentModel === 'active' ? 'bg-sentinel-accent-emerald' : 'bg-sentinel-text-muted'}`} />
+                    <div className="text-sm font-medium">Sentiment</div>
+                    <div className="text-xs text-sentinel-text-muted capitalize">{aiStats?.sentimentModel || 'loading'}</div>
+                  </div>
+                  <div className={`p-4 rounded-xl text-center ${aiStats?.technicalModel === 'active' ? 'bg-sentinel-accent-emerald/10 border border-sentinel-accent-emerald/30' : 'bg-sentinel-bg-tertiary'}`}>
+                    <div className={`w-3 h-3 rounded-full mx-auto mb-2 ${aiStats?.technicalModel === 'active' ? 'bg-sentinel-accent-emerald' : 'bg-sentinel-text-muted'}`} />
+                    <div className="text-sm font-medium">Technical</div>
+                    <div className="text-xs text-sentinel-text-muted capitalize">{aiStats?.technicalModel || 'loading'}</div>
+                  </div>
+                </div>
+                <div className="mt-4 pt-4 border-t border-sentinel-border">
+                  <div className="flex justify-between text-sm mb-2">
+                    <span className="text-sentinel-text-muted">Training Progress</span>
+                    <span className="font-mono">{aiStats?.trainingProgress?.toFixed(1) || 0}%</span>
+                  </div>
+                  <div className="h-2 rounded-full bg-sentinel-bg-tertiary overflow-hidden">
+                    <div 
+                      className="h-full bg-gradient-to-r from-sentinel-accent-violet via-sentinel-accent-cyan to-sentinel-accent-emerald transition-all"
+                      style={{ width: `${aiStats?.trainingProgress || 0}%` }}
+                    />
+                  </div>
+                  <div className="text-xs text-sentinel-text-muted mt-2">
+                    Learning Iteration #{aiStats?.learningIterations || 0} | {aiStats?.totalStatesLearned || 0} total states learned
+                  </div>
+                </div>
+              </div>
+              
+              {/* Learning Stats */}
+              <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-8">
+                <div className="p-4 rounded-2xl glass-card text-center">
+                  <div className="text-2xl font-bold text-sentinel-accent-cyan">{aiStats?.qStates || 0}</div>
+                  <div className="text-xs text-sentinel-text-muted">Q-States</div>
+                </div>
+                <div className="p-4 rounded-2xl glass-card text-center">
+                  <div className="text-2xl font-bold text-sentinel-accent-amber">{aiStats?.patternsLearned || 0}</div>
+                  <div className="text-xs text-sentinel-text-muted">Patterns</div>
+                </div>
+                <div className="p-4 rounded-2xl glass-card text-center">
+                  <div className="text-2xl font-bold text-sentinel-accent-emerald">{aiStats?.marketStates || 0}</div>
+                  <div className="text-xs text-sentinel-text-muted">Market States</div>
+                </div>
+                <div className="p-4 rounded-2xl glass-card text-center">
+                  <div className="text-2xl font-bold text-sentinel-accent-crimson">{aiStats?.sentimentStates || 0}</div>
+                  <div className="text-xs text-sentinel-text-muted">Sentiment</div>
+                </div>
+                <div className="p-4 rounded-2xl glass-card text-center">
+                  <div className="text-2xl font-bold">{aiStats?.totalTrades || 0}</div>
+                  <div className="text-xs text-sentinel-text-muted">Trades</div>
+                </div>
+              </div>
+
               <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
                 <div className="p-6 rounded-2xl glass-card">
-                  <div className="text-3xl font-bold text-sentinel-accent-cyan">{aiStats?.total_trades || 0}</div>
-                  <div className="text-sm text-sentinel-text-muted">Total Trades Learned</div>
+                  <div className="text-3xl font-bold text-sentinel-accent-cyan">{aiStats?.totalTrades || aiStats?.total_trades || 0}</div>
+                  <div className="text-sm text-sentinel-text-muted">Total Trades</div>
                 </div>
                 <div className="p-6 rounded-2xl glass-card">
-                  <div className="text-3xl font-bold text-sentinel-accent-emerald">{aiStats?.win_rate?.toFixed(1) || 0}%</div>
+                  <div className="text-3xl font-bold text-sentinel-accent-emerald">{(aiStats?.winRate || aiStats?.win_rate || 0).toFixed(1)}%</div>
                   <div className="text-sm text-sentinel-text-muted">Win Rate</div>
                 </div>
                 <div className="p-6 rounded-2xl glass-card">
                   <div className={`text-3xl font-bold ${(aiStats?.total_pnl || 0) >= 0 ? 'text-sentinel-accent-emerald' : 'text-sentinel-accent-crimson'}`}>
-                    €{aiStats?.total_pnl?.toFixed(2) || '0.00'}
+                    {aiStats?.totalPnl || `€${(aiStats?.total_pnl || 0).toFixed(2)}`}
                   </div>
                   <div className="text-sm text-sentinel-text-muted">Total P&L</div>
                 </div>
                 <div className="p-6 rounded-2xl glass-card">
-                  <div className="text-3xl font-bold text-sentinel-accent-amber">{aiStats?.strategies_learned || 0}</div>
-                  <div className="text-sm text-sentinel-text-muted">Strategies Learned</div>
+                  <div className="text-3xl font-bold text-sentinel-accent-amber">{aiStats?.totalStatesLearned || aiStats?.strategies_learned || 0}</div>
+                  <div className="text-sm text-sentinel-text-muted">States Learned</div>
                 </div>
               </div>
 
