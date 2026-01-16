@@ -714,8 +714,9 @@ class AutonomousTrader:
             trade_value = total_equity * (signal.position_size_percent / 100)
             trade_value = min(trade_value, available_usdt * 0.9)  # Keep 10% buffer
             
-            if trade_value < 10:
-                logger.warning(f"Trade value too low: ${trade_value:.2f}")
+            # Bybit minimum is $5, we use $5.5 for safety
+            if trade_value < 5.5:
+                logger.warning(f"Trade value too low: ${trade_value:.2f} (min $5.5)")
                 return
                 
             # Calculate quantity
