@@ -47,9 +47,22 @@ class BybitV5Client:
             hashlib.sha256
         ).hexdigest()
         
-    def _get_headers(self, params: str = "") -> Dict[str, str]:
+    async def _get_server_time(self) -> int:
+        """Get Bybit server time to sync timestamps"""
+        try:
+            response = await self.http_client.get(f"{self.base_url}/v5/market/time")
+            data = response.json()
+            if data.get("retCode") == 0:
+                server_time = int(data.get("result", {}).get("timeSecond", 0)) * 1000
+                if server_time:
+                    return server_time
+        except:
+            pass
+        return int(time.time() * 1000)
+    
+    def _get_headers(self, params: str = "", server_time: Optional[int] = None) -> Dict[str, str]:
         """Get authenticated headers"""
-        timestamp = str(int(time.time() * 1000))
+        timestamp = str(server_time or int(time.time() * 1000))
         signature = self._generate_signature(timestamp, params)
         
         return {
@@ -72,9 +85,14 @@ class BybitV5Client:
         url = f"{self.base_url}{endpoint}"
         
         try:
+            # Get server time for authenticated requests to avoid timestamp issues
+            server_time = None
+            if auth:
+                server_time = await self._get_server_time()
+            
             if method == "GET":
                 param_str = "&".join([f"{k}={v}" for k, v in (params or {}).items()])
-                headers = self._get_headers(param_str) if auth else {}
+                headers = self._get_headers(param_str, server_time) if auth else {}
                 
                 if params:
                     url = f"{url}?{param_str}"
@@ -83,14 +101,31 @@ class BybitV5Client:
             else:
                 import json
                 param_str = json.dumps(params) if params else ""
-                headers = self._get_headers(param_str) if auth else {}
+                headers = self._get_headers(param_str, server_time) if auth else {}
                 response = await self.http_client.post(url, headers=headers, json=params)
                 
             data = response.json()
             
             if data.get("retCode") != 0:
-                logger.error(f"Bybit API error: {data.get('retMsg')}")
-                return {"success": False, "error": data.get("retMsg")}
+                error_msg = data.get('retMsg', 'Unknown error')
+                error_code = data.get('retCode')
+                logger.error(f"Bybit API error [{error_code}]: {error_msg}")
+                
+                # Translate common errors
+                if error_code == 10003:
+                    return {"success": False, "error": "Invalid API key"}
+                elif error_code == 10004:
+                    return {"success": False, "error": "Invalid signature - check API secret"}
+                elif error_code == 10005:
+                    return {"success": False, "error": "Permission denied - check API permissions"}
+                elif error_code == 10006:
+                    return {"success": False, "error": "IP not whitelisted on Bybit"}
+                elif error_code == 10010:
+                    return {"success": False, "error": "IP not in whitelist - add 109.104.154.183 to Bybit API"}
+                elif "ip" in error_msg.lower():
+                    return {"success": False, "error": f"IP issue: {error_msg}. Whitelist: 109.104.154.183"}
+                    
+                return {"success": False, "error": error_msg}
                 
             return {"success": True, "data": data.get("result", {})}
             
@@ -307,22 +342,56 @@ class BybitV5Client:
     async def test_connection(self) -> Dict:
         """Test API connection and authentication"""
         try:
-            # Test with wallet balance call
-            result = await self.get_wallet_balance()
+            logger.info(f"Testing Bybit connection with API key: {self.api_key[:8]}...")
+            
+            # First test with a simple public endpoint
+            public_test = await self.get_tickers(symbol="BTCUSDT")
+            if not public_test.get("success"):
+                logger.error(f"Public API test failed: {public_test.get('error')}")
+                return {
+                    "success": False,
+                    "error": f"Network error: {public_test.get('error')}"
+                }
+            
+            # Then test authenticated endpoint
+            result = await self.get_wallet_balance(account_type="UNIFIED")
             
             if result.get("success"):
+                logger.info("Bybit connection test successful (UNIFIED)")
                 return {
                     "success": True,
                     "message": "Connection successful",
                     "data": result.get("data")
                 }
-            else:
+            
+            # Try SPOT account
+            result = await self.get_wallet_balance(account_type="SPOT")
+            if result.get("success"):
+                logger.info("Bybit connection test successful (SPOT)")
                 return {
-                    "success": False,
-                    "error": result.get("error", "Authentication failed")
+                    "success": True,
+                    "message": "Connection successful",
+                    "data": result.get("data")
                 }
                 
+            # Try FUND account
+            result = await self.get_wallet_balance(account_type="FUND")
+            if result.get("success"):
+                logger.info("Bybit connection test successful (FUND)")
+                return {
+                    "success": True,
+                    "message": "Connection successful",
+                    "data": result.get("data")
+                }
+            
+            logger.error(f"Bybit auth failed: {result.get('error')}")
+            return {
+                "success": False,
+                "error": result.get("error", "Authentication failed - check API key and IP whitelist")
+            }
+                
         except Exception as e:
+            logger.error(f"Bybit connection test exception: {e}")
             return {
                 "success": False,
                 "error": str(e)
