@@ -23,7 +23,8 @@ import {
   Activity,
   BarChart3,
   Coins,
-  Building2
+  Building2,
+  Bell
 } from 'lucide-react'
 import Link from 'next/link'
 import Image from 'next/image'
