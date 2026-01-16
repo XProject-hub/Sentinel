@@ -3,7 +3,7 @@ Exchange Connection API Routes
 Real Bybit V5 API integration
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 from typing import Optional
 import redis.asyncio as redis
