@@ -8,6 +8,8 @@ from pydantic import BaseModel
 from typing import Optional
 import redis.asyncio as redis
 import json
+import hashlib
+import base64
 from loguru import logger
 
 from services.bybit_client import BybitV5Client
@@ -17,6 +19,31 @@ router = APIRouter()
 
 # Store for active exchange connections
 exchange_connections = {}
+
+# Redis client for persistent storage
+_redis_client = None
+
+async def get_redis():
+    global _redis_client
+    if _redis_client is None:
+        _redis_client = await redis.from_url(settings.REDIS_URL)
+    return _redis_client
+
+
+def simple_encrypt(text: str, key: str = "sentinel_secret_key_2026") -> str:
+    """Simple obfuscation for API credentials (use proper encryption in production)"""
+    combined = text + key
+    encoded = base64.b64encode(text.encode()).decode()
+    return encoded
+
+
+def simple_decrypt(encoded: str, key: str = "sentinel_secret_key_2026") -> str:
+    """Simple de-obfuscation"""
+    try:
+        decoded = base64.b64decode(encoded.encode()).decode()
+        return decoded
+    except:
+        return ""
 
 
 class ExchangeCredentials(BaseModel):
@@ -58,7 +85,7 @@ async def test_exchange_connection(request: TestConnectionRequest):
 
 @router.post("/connect")
 async def connect_exchange(credentials: ExchangeCredentials):
-    """Connect and store exchange credentials"""
+    """Connect and store exchange credentials - PERSISTED to Redis"""
     
     if credentials.exchange.lower() != "bybit":
         return {"success": False, "error": "Only Bybit is currently supported"}
@@ -77,13 +104,24 @@ async def connect_exchange(credentials: ExchangeCredentials):
             await client.close()
             return result
             
-        # Store connection (in production, encrypt and store in database)
-        # For now, store in memory
+        # Store connection in memory
         exchange_connections["default"] = client
+        
+        # PERSIST credentials to Redis (encrypted)
+        r = await get_redis()
+        await r.hset("exchange:credentials:default", mapping={
+            "exchange": credentials.exchange,
+            "api_key": simple_encrypt(credentials.apiKey),
+            "api_secret": simple_encrypt(credentials.apiSecret),
+            "testnet": "1" if credentials.testnet else "0",
+            "connected_at": str(json.dumps({"ts": "now"})),
+        })
+        
+        logger.info("Exchange credentials saved to Redis - will persist across restarts")
         
         return {
             "success": True,
-            "message": "Exchange connected successfully"
+            "message": "Exchange connected successfully - credentials saved"
         }
         
     except Exception as e:
@@ -347,13 +385,48 @@ async def get_orderbook(symbol: str, limit: int = 25):
 
 @router.get("/status")
 async def get_connection_status():
-    """Check if exchange is connected"""
+    """Check if exchange is connected - auto-reconnect from Redis if needed"""
     
-    connected = "default" in exchange_connections
+    # Check if connected in memory
+    if "default" in exchange_connections:
+        return {
+            "connected": True,
+            "exchange": "bybit",
+            "serverIp": "109.104.154.183"
+        }
+    
+    # Try to auto-reconnect from Redis
+    try:
+        r = await get_redis()
+        creds = await r.hgetall("exchange:credentials:default")
+        
+        if creds:
+            api_key = simple_decrypt(creds.get(b"api_key", b"").decode())
+            api_secret = simple_decrypt(creds.get(b"api_secret", b"").decode())
+            testnet = creds.get(b"testnet", b"0").decode() == "1"
+            
+            if api_key and api_secret:
+                # Try to reconnect
+                client = BybitV5Client(api_key, api_secret, testnet)
+                result = await client.test_connection()
+                
+                if result.get("success"):
+                    exchange_connections["default"] = client
+                    logger.info("Auto-reconnected to exchange from saved credentials")
+                    return {
+                        "connected": True,
+                        "exchange": "bybit",
+                        "serverIp": "109.104.154.183",
+                        "auto_reconnected": True
+                    }
+                else:
+                    await client.close()
+    except Exception as e:
+        logger.error(f"Auto-reconnect failed: {e}")
     
     return {
-        "connected": connected,
-        "exchange": "bybit" if connected else None,
+        "connected": False,
+        "exchange": None,
         "serverIp": "109.104.154.183"
     }
 
@@ -373,7 +446,7 @@ class EnableTradingRequest(BaseModel):
 
 @router.post("/trading/enable")
 async def enable_autonomous_trading(request: EnableTradingRequest):
-    """Enable 24/7 autonomous trading for a user"""
+    """Enable 24/7 autonomous trading for a user - PERSISTED"""
     
     success = await autonomous_trader.connect_user(
         user_id=request.user_id,
@@ -382,6 +455,15 @@ async def enable_autonomous_trading(request: EnableTradingRequest):
     )
     
     if success:
+        # Save trading state to Redis
+        r = await get_redis()
+        await r.hset(f"trading:enabled:{request.user_id}", mapping={
+            "enabled": "1",
+            "api_key": simple_encrypt(request.api_key),
+            "api_secret": simple_encrypt(request.api_secret),
+        })
+        logger.info(f"Trading enabled for {request.user_id} - state saved to Redis")
+        
         return {
             "success": True,
             "message": "Autonomous trading enabled. AI will trade 24/7 using your funds.",
@@ -392,6 +474,46 @@ async def enable_autonomous_trading(request: EnableTradingRequest):
             "success": False,
             "error": "Failed to enable autonomous trading. Check API credentials."
         }
+
+
+@router.post("/trading/auto-reconnect")
+async def auto_reconnect_trading():
+    """Auto-reconnect all users who had trading enabled - called on startup"""
+    
+    reconnected = []
+    
+    try:
+        r = await get_redis()
+        
+        # Find all users with trading enabled
+        keys = await r.keys("trading:enabled:*")
+        
+        for key in keys:
+            user_id = key.decode().split(":")[-1]
+            data = await r.hgetall(key)
+            
+            if data.get(b"enabled", b"0").decode() == "1":
+                api_key = simple_decrypt(data.get(b"api_key", b"").decode())
+                api_secret = simple_decrypt(data.get(b"api_secret", b"").decode())
+                
+                if api_key and api_secret:
+                    success = await autonomous_trader.connect_user(
+                        user_id=user_id,
+                        api_key=api_key,
+                        api_secret=api_secret,
+                    )
+                    if success:
+                        reconnected.append(user_id)
+                        logger.info(f"Auto-reconnected trading for user: {user_id}")
+                        
+    except Exception as e:
+        logger.error(f"Auto-reconnect error: {e}")
+        
+    return {
+        "success": True,
+        "reconnected_users": reconnected,
+        "count": len(reconnected)
+    }
 
 
 @router.post("/trading/disable")

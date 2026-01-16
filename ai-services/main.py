@@ -53,7 +53,58 @@ async def lifespan(app: FastAPI):
     asyncio.create_task(run_main_loop())
     asyncio.create_task(autonomous_trader.run_trading_loop())  # 24/7 TRADING
     
+    # Auto-reconnect users who had trading enabled before restart
+    asyncio.create_task(auto_reconnect_on_startup())
+    
     logger.info("SENTINEL AI Services Ready")
+
+
+async def auto_reconnect_on_startup():
+    """Auto-reconnect all users with saved trading credentials"""
+    await asyncio.sleep(5)  # Wait for services to fully initialize
+    
+    try:
+        import redis.asyncio as aioredis
+        r = await aioredis.from_url(settings.REDIS_URL)
+        
+        # Find all users with trading enabled
+        keys = await r.keys("trading:enabled:*")
+        reconnected = 0
+        
+        for key in keys:
+            user_id = key.decode().split(":")[-1]
+            data = await r.hgetall(key)
+            
+            if data.get(b"enabled", b"0").decode() == "1":
+                import base64
+                api_key_enc = data.get(b"api_key", b"").decode()
+                api_secret_enc = data.get(b"api_secret", b"").decode()
+                
+                try:
+                    api_key = base64.b64decode(api_key_enc.encode()).decode()
+                    api_secret = base64.b64decode(api_secret_enc.encode()).decode()
+                    
+                    if api_key and api_secret:
+                        success = await autonomous_trader.connect_user(
+                            user_id=user_id,
+                            api_key=api_key,
+                            api_secret=api_secret,
+                        )
+                        if success:
+                            reconnected += 1
+                            logger.info(f"Auto-reconnected trading for user: {user_id}")
+                except Exception as e:
+                    logger.error(f"Failed to reconnect user {user_id}: {e}")
+                    
+        await r.close()
+        
+        if reconnected > 0:
+            logger.info(f"Auto-reconnected {reconnected} users for autonomous trading")
+        else:
+            logger.info("No users to auto-reconnect (new install or no saved credentials)")
+            
+    except Exception as e:
+        logger.error(f"Auto-reconnect on startup failed: {e}")
     
     yield
     
