@@ -71,60 +71,115 @@ class AutonomousTrader:
         # Connected exchange clients per user
         self.user_clients: Dict[str, BybitV5Client] = {}
         
-        # ALL trading pairs from Bybit - 100+ verified coins
+        # ALL Bybit USDT Perpetual pairs - 200+ coins (Complete List)
         self.trading_pairs = [
-            # === TIER 1: Top 10 by market cap (Most liquid) ===
+            # === TOP TIER: Major Cryptocurrencies ===
             'BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT',
             'ADAUSDT', 'DOGEUSDT', 'AVAXUSDT', 'TRXUSDT', 'DOTUSDT',
-            
-            # === TIER 2: Top 11-30 (High volume) ===
             'LINKUSDT', 'MATICUSDT', 'SHIBUSDT', 'LTCUSDT', 'ATOMUSDT',
             'UNIUSDT', 'XLMUSDT', 'ETCUSDT', 'BCHUSDT', 'APTUSDT',
-            'NEARUSDT', 'FILUSDT', 'ARBUSDT', 'OPUSDT', 'INJUSDT',
-            'STXUSDT', 'IMXUSDT', 'MKRUSDT', 'AAVEUSDT', 'GRTUSDT',
             
-            # === TIER 3: Top 31-60 (Good liquidity) ===
-            'RUNEUSDT', 'LDOUSDT', 'ALGOUSDT', 'FTMUSDT', 'EGLDUSDT',
-            'SANDUSDT', 'MANAUSDT', 'AXSUSDT', 'THETAUSDT', 'XTZUSDT',
-            'EOSUSDT', 'FLOWUSDT', 'NEOUSDT', 'KSMUSDT', 'KAVAUSDT',
-            'MINAUSDT', 'ZILUSDT', 'ENJUSDT', 'GALAUSDT', 'CHZUSDT',
-            'CRVUSDT', 'SNXUSDT', 'COMPUSDT', '1INCHUSDT', 'YFIUSDT',
-            'SUSHIUSDT', 'BALUSDT', 'ZRXUSDT', 'RENUSDT',
+            # === LAYER 1 BLOCKCHAINS ===
+            'NEARUSDT', 'FILUSDT', 'ICPUSDT', 'HBARUSDT', 'VETUSDT',
+            'ALGOUSDT', 'FTMUSDT', 'EGLDUSDT', 'FLOWUSDT', 'NEOUSDT',
+            'XTZUSDT', 'EOSUSDT', 'IOTAUSDT', 'WAVESUSDT', 'ZILUSDT',
+            'ONTUSDT', 'IOSTUSDT', 'QNTUSDT', 'KASUSDT', 'SUIUSDT',
+            'SEIUSDT', 'TIAUSDT', 'TONUSDT', 'AABORUSDT',
             
-            # === TIER 4: Layer 2 & New Chains ===
-            'SUIUSDT', 'SEIUSDT', 'TIAUSDT', 'JUPUSDT', 'STRKUSDT',
-            'MANTAUSDT', 'BLASTUSDT',
+            # === LAYER 2 & SCALING ===
+            'ARBUSDT', 'OPUSDT', 'STRKUSDT', 'MANTAUSDT', 'BLASTUSDT',
+            'ZKUSDT', 'SCROLLUSDT', 'LINEAUSDT', 'METISUSDT', 'BOBAUSDT',
+            'IMXUSDT', 'LRCUSDT', 'CELRUSDT', 'CTSIUSDT', 'SKLUSDT',
             
-            # === TIER 5: AI & DePIN Coins ===
+            # === DEFI PROTOCOLS ===
+            'AAVEUSDT', 'MKRUSDT', 'UNIUSDT', 'CRVUSDT', 'SNXUSDT',
+            'COMPUSDT', '1INCHUSDT', 'YFIUSDT', 'SUSHIUSDT', 'BALUSDT',
+            'DYDXUSDT', 'GMXUSDT', 'PENDLEUSDT', 'LDOUSDT', 'RDNTUSDT',
+            'WOOUSDT', 'PERPUSDT', 'API3USDT', 'ZRXUSDT', 'RENUSDT',
+            'RUNEUSDT', 'KAVAUSDT', 'CELOUSDT', 'JOEUSDT', 'QUICKUSDT',
+            'UMAUSDT', 'RPLETHUSDT', 'STGUSDT', 'CAKEUSDT', 'OSMOUSDT',
+            
+            # === AI & DEPIN ===
             'FETUSDT', 'AGIXUSDT', 'OCEANUSDT', 'RNDRUSDT', 'TAOUSDT',
-            'WLDUSDT', 'AKTUSDT', 'ARKMUSDT',
+            'WLDUSDT', 'AKTUSDT', 'ARKMUSDT', 'AIUSDT', 'NFPUSDT',
+            'ABORUSDT', 'PHBUSDT', 'RLCUSDT', 'GLMUSDT', 'IOTXUSDT',
             
-            # === TIER 6: Meme Coins ===
-            'PEPEUSDT', 'FLOKIUSDT', 'BONKUSDT', 'WIFUSDT',
-            'BOMEUSDT', 'MEMEUSD', 'NOTUSDT',
+            # === MEME COINS ===
+            'PEPEUSDT', 'FLOKIUSDT', 'BONKUSDT', 'WIFUSDT', 'BOMEUSDT',
+            'MABORUSDT', 'NEIROUSDT', 'NOTUSDT', 'MEMEUSD', 'PEOPLEUSDT',
+            'SATSUSDT', 'RATSUSDT', 'MEWUSDT', 'DOGUSDT', 'COQIUSDT',
+            'MYRIAUSDT', 'BIDENUSDT', 'TURBOUSUSDT', 'LADYSUSDT',
             
-            # === TIER 7: Gaming & Metaverse ===
-            'ILVUSDT', 'MAGICUSDT', 'BEAMUSDT', 'PIXELUSDT',
-            'APEUSDT', 'GMTUSDT', 'LOOKSUSDT', 'BLURUSDT', 'HIGHUSDT',
+            # === GAMING & METAVERSE ===
+            'SANDUSDT', 'MANAUSDT', 'AXSUSDT', 'GALAUSDT', 'ENJUSDT',
+            'ILVUSDT', 'MAGICUSDT', 'BEAMUSDT', 'PIXELUSDT', 'APEUSDT',
+            'GMTUSDT', 'LOOKSUSDT', 'BLURUSDT', 'HIGHUSDT', 'YGGUSDT',
+            'PRIMEUSDT', 'PORTALUSDT', 'XABORUSDT', 'ALICEUSDT', 'TLMUSDT',
+            'SLPUSDT', 'MCUSDT', 'STARUSDT', 'DARLUSDT', 'VABORUSDT',
             
-            # === TIER 8: DeFi ===
-            'DYDXUSDT', 'GMXUSDT', 'PENDLEUSDT', 'RDNTUSDT',
-            'CELOUSDT', 'API3USDT', 'WOOUSDT', 'PERPUSDT',
+            # === ORACLES & DATA ===
+            'LINKUSDT', 'GRTUSDT', 'BANDUSDT', 'APIUSDT', 'PYABORUSDT',
+            'PYTHUSDT', 'FLUXUSDT', 'REQUSDT', 'TELUSUSDT',
             
-            # === TIER 9: Infrastructure ===
-            'QNTUSDT', 'ICPUSDT', 'HBARUSDT', 'VETUSDT', 'IOTAUSDT',
-            'IOSTUSDT', 'ONTUSDT', 'WAVESUSDT', 'DASHUSDT', 'ZECUSDT',
+            # === EXCHANGE TOKENS ===
+            'BNBUSDT', 'OKBUSDT', 'HTUSDT', 'MXUSDT', 'GTUSDT',
+            'KCSUSDT', 'CROUSDT', 'FTUSDT', 'LEXUSDT',
             
-            # === TIER 10: Others with good volume ===
-            'CFXUSDT', 'CKBUSDT', 'JASMYUSDT', 'ACHUSDT', 'HOTUSDT',
-            'DENTUSDT', 'SKLUSDT', 'ANKRUSDT', 'CTSIUSDT', 'BANDUSDT',
-            'STORJUSDT', 'RLCUSDT', 'COTIUSDT', 'CELRUSDT', 'MTLUSDT',
+            # === STORAGE & COMPUTING ===
+            'FILUSDT', 'ARUSDT', 'STORJUSDT', 'SIACUSDT', 'BTUSDT',
+            'ANKRUSDT', 'NGLUSDT', 'BLOBUSDT',
             
-            # === TIER 11: Additional trending ===
-            'ORDIUSDT', 'KASUSDT', 'TIAUSDT', 'JTOUSDT', 'PYTHUSDT',
-            'ONDOUSDT', 'ARUSDT', 'ROSEUSDT', 'LRCUSDT', 'GLMUSDT',
-            'AGLDUSDT', 'MASKUSDT', 'ENSUSDT', 'BICOUSDT', 'TUSDT',
+            # === PRIVACY COINS ===
+            'XMRUSDT', 'ZECUSDT', 'DASHUSDT', 'SCRTUSDT', 'ROSEUSDT',
+            'OASYUSDT', 'ZENUSDT', 'ERNUSDT',
+            
+            # === STAKING & LIQUID STAKING ===
+            'LDOUSDT', 'RPLETHUSDT', 'CBETHUSDT', 'FRXETHUSDT', 'SWETHUSDT',
+            'ANKRUSDT', 'SSVUSDT', 'OETHUSDT',
+            
+            # === SOCIAL & CONTENT ===
+            'MASKUSDT', 'GALAUSDT', 'CHZUSDT', 'AUDIOUSDT', 'LIVEPEERUSDT',
+            'THETAUSDT', 'TFUELUSDT', 'RALLYUSDT', 'BATUSDT', 'STEEMUSDT',
+            
+            # === CROSS-CHAIN & BRIDGES ===
+            'ATOMUSDT', 'RUNEUSDT', 'RENUSD', 'SYNUSDT', 'WOOFIUSDT',
+            'STGUSDT', 'MULTIUSDT', 'CELRUSDT', 'HOPUSDT', 'LIFIUSDT',
+            
+            # === BITCOIN ECOSYSTEM ===
+            'ORDIUSDT', 'SATSUSDT', 'RATSUSDT', 'STXUSDT', 'CFXUSDT',
+            'CKBUSDT', 'RSRUSDT', 'BSVUSDT', 'BTGUSDT', 'BCHUSDT',
+            
+            # === SOLANA ECOSYSTEM ===
+            'SOLUSDT', 'RAYUSDT', 'SRMUSDT', 'ABORUSDT', 'MNDEUSDT',
+            'ORCAUSDT', 'PORTOUSDT', 'SABORUSDT', 'STEPUSDT', 'SLNDUSDT',
+            
+            # === OTHER TRENDING ===
+            'INJUSDT', 'JUPUSDT', 'JTOUSDT', 'ONDOUSDT', 'STRKUSDT',
+            'TAOABRUSDT', 'WABRUSDT', 'ENAUSDT', 'ETHFIUSDT', 'ALTUSDT',
+            'ACEUSDT', 'XAIUSDT', 'MANTAUSDT', 'DYMUSDT', 'PIXELUSDT',
+            'PORTALUSDT', 'STRKUSDT', 'AEVOUSDT', 'MAVIAUSDT', 'VANRYUSDT',
+            
+            # === ADDITIONAL COINS ===
+            'COTIUSDT', 'MTLUSDT', 'JASMYUSDT', 'ACHUSDT', 'HOTUSDT',
+            'DENTUSDT', 'TUSDT', 'AGLDUSDT', 'ENSUSDT', 'BICOUSDT',
+            'MINAUSDT', 'KSMUSDT', 'TRBUSDT', 'NMRUSDT', 'MLNUSDT',
+            'LPTUSDT', 'CVXUSDT', 'FXSUSDT', 'FRAXUSDT', 'ALPHABUSDT',
+            'SPELLUSDT', 'ICXUSDT', 'SCUSDT', 'KLAYUSDT', 'ONGUSDT',
+            'WINUSDT', 'SUNUSDT', 'JSTUSDT', 'NKNUSDT', 'STMXUSDT',
+            'DGBUSDT', 'RVNUSDT', 'KAVAUSDT', 'HARDUSDT', 'MDXUSDT',
+            'PERPUSDT', 'LINAUSDT', 'XEMUSDT', 'CTKUSDT', 'TOMOUSDT',
+            'PUNDIXUSDT', 'AKROUSDT', 'BAKEUSDT', 'BURGERUSDT', 'SFPUSDT',
+            'LITUSDT', 'VIDTUSDT', 'EPXUSDT', 'GMTUSDT', 'ARPAUSDT',
         ]
+        
+        # Remove duplicates while preserving order
+        seen = set()
+        unique_pairs = []
+        for pair in self.trading_pairs:
+            if pair not in seen:
+                seen.add(pair)
+                unique_pairs.append(pair)
+        self.trading_pairs = unique_pairs
         
         # ============================================
         # SMART MODE PARAMETERS

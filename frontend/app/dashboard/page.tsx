@@ -30,7 +30,9 @@ import {
   Newspaper,
   GraduationCap,
   ExternalLink,
-  Clock
+  Clock,
+  Coins,
+  DollarSign
 } from 'lucide-react'
 import Link from 'next/link'
 import Image from 'next/image'
@@ -776,6 +778,128 @@ export default function DashboardPage() {
             </div>
           )}
         </motion.div>
+
+        {/* Active Investments Breakdown */}
+        {positions.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.15 }}
+            className="mt-6 p-6 rounded-2xl glass-card"
+          >
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-sentinel-accent-cyan/10">
+                  <Coins className="w-5 h-5 text-sentinel-accent-cyan" />
+                </div>
+                <h2 className="text-lg font-semibold">Active Investments by Crypto</h2>
+              </div>
+              <div className="text-sm text-sentinel-text-muted">
+                {positions.length} open positions
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+              {positions.map((position, idx) => {
+                const investedAmount = position.size * position.entryPrice
+                const pnlPercent = investedAmount > 0 ? (position.unrealizedPnl / investedAmount) * 100 : 0
+                const coinName = position.symbol.replace('USDT', '')
+                
+                return (
+                  <div 
+                    key={idx} 
+                    className={`p-4 rounded-xl border-2 transition-all ${
+                      position.unrealizedPnl >= 0 
+                        ? 'bg-sentinel-accent-emerald/5 border-sentinel-accent-emerald/30' 
+                        : 'bg-sentinel-accent-crimson/5 border-sentinel-accent-crimson/30'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="font-bold text-lg">{coinName}</span>
+                      <span className={`text-xs px-2 py-0.5 rounded ${
+                        position.side.toLowerCase() === 'buy' 
+                          ? 'bg-sentinel-accent-emerald/20 text-sentinel-accent-emerald' 
+                          : 'bg-sentinel-accent-crimson/20 text-sentinel-accent-crimson'
+                      }`}>
+                        {position.side.toUpperCase()}
+                      </span>
+                    </div>
+                    
+                    <div className="space-y-1">
+                      <div className="flex justify-between items-center">
+                        <span className="text-xs text-sentinel-text-muted">Invested</span>
+                        <span className="font-mono font-bold text-sentinel-accent-cyan">
+                          €{investedAmount.toFixed(2)}
+                        </span>
+                      </div>
+                      
+                      <div className="flex justify-between items-center">
+                        <span className="text-xs text-sentinel-text-muted">P&L</span>
+                        <span className={`font-mono font-bold ${
+                          position.unrealizedPnl >= 0 ? 'text-sentinel-accent-emerald' : 'text-sentinel-accent-crimson'
+                        }`}>
+                          {position.unrealizedPnl >= 0 ? '+' : ''}€{position.unrealizedPnl.toFixed(2)}
+                        </span>
+                      </div>
+                      
+                      <div className="flex justify-between items-center">
+                        <span className="text-xs text-sentinel-text-muted">Change</span>
+                        <span className={`font-mono text-sm ${
+                          pnlPercent >= 0 ? 'text-sentinel-accent-emerald' : 'text-sentinel-accent-crimson'
+                        }`}>
+                          {pnlPercent >= 0 ? '+' : ''}{pnlPercent.toFixed(2)}%
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Progress bar showing P&L */}
+                    <div className="mt-2 h-1.5 rounded-full bg-sentinel-bg-tertiary overflow-hidden">
+                      <div 
+                        className={`h-full transition-all ${
+                          pnlPercent >= 0 ? 'bg-sentinel-accent-emerald' : 'bg-sentinel-accent-crimson'
+                        }`}
+                        style={{ 
+                          width: `${Math.min(Math.abs(pnlPercent) * 10, 100)}%`,
+                          marginLeft: pnlPercent < 0 ? 'auto' : '0'
+                        }}
+                      />
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+
+            {/* Investment Distribution Summary */}
+            <div className="mt-6 pt-4 border-t border-sentinel-border">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="text-center">
+                  <div className="text-2xl font-bold font-mono text-sentinel-accent-cyan">
+                    €{positions.reduce((sum, p) => sum + (p.size * p.entryPrice), 0).toFixed(2)}
+                  </div>
+                  <div className="text-xs text-sentinel-text-muted">Total Invested</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-2xl font-bold font-mono">
+                    {positions.length}
+                  </div>
+                  <div className="text-xs text-sentinel-text-muted">Open Positions</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-2xl font-bold font-mono text-sentinel-accent-emerald">
+                    {positions.filter(p => p.unrealizedPnl >= 0).length}
+                  </div>
+                  <div className="text-xs text-sentinel-text-muted">In Profit</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-2xl font-bold font-mono text-sentinel-accent-crimson">
+                    {positions.filter(p => p.unrealizedPnl < 0).length}
+                  </div>
+                  <div className="text-xs text-sentinel-text-muted">In Loss</div>
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        )}
       </div>
 
       {/* Main Content */}
@@ -1030,53 +1154,85 @@ export default function DashboardPage() {
                 <p>No open positions</p>
               </div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead>
-                    <tr className="text-left text-sm text-sentinel-text-muted border-b border-sentinel-border">
-                      <th className="pb-4 font-medium">Symbol</th>
-                      <th className="pb-4 font-medium">Side</th>
-                      <th className="pb-4 font-medium text-right">Size</th>
-                      <th className="pb-4 font-medium text-right">Entry</th>
-                      <th className="pb-4 font-medium text-right">Mark</th>
-                      <th className="pb-4 font-medium text-right">P&L</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {positions.map((position, idx) => (
-                      <tr key={idx} className="border-b border-sentinel-border/50 last:border-0">
-                        <td className="py-4">
-                          <span className="font-mono font-medium">{position.symbol}</span>
-                        </td>
-                        <td className="py-4">
-                          <span className={`px-2 py-1 rounded text-xs font-medium uppercase ${
-                            position.side.toLowerCase() === 'buy' ? 'bg-sentinel-accent-emerald/10 text-sentinel-accent-emerald' :
-                            'bg-sentinel-accent-crimson/10 text-sentinel-accent-crimson'
-                          }`}>
-                            {position.side}
-                          </span>
-                        </td>
-                        <td className="py-4 text-right font-mono">
-                          {position.size}
-                        </td>
-                        <td className="py-4 text-right font-mono text-sentinel-text-secondary">
-                          €{position.entryPrice?.toFixed(2)}
-                        </td>
-                        <td className="py-4 text-right font-mono">
-                          €{position.markPrice?.toFixed(2)}
-                        </td>
-                        <td className="py-4 text-right">
-                          <div className={`font-mono font-medium ${
-                            position.unrealizedPnl >= 0 ? 'text-sentinel-accent-emerald' : 'text-sentinel-accent-crimson'
-                          }`}>
-                            {position.unrealizedPnl >= 0 ? '+' : ''}€{position.unrealizedPnl?.toFixed(2)}
-                          </div>
-                        </td>
+              <>
+                {/* Total Investment Summary */}
+                <div className="mb-4 p-4 rounded-xl bg-sentinel-bg-tertiary">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="text-sm text-sentinel-text-muted">Total Invested in Positions</span>
+                      <div className="text-2xl font-bold font-mono text-sentinel-accent-cyan">
+                        €{positions.reduce((sum, p) => sum + (p.size * p.entryPrice), 0).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-sm text-sentinel-text-muted">Unrealized P&L</span>
+                      <div className={`text-2xl font-bold font-mono ${
+                        positions.reduce((sum, p) => sum + p.unrealizedPnl, 0) >= 0 
+                          ? 'text-sentinel-accent-emerald' 
+                          : 'text-sentinel-accent-crimson'
+                      }`}>
+                        {positions.reduce((sum, p) => sum + p.unrealizedPnl, 0) >= 0 ? '+' : ''}
+                        €{positions.reduce((sum, p) => sum + p.unrealizedPnl, 0).toFixed(2)}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="text-left text-sm text-sentinel-text-muted border-b border-sentinel-border">
+                        <th className="pb-4 font-medium">Symbol</th>
+                        <th className="pb-4 font-medium">Side</th>
+                        <th className="pb-4 font-medium text-right">Size</th>
+                        <th className="pb-4 font-medium text-right">Invested</th>
+                        <th className="pb-4 font-medium text-right">Entry</th>
+                        <th className="pb-4 font-medium text-right">Mark</th>
+                        <th className="pb-4 font-medium text-right">P&L</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody>
+                      {positions.map((position, idx) => {
+                        const investedAmount = position.size * position.entryPrice
+                        return (
+                          <tr key={idx} className="border-b border-sentinel-border/50 last:border-0">
+                            <td className="py-4">
+                              <span className="font-mono font-medium">{position.symbol}</span>
+                            </td>
+                            <td className="py-4">
+                              <span className={`px-2 py-1 rounded text-xs font-medium uppercase ${
+                                position.side.toLowerCase() === 'buy' ? 'bg-sentinel-accent-emerald/10 text-sentinel-accent-emerald' :
+                                'bg-sentinel-accent-crimson/10 text-sentinel-accent-crimson'
+                              }`}>
+                                {position.side}
+                              </span>
+                            </td>
+                            <td className="py-4 text-right font-mono">
+                              {position.size}
+                            </td>
+                            <td className="py-4 text-right font-mono font-bold text-sentinel-accent-cyan">
+                              €{investedAmount.toFixed(2)}
+                            </td>
+                            <td className="py-4 text-right font-mono text-sentinel-text-secondary">
+                              €{position.entryPrice?.toFixed(2)}
+                            </td>
+                            <td className="py-4 text-right font-mono">
+                              €{position.markPrice?.toFixed(2)}
+                            </td>
+                            <td className="py-4 text-right">
+                              <div className={`font-mono font-medium ${
+                                position.unrealizedPnl >= 0 ? 'text-sentinel-accent-emerald' : 'text-sentinel-accent-crimson'
+                              }`}>
+                                {position.unrealizedPnl >= 0 ? '+' : ''}€{position.unrealizedPnl?.toFixed(2)}
+                              </div>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </>
             )}
           </motion.div>
 
