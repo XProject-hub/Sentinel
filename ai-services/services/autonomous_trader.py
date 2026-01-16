@@ -429,7 +429,10 @@ class AutonomousTrader:
                 qty=str(quantity),
             )
             
+            logger.info(f"Order result for {signal.symbol}: {order_result}")
+            
             if order_result.get('success'):
+                logger.info(f"ORDER SUCCESS: {signal.symbol} {side} qty={quantity}")
                 # Record trade
                 trade_record = {
                     'user_id': user_id,
@@ -461,7 +464,7 @@ class AutonomousTrader:
                 logger.info(f"Trade executed: {signal.symbol} {side} @ ${signal.entry_price:.2f}")
                 
             else:
-                logger.warning(f"Trade failed: {order_result.get('error')}")
+                logger.error(f"ORDER FAILED for {signal.symbol}: {order_result.get('error')}")
                 
         except Exception as e:
             logger.error(f"Trade execution error: {e}")
