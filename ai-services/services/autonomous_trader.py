@@ -216,10 +216,20 @@ class AutonomousTrader:
             logger.info(f"Found {len(coins)} coins in account")
             
             for coin in coins:
-                coin_name = coin.get('coin')
-                wallet_bal = float(coin.get('walletBalance', 0))
-                avail_bal = float(coin.get('availableToWithdraw', 0))
-                coin_equity = float(coin.get('equity', 0))
+                coin_name = coin.get('coin', 'UNKNOWN')
+                
+                # Safe float conversion - handle empty strings
+                def safe_float(val, default=0.0):
+                    if val is None or val == '':
+                        return default
+                    try:
+                        return float(val)
+                    except (ValueError, TypeError):
+                        return default
+                
+                wallet_bal = safe_float(coin.get('walletBalance'))
+                avail_bal = safe_float(coin.get('availableToWithdraw'))
+                coin_equity = safe_float(coin.get('equity'))
                 
                 # Log ALL coins for debugging
                 logger.info(f"Coin {coin_name}: wallet={wallet_bal:.4f}, available={avail_bal:.4f}, equity={coin_equity:.4f}")
