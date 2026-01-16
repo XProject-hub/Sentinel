@@ -141,9 +141,12 @@ async def get_balance():
     coins = []
     total_equity = 0
     account_type_found = None
+    all_results = {}  # For debugging
     
     # Try UNIFIED account first (derivatives + spot combined)
+    logger.info("Fetching balance from UNIFIED account...")
     result = await client.get_wallet_balance(account_type="UNIFIED")
+    all_results["UNIFIED"] = result
     if result.get("success"):
         data = result.get("data", {})
         for account in data.get("list", []):
@@ -163,7 +166,9 @@ async def get_balance():
     
     # Try SPOT account if UNIFIED is empty
     if total_equity == 0:
+        logger.info("UNIFIED empty, trying SPOT account...")
         result = await client.get_wallet_balance(account_type="SPOT")
+        all_results["SPOT"] = result
         if result.get("success"):
             data = result.get("data", {})
             for account in data.get("list", []):
@@ -183,7 +188,9 @@ async def get_balance():
     
     # Try CONTRACT account
     if total_equity == 0:
+        logger.info("SPOT empty, trying CONTRACT account...")
         result = await client.get_wallet_balance(account_type="CONTRACT")
+        all_results["CONTRACT"] = result
         if result.get("success"):
             data = result.get("data", {})
             for account in data.get("list", []):
@@ -203,7 +210,9 @@ async def get_balance():
 
     # Try FUND account (for holdings)
     if total_equity == 0:
+        logger.info("CONTRACT empty, trying FUND account...")
         result = await client.get_wallet_balance(account_type="FUND")
+        all_results["FUND"] = result
         if result.get("success"):
             data = result.get("data", {})
             for account in data.get("list", []):
@@ -222,13 +231,18 @@ async def get_balance():
                         })
     
     logger.info(f"Balance fetched: €{total_equity:.2f} from {account_type_found} account, {len(coins)} coins")
+    
+    # If still 0, log all results for debugging
+    if total_equity == 0:
+        logger.warning(f"No balance found in any account type. Raw results: {all_results}")
                 
     return {
         "success": True,
         "data": {
             "totalEquity": total_equity,
             "coins": coins,
-            "accountType": account_type_found
+            "accountType": account_type_found,
+            "debug": all_results if total_equity == 0 else None
         }
     }
 
