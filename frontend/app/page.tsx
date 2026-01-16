@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
-import { Zap, Brain, ArrowRight } from 'lucide-react'
+import { Zap, Brain, ArrowRight, Shield } from 'lucide-react'
 import Link from 'next/link'
 import Image from 'next/image'
 
