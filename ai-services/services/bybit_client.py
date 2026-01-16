@@ -100,9 +100,15 @@ class BybitV5Client:
                 response = await self.http_client.get(url, headers=headers)
             else:
                 import json
-                param_str = json.dumps(params) if params else ""
+                # IMPORTANT: Use compact JSON (no spaces) for signature - must match body exactly
+                param_str = json.dumps(params, separators=(',', ':')) if params else ""
                 headers = self._get_headers(param_str, server_time) if auth else {}
-                response = await self.http_client.post(url, headers=headers, json=params)
+                # Send the exact same string we used for signature
+                response = await self.http_client.post(
+                    url, 
+                    headers=headers, 
+                    content=param_str,  # Use content instead of json to ensure exact match
+                )
                 
             data = response.json()
             
