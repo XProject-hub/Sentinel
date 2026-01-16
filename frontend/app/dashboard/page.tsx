@@ -1192,7 +1192,7 @@ export default function DashboardPage() {
             </div>
 
             <div className="mt-4 pt-4 border-t border-sentinel-border text-xs text-sentinel-text-muted">
-              Strategy: SAFE PROFIT MODE | Take Profit: +0.5% | Stop Loss: -0.3% | Auto-refresh every 3s
+              Strategy: SAFE PROFIT MODE | Trailing Stop: -0.3% from peak | Stop Loss: -0.3% | HOLD while rising | Auto-refresh every 3s
             </div>
           </motion.div>
         )}
