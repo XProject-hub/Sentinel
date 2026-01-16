@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { motion } from 'framer-motion'
 import { 
   TrendingUp, 
@@ -181,6 +181,15 @@ interface LearningData {
   }
 }
 
+interface TradeNotification {
+  id: string
+  symbol: string
+  side: string
+  pnl: number
+  isWin: boolean
+  timestamp: number
+}
+
 export default function DashboardPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [isRefreshing, setIsRefreshing] = useState(false)
@@ -195,6 +204,8 @@ export default function DashboardPage() {
   const [botActivity, setBotActivity] = useState<BotActivity | null>(null)
   const [newsData, setNewsData] = useState<NewsData | null>(null)
   const [learningData, setLearningData] = useState<LearningData | null>(null)
+  const [notifications, setNotifications] = useState<TradeNotification[]>([])
+  const previousTradesRef = useRef<string[]>([])
 
   useEffect(() => {
     // Check if user is logged in
@@ -216,6 +227,44 @@ export default function DashboardPage() {
     
     return () => clearInterval(interval)
   }, [])
+
+  // Watch for new completed trades and show notifications
+  useEffect(() => {
+    if (botActivity?.recent_completed) {
+      const currentTradeIds = botActivity.recent_completed.map((t: any) => 
+        `${t.symbol}-${t.closed_time || t.pnl}`
+      )
+      
+      // Find new trades that weren't in the previous list
+      const newTrades = botActivity.recent_completed.filter((trade: any) => {
+        const tradeId = `${trade.symbol}-${trade.closed_time || trade.pnl}`
+        return !previousTradesRef.current.includes(tradeId)
+      })
+      
+      // Show notification for each new trade
+      newTrades.forEach((trade: any) => {
+        const pnl = parseFloat(trade.pnl) || 0
+        const notification: TradeNotification = {
+          id: `${Date.now()}-${Math.random()}`,
+          symbol: trade.symbol,
+          side: trade.side || 'CLOSE',
+          pnl: pnl,
+          isWin: pnl >= 0,
+          timestamp: Date.now()
+        }
+        
+        setNotifications(prev => [...prev, notification])
+        
+        // Remove notification after 5 seconds
+        setTimeout(() => {
+          setNotifications(prev => prev.filter(n => n.id !== notification.id))
+        }, 5000)
+      })
+      
+      // Update the ref with current trade IDs
+      previousTradesRef.current = currentTradeIds
+    }
+  }, [botActivity?.recent_completed])
 
   const loadBotActivity = async () => {
     try {
@@ -1725,6 +1774,75 @@ export default function DashboardPage() {
           <span>Developed by NoLimitDevelopments</span>
         </div>
       </footer>
+
+      {/* Trade Notifications - Bottom Right */}
+      <div className="fixed bottom-6 right-6 z-50 flex flex-col gap-3">
+        {notifications.map((notification) => (
+          <motion.div
+            key={notification.id}
+            initial={{ opacity: 0, x: 100, scale: 0.8 }}
+            animate={{ opacity: 1, x: 0, scale: 1 }}
+            exit={{ opacity: 0, x: 100, scale: 0.8 }}
+            className={`p-4 rounded-xl shadow-2xl backdrop-blur-sm border min-w-[280px] ${
+              notification.isWin 
+                ? 'bg-sentinel-accent-emerald/20 border-sentinel-accent-emerald/50' 
+                : 'bg-sentinel-accent-crimson/20 border-sentinel-accent-crimson/50'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <div className={`p-2 rounded-lg ${
+                notification.isWin 
+                  ? 'bg-sentinel-accent-emerald/30' 
+                  : 'bg-sentinel-accent-crimson/30'
+              }`}>
+                {notification.isWin 
+                  ? <TrendingUp className="w-5 h-5 text-sentinel-accent-emerald" />
+                  : <TrendingDown className="w-5 h-5 text-sentinel-accent-crimson" />
+                }
+              </div>
+              <div className="flex-1">
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold text-sentinel-text-primary">
+                    {notification.symbol}
+                  </span>
+                  <span className={`text-xs px-2 py-0.5 rounded ${
+                    notification.isWin 
+                      ? 'bg-sentinel-accent-emerald/30 text-sentinel-accent-emerald' 
+                      : 'bg-sentinel-accent-crimson/30 text-sentinel-accent-crimson'
+                  }`}>
+                    {notification.isWin ? 'WIN' : 'LOSS'}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between mt-1">
+                  <span className="text-xs text-sentinel-text-secondary">
+                    Position Closed
+                  </span>
+                  <span className={`font-bold ${
+                    notification.isWin 
+                      ? 'text-sentinel-accent-emerald' 
+                      : 'text-sentinel-accent-crimson'
+                  }`}>
+                    {notification.isWin ? '+' : ''}€{notification.pnl.toFixed(2)}
+                  </span>
+                </div>
+              </div>
+            </div>
+            {/* Progress bar for timeout */}
+            <div className="mt-2 h-1 bg-sentinel-bg-tertiary rounded-full overflow-hidden">
+              <motion.div 
+                initial={{ width: '100%' }}
+                animate={{ width: '0%' }}
+                transition={{ duration: 5, ease: 'linear' }}
+                className={`h-full ${
+                  notification.isWin 
+                    ? 'bg-sentinel-accent-emerald' 
+                    : 'bg-sentinel-accent-crimson'
+                }`}
+              />
+            </div>
+          </motion.div>
+        ))}
+      </div>
     </div>
   )
 }
