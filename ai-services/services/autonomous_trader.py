@@ -182,25 +182,26 @@ class AutonomousTrader:
         self.trading_pairs = unique_pairs
         
         # ============================================
-        # SMART MODE PARAMETERS
+        # SMART MODE PARAMETERS - OPTIMIZED FOR SMALL ACCOUNTS
         # ============================================
         
-        # Analysis settings
-        self.analysis_interval_seconds = 30  # Analyze every 30 seconds
-        self.min_confidence = 65.0  # Only trade when 65%+ confident
+        # Analysis settings - More active trading
+        self.analysis_interval_seconds = 20  # Analyze every 20 seconds (faster)
+        self.min_confidence = 55.0  # Trade when 55%+ confident (more opportunities)
         
         # Position sizing - DYNAMIC based on confidence
-        self.min_position_percent = 5.0   # Minimum 5% per trade
-        self.max_position_percent = 20.0  # Maximum 20% per trade (high confidence)
-        self.max_open_positions = 10      # Reasonable diversification
+        # For small accounts (~€140), we need smaller positions
+        self.min_position_percent = 3.0   # Minimum 3% per trade (~€4.2)
+        self.max_position_percent = 10.0  # Maximum 10% per trade (~€14) for safety
+        self.max_open_positions = 15      # More diversification with smaller positions
         
         # EXIT STRATEGY - ALWAYS TRAIL FROM PEAK
-        self.emergency_stop_loss = 2.0    # Emergency stop: -2% from entry (protection)
-        self.trail_from_peak = 0.8        # Sell when drops 0.8% from PEAK (highest price)
+        self.emergency_stop_loss = 1.5    # Tighter emergency stop: -1.5% from entry
+        self.trail_from_peak = 0.5        # Sell when drops 0.5% from PEAK (take profits quicker)
         
-        # Market filters
-        self.min_24h_volume = 10_000_000  # Only trade pairs with $10M+ daily volume
-        self.max_spread_percent = 0.1     # Max 0.1% spread
+        # Market filters - Less restrictive for more opportunities
+        self.min_24h_volume = 1_000_000   # Lowered to $1M daily volume (more pairs)
+        self.max_spread_percent = 0.3     # Allow up to 0.3% spread
         
         # Track state
         self.last_trade_time: Dict[str, datetime] = {}
@@ -213,7 +214,45 @@ class AutonomousTrader:
         self.redis_client = await redis.from_url(settings.REDIS_URL)
         self.learning_engine = learning_engine
         self.is_running = True
-        logger.info("SMART AI Trading System initialized - Intelligent trading enabled")
+        
+        # Dynamically load available symbols after first user connects
+        self.dynamic_symbols_loaded = False
+        
+        logger.info(f"SMART AI Trading System initialized with {len(self.trading_pairs)} default pairs")
+        logger.info("Will fetch ALL available Bybit pairs when first user connects")
+    
+    async def _load_all_bybit_symbols(self, client: BybitV5Client):
+        """Dynamically fetch ALL available USDT perpetual pairs from Bybit"""
+        if self.dynamic_symbols_loaded:
+            return
+            
+        try:
+            logger.info("Fetching ALL available trading pairs from Bybit...")
+            
+            # Get all linear (USDT perpetual) symbols
+            all_symbols = await client.get_all_symbols(category="linear")
+            
+            if all_symbols and len(all_symbols) > 50:
+                # Use all fetched symbols
+                self.trading_pairs = all_symbols
+                self.dynamic_symbols_loaded = True
+                logger.info(f"Loaded {len(self.trading_pairs)} USDT perpetual pairs from Bybit!")
+                
+                # Store in Redis for reference
+                await self.redis_client.set(
+                    'trading:available_symbols',
+                    ','.join(self.trading_pairs)
+                )
+                await self.redis_client.set(
+                    'trading:symbols_count',
+                    str(len(self.trading_pairs))
+                )
+            else:
+                logger.warning(f"Only found {len(all_symbols) if all_symbols else 0} symbols, keeping defaults")
+                
+        except Exception as e:
+            logger.error(f"Failed to load dynamic symbols: {e}")
+            # Keep using default symbols
         
     async def shutdown(self):
         """Graceful shutdown"""
@@ -238,6 +277,10 @@ class AutonomousTrader:
             if result.get('success'):
                 self.user_clients[user_id] = client
                 logger.info(f"User {user_id} connected for SMART AI trading")
+                
+                # Load ALL available symbols from Bybit (only once)
+                await self._load_all_bybit_symbols(client)
+                
                 return True
             else:
                 await client.close()

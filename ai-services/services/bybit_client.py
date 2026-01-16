@@ -192,6 +192,43 @@ class BybitV5Client:
             "limit": 1
         }
         return await self._request("GET", "/v5/market/open-interest", params)
+    
+    async def get_all_symbols(self, category: str = "linear") -> List[str]:
+        """
+        Get ALL available trading symbols from Bybit
+        Categories: linear (USDT perpetual), inverse, spot
+        """
+        try:
+            params = {"category": category}
+            response = await self._request("GET", "/v5/market/instruments-info", params)
+            
+            if response.get("success") and response.get("data"):
+                symbols = []
+                for item in response["data"].get("list", []):
+                    symbol = item.get("symbol", "")
+                    status = item.get("status", "")
+                    # Only get active trading pairs
+                    if status == "Trading" and symbol:
+                        # For linear, only get USDT pairs
+                        if category == "linear" and symbol.endswith("USDT"):
+                            symbols.append(symbol)
+                        elif category != "linear":
+                            symbols.append(symbol)
+                
+                logger.info(f"Fetched {len(symbols)} active {category} trading pairs from Bybit")
+                return symbols
+            return []
+        except Exception as e:
+            logger.error(f"Failed to fetch symbols: {e}")
+            return []
+    
+    async def get_instrument_info(self, symbol: str, category: str = "linear") -> Dict:
+        """Get detailed instrument info (min qty, tick size, etc.)"""
+        params = {
+            "category": category,
+            "symbol": symbol
+        }
+        return await self._request("GET", "/v5/market/instruments-info", params)
         
     # ============================================
     # ACCOUNT (Private - requires auth)
