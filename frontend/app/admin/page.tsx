@@ -3,7 +3,6 @@
 import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
 import { 
-  Shield, 
   Users, 
   Brain, 
   Activity,
@@ -22,6 +21,7 @@ import {
   Clock
 } from 'lucide-react'
 import Link from 'next/link'
+import Image from 'next/image'
 
 interface SystemStats {
   uptime: string
@@ -134,9 +134,13 @@ export default function AdminPage() {
       <nav className="sticky top-0 z-50 glass-card border-b border-sentinel-border">
         <div className="max-w-[1600px] mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-sentinel-accent-crimson to-sentinel-accent-amber flex items-center justify-center">
-              <Shield className="w-6 h-6 text-sentinel-bg-primary" strokeWidth={2.5} />
-            </div>
+            <Image 
+              src="/logo.png" 
+              alt="Sentinel Logo" 
+              width={40} 
+              height={40} 
+              className="rounded-lg"
+            />
             <div>
               <span className="font-display font-bold text-lg">SENTINEL ADMIN</span>
               <div className="flex items-center gap-2">

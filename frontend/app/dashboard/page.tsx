@@ -5,7 +5,7 @@ import { motion } from 'framer-motion'
 import { 
   TrendingUp, 
   TrendingDown, 
-  Shield, 
+  Shield,
   Brain, 
   Activity,
   Wallet,
@@ -29,6 +29,7 @@ import {
   PieChart as PieChartIcon
 } from 'lucide-react'
 import Link from 'next/link'
+import Image from 'next/image'
 import { 
   LineChart, 
   Line, 
@@ -378,9 +379,13 @@ export default function DashboardPage() {
         <nav className="sticky top-0 z-50 glass-card border-b border-sentinel-border">
           <div className="max-w-[1600px] mx-auto px-6 py-4 flex items-center justify-between">
             <div className="flex items-center gap-4">
-              <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-sentinel-accent-cyan to-sentinel-accent-emerald flex items-center justify-center">
-                <Shield className="w-6 h-6 text-sentinel-bg-primary" strokeWidth={2.5} />
-              </div>
+              <Image 
+                src="/logo.png" 
+                alt="Sentinel Logo" 
+                width={40} 
+                height={40} 
+                className="rounded-lg"
+              />
               <div>
                 <span className="font-display font-bold text-lg">SENTINEL</span>
                 <div className="flex items-center gap-2">
@@ -493,9 +498,13 @@ export default function DashboardPage() {
       <nav className="sticky top-0 z-50 glass-card border-b border-sentinel-border">
         <div className="max-w-[1600px] mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-sentinel-accent-cyan to-sentinel-accent-emerald flex items-center justify-center">
-              <Shield className="w-6 h-6 text-sentinel-bg-primary" strokeWidth={2.5} />
-            </div>
+            <Image 
+              src="/logo.png" 
+              alt="Sentinel Logo" 
+              width={40} 
+              height={40} 
+              className="rounded-lg"
+            />
             <div>
               <span className="font-display font-bold text-lg">SENTINEL</span>
               <div className="flex items-center gap-2">

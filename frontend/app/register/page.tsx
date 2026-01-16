@@ -2,8 +2,9 @@
 
 import { useState } from 'react'
 import { motion } from 'framer-motion'
-import { Shield, Eye, EyeOff, ArrowRight, Check, AlertCircle } from 'lucide-react'
+import { Eye, EyeOff, ArrowRight, Check, AlertCircle } from 'lucide-react'
 import Link from 'next/link'
+import Image from 'next/image'
 
 export default function RegisterPage() {
   const [showPassword, setShowPassword] = useState(false)
@@ -146,9 +147,13 @@ export default function RegisterPage() {
         >
           {/* Logo */}
           <Link href="/" className="inline-flex items-center gap-3 mb-12">
-            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-sentinel-accent-cyan to-sentinel-accent-emerald flex items-center justify-center">
-              <Shield className="w-7 h-7 text-sentinel-bg-primary" strokeWidth={2.5} />
-            </div>
+            <Image 
+              src="/logo.png" 
+              alt="Sentinel Logo" 
+              width={48} 
+              height={48} 
+              className="rounded-xl"
+            />
             <span className="font-display font-bold text-2xl">SENTINEL</span>
           </Link>
 
