@@ -451,25 +451,54 @@ class AutonomousTrader:
         """Execute a trade based on signal"""
         
         try:
-            # Calculate position size
+            # Calculate position size - ENSURE MINIMUM $10 ORDER (Bybit minimum is $5, we use $10 for safety)
             trade_value = total_equity * (signal.position_size_percent / 100)
             trade_value = min(trade_value, available_usdt * 0.95)  # Keep 5% buffer
+            trade_value = max(trade_value, 10.0)  # Minimum $10 to meet Bybit requirements
+            
+            # Don't trade if we don't have enough
+            if trade_value > available_usdt:
+                logger.warning(f"Not enough balance: need ${trade_value:.2f}, have ${available_usdt:.2f}")
+                return
             
             logger.info(f"Trade calc: equity={total_equity:.2f}, available={available_usdt:.2f}, trade_value={trade_value:.2f}")
-            
-            if trade_value < 4.5:  # Minimum ~$5 trade (with buffer for float precision)
-                logger.warning(f"Trade value too low: ${trade_value:.2f} < $4.50 minimum")
-                return
                 
             quantity = trade_value / signal.entry_price
             
-            # Round quantity based on symbol (crypto needs different precision)
-            if signal.entry_price > 1000:  # BTC, ETH
-                quantity = round(quantity, 5)
-            elif signal.entry_price > 10:
-                quantity = round(quantity, 3)
+            # Bybit minimum quantities and step sizes per symbol type
+            # https://www.bybit.com/derivatives/en/usdt/contract-info
+            symbol = signal.symbol
+            
+            if symbol in ['BTCUSDT']:
+                quantity = max(0.001, round(quantity, 3))  # Min 0.001 BTC
+            elif symbol in ['ETHUSDT']:
+                quantity = max(0.01, round(quantity, 2))   # Min 0.01 ETH
+            elif symbol in ['BNBUSDT', 'SOLUSDT', 'LTCUSDT']:
+                quantity = max(0.1, round(quantity, 1))    # Min 0.1
+            elif symbol in ['XRPUSDT', 'ADAUSDT', 'DOGEUSDT', 'TRXUSDT']:
+                quantity = max(10, round(quantity, 0))     # Min 10, whole numbers
+            elif symbol in ['DOTUSDT', 'LINKUSDT', 'ATOMUSDT', 'AVAXUSDT', 'UNIUSDT']:
+                quantity = max(1, round(quantity, 1))      # Min 1
+            elif symbol in ['APTUSDT', 'ARBUSDT', 'OPUSDT', 'NEARUSDT', 'FILUSDT']:
+                quantity = max(1, round(quantity, 0))      # Min 1, whole numbers
             else:
-                quantity = round(quantity, 1)
+                # Default: round based on price
+                if signal.entry_price > 1000:
+                    quantity = max(0.001, round(quantity, 3))
+                elif signal.entry_price > 100:
+                    quantity = max(0.1, round(quantity, 2))
+                elif signal.entry_price > 10:
+                    quantity = max(1, round(quantity, 1))
+                elif signal.entry_price > 1:
+                    quantity = max(1, round(quantity, 0))
+                else:
+                    quantity = max(10, round(quantity, 0))
+            
+            # Final check - ensure order value is at least $5
+            order_value = quantity * signal.entry_price
+            if order_value < 5:
+                logger.warning(f"Order value ${order_value:.2f} < $5 minimum for {symbol}")
+                return
             
             if quantity <= 0:
                 logger.warning(f"Quantity too small for {signal.symbol}")
