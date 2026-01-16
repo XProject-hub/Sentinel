@@ -25,9 +25,27 @@ import {
   BarChart3,
   Play,
   Square,
-  Bot
+  Bot,
+  PieChart as PieChartIcon
 } from 'lucide-react'
 import Link from 'next/link'
+import { 
+  LineChart, 
+  Line, 
+  XAxis, 
+  YAxis, 
+  CartesianGrid, 
+  Tooltip, 
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+  Cell,
+  PieChart,
+  Pie,
+  Legend,
+  Area,
+  AreaChart
+} from 'recharts'
 
 interface ExchangeStatus {
   connected: boolean
@@ -850,6 +868,225 @@ export default function DashboardPage() {
             )}
           </motion.div>
         </div>
+
+        {/* Performance Charts Section */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.45 }}
+          className="mt-8 grid grid-cols-1 lg:grid-cols-2 gap-6"
+        >
+          {/* Win/Loss Chart */}
+          <div className="p-6 rounded-2xl glass-card">
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-sentinel-accent-violet/10">
+                  <PieChartIcon className="w-5 h-5 text-sentinel-accent-violet" />
+                </div>
+                <h2 className="text-lg font-semibold">Win/Loss Ratio</h2>
+              </div>
+              <div className="text-sm text-sentinel-text-secondary">
+                {((pnlData?.winningTrades || 0) + (pnlData?.losingTrades || 0))} total trades
+              </div>
+            </div>
+
+            {((pnlData?.winningTrades || 0) + (pnlData?.losingTrades || 0)) === 0 ? (
+              <div className="h-64 flex items-center justify-center text-sentinel-text-muted">
+                <div className="text-center">
+                  <BarChart3 className="w-12 h-12 mx-auto mb-3 opacity-30" />
+                  <p>No completed trades yet</p>
+                </div>
+              </div>
+            ) : (
+              <div className="h-64">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={[
+                        { name: 'Wins', value: pnlData?.winningTrades || 0, color: '#00DC82' },
+                        { name: 'Losses', value: pnlData?.losingTrades || 0, color: '#FF4757' }
+                      ]}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={60}
+                      outerRadius={90}
+                      paddingAngle={5}
+                      dataKey="value"
+                      label={({ name, value, percent }) => `${name}: ${value} (${(percent * 100).toFixed(0)}%)`}
+                      labelLine={false}
+                    >
+                      <Cell fill="#00DC82" />
+                      <Cell fill="#FF4757" />
+                    </Pie>
+                    <Tooltip 
+                      contentStyle={{ 
+                        backgroundColor: '#1a1f2e', 
+                        border: '1px solid #2d3548',
+                        borderRadius: '8px'
+                      }}
+                    />
+                    <Legend />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+
+            {/* Stats below chart */}
+            <div className="grid grid-cols-3 gap-4 mt-4 pt-4 border-t border-sentinel-border">
+              <div className="text-center">
+                <div className="text-2xl font-bold text-sentinel-accent-emerald">{pnlData?.winningTrades || 0}</div>
+                <div className="text-xs text-sentinel-text-muted">Winning</div>
+              </div>
+              <div className="text-center">
+                <div className="text-2xl font-bold text-sentinel-accent-crimson">{pnlData?.losingTrades || 0}</div>
+                <div className="text-xs text-sentinel-text-muted">Losing</div>
+              </div>
+              <div className="text-center">
+                <div className={`text-2xl font-bold ${(pnlData?.winRate || 0) >= 50 ? 'text-sentinel-accent-emerald' : 'text-sentinel-accent-crimson'}`}>
+                  {pnlData?.winRate?.toFixed(1) || 0}%
+                </div>
+                <div className="text-xs text-sentinel-text-muted">Win Rate</div>
+              </div>
+            </div>
+          </div>
+
+          {/* P&L Performance Chart */}
+          <div className="p-6 rounded-2xl glass-card">
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-sentinel-accent-cyan/10">
+                  <TrendingUp className="w-5 h-5 text-sentinel-accent-cyan" />
+                </div>
+                <h2 className="text-lg font-semibold">P&L Performance</h2>
+              </div>
+              <div className={`text-lg font-mono font-bold ${(pnlData?.totalPnl || 0) >= 0 ? 'text-sentinel-accent-emerald' : 'text-sentinel-accent-crimson'}`}>
+                {(pnlData?.totalPnl || 0) >= 0 ? '+' : ''}€{pnlData?.totalPnl?.toFixed(2) || '0.00'}
+              </div>
+            </div>
+
+            {!pnlData?.trades?.length ? (
+              <div className="h-64 flex items-center justify-center text-sentinel-text-muted">
+                <div className="text-center">
+                  <TrendingUp className="w-12 h-12 mx-auto mb-3 opacity-30" />
+                  <p>P&L chart will appear after trades complete</p>
+                </div>
+              </div>
+            ) : (
+              <div className="h-64">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart
+                    data={(() => {
+                      // Calculate cumulative P&L from trades
+                      let cumulative = 0
+                      const chartData = pnlData.trades
+                        .slice()
+                        .reverse()
+                        .map((trade, idx) => {
+                          cumulative += trade.closedPnl
+                          return {
+                            name: `#${idx + 1}`,
+                            symbol: trade.symbol,
+                            pnl: trade.closedPnl,
+                            cumulative: parseFloat(cumulative.toFixed(2)),
+                            time: new Date(parseInt(trade.createdTime)).toLocaleTimeString()
+                          }
+                        })
+                      return chartData.slice(-20) // Last 20 trades
+                    })()}
+                    margin={{ top: 10, right: 10, left: 0, bottom: 0 }}
+                  >
+                    <defs>
+                      <linearGradient id="colorPnl" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#00DC82" stopOpacity={0.3}/>
+                        <stop offset="95%" stopColor="#00DC82" stopOpacity={0}/>
+                      </linearGradient>
+                      <linearGradient id="colorPnlNeg" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#FF4757" stopOpacity={0.3}/>
+                        <stop offset="95%" stopColor="#FF4757" stopOpacity={0}/>
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#2d3548" />
+                    <XAxis 
+                      dataKey="name" 
+                      stroke="#6b7280"
+                      tick={{ fill: '#6b7280', fontSize: 11 }}
+                    />
+                    <YAxis 
+                      stroke="#6b7280"
+                      tick={{ fill: '#6b7280', fontSize: 11 }}
+                      tickFormatter={(value) => `€${value}`}
+                    />
+                    <Tooltip 
+                      contentStyle={{ 
+                        backgroundColor: '#1a1f2e', 
+                        border: '1px solid #2d3548',
+                        borderRadius: '8px'
+                      }}
+                      formatter={(value: number, name: string) => [
+                        `€${value.toFixed(2)}`, 
+                        name === 'cumulative' ? 'Total P&L' : 'Trade P&L'
+                      ]}
+                      labelFormatter={(label, payload) => {
+                        if (payload && payload[0]) {
+                          return `${payload[0].payload.symbol} (${payload[0].payload.time})`
+                        }
+                        return label
+                      }}
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="cumulative"
+                      stroke="#00DC82"
+                      strokeWidth={2}
+                      fill="url(#colorPnl)"
+                    />
+                    <Line 
+                      type="monotone" 
+                      dataKey="pnl" 
+                      stroke="#00b8ff"
+                      strokeWidth={1}
+                      dot={{ fill: '#00b8ff', r: 3 }}
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+
+            {/* Summary below chart */}
+            <div className="grid grid-cols-4 gap-4 mt-4 pt-4 border-t border-sentinel-border">
+              <div className="text-center">
+                <div className="text-lg font-bold text-sentinel-accent-emerald">
+                  +€{pnlData?.trades?.filter(t => t.closedPnl > 0).reduce((sum, t) => sum + t.closedPnl, 0)?.toFixed(2) || '0.00'}
+                </div>
+                <div className="text-xs text-sentinel-text-muted">Total Profit</div>
+              </div>
+              <div className="text-center">
+                <div className="text-lg font-bold text-sentinel-accent-crimson">
+                  €{pnlData?.trades?.filter(t => t.closedPnl < 0).reduce((sum, t) => sum + t.closedPnl, 0)?.toFixed(2) || '0.00'}
+                </div>
+                <div className="text-xs text-sentinel-text-muted">Total Loss</div>
+              </div>
+              <div className="text-center">
+                <div className="text-lg font-bold text-sentinel-text-primary">
+                  €{(
+                    (pnlData?.trades?.filter(t => t.closedPnl > 0).reduce((sum, t) => sum + t.closedPnl, 0) || 0) / 
+                    Math.max(pnlData?.winningTrades || 1, 1)
+                  ).toFixed(2)}
+                </div>
+                <div className="text-xs text-sentinel-text-muted">Avg Win</div>
+              </div>
+              <div className="text-center">
+                <div className="text-lg font-bold text-sentinel-text-primary">
+                  €{Math.abs(
+                    (pnlData?.trades?.filter(t => t.closedPnl < 0).reduce((sum, t) => sum + t.closedPnl, 0) || 0) / 
+                    Math.max(pnlData?.losingTrades || 1, 1)
+                  ).toFixed(2)}
+                </div>
+                <div className="text-xs text-sentinel-text-muted">Avg Loss</div>
+              </div>
+            </div>
+          </div>
+        </motion.div>
 
         {/* Bot Activity Log */}
         {tradingStatus?.is_autonomous_trading && (
