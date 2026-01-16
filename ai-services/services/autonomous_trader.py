@@ -91,9 +91,9 @@ class AutonomousTrader:
         ]
         
         # Trading parameters - SAFE PROFIT MODE
-        self.min_trade_interval_seconds = 20  # Faster trading cycles
+        self.min_trade_interval_seconds = 10  # Even faster trading cycles
         self.max_position_percent = 5.0  # Max 5% of portfolio per position (safer)
-        self.min_confidence = 60.0  # Minimum AI confidence to trade
+        self.min_confidence = 50.0  # Lower threshold - trade more often
         self.max_open_positions = 15  # More smaller positions = diversified risk
         
         # SAFE PROFIT THRESHOLDS - Small consistent wins
@@ -194,9 +194,12 @@ class AutonomousTrader:
     async def _process_user_trading(self, user_id: str, client: BybitV5Client):
         """Process trading for a single user"""
         
+        logger.info(f"Processing trading for user {user_id}...")
+        
         # 1. Get current balance
         balance_result = await client.get_wallet_balance()
         if not balance_result.get('success'):
+            logger.warning(f"Failed to get balance for {user_id}: {balance_result.get('error')}")
             return
             
         balance_data = balance_result.get('data', {})
@@ -234,7 +237,10 @@ class AutonomousTrader:
             
         # 4. Analyze each trading pair for new opportunities
         if len(current_positions) < self.max_open_positions:
-            for symbol in self.trading_pairs:
+            symbols_analyzed = 0
+            signals_found = 0
+            
+            for symbol in self.trading_pairs[:20]:  # Check top 20 pairs each cycle
                 # Skip if we already have position in this symbol
                 if any(p['symbol'] == symbol for p in current_positions):
                     continue
@@ -246,9 +252,18 @@ class AutonomousTrader:
                     
                 # Analyze and potentially trade
                 signal = await self._analyze_for_trade(symbol, client)
+                symbols_analyzed += 1
                 
-                if signal and signal.action != 'hold' and signal.confidence >= self.min_confidence:
-                    await self._execute_trade(user_id, client, signal, available_usdt, total_equity)
+                if signal:
+                    logger.info(f"{symbol}: {signal.action.upper()} signal, confidence={signal.confidence:.0f}%, strategy={signal.strategy}")
+                    
+                    if signal.action != 'hold' and signal.confidence >= self.min_confidence:
+                        signals_found += 1
+                        logger.info(f"EXECUTING TRADE: {symbol} {signal.action.upper()}")
+                        await self._execute_trade(user_id, client, signal, available_usdt, total_equity)
+            
+            if symbols_analyzed > 0:
+                logger.info(f"Analyzed {symbols_analyzed} pairs, found {signals_found} tradeable signals")
                     
     async def _analyze_for_trade(self, symbol: str, client: BybitV5Client) -> Optional[TradeSignal]:
         """Analyze a symbol and generate trading signal"""
