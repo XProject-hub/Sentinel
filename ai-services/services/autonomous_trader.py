@@ -96,11 +96,9 @@ class AutonomousTrader:
         self.min_confidence = 50.0  # Lower threshold - trade more often
         self.max_open_positions = 15  # More smaller positions = diversified risk
         
-        # SAFE PROFIT THRESHOLDS - Small consistent wins
-        self.take_profit_percent = 0.5   # Take profit at +0.5% (small but safe)
-        self.stop_loss_percent = 0.3     # Stop loss at -0.3% (exit FAST on loss)
-        self.trailing_activate = 0.3     # Activate trailing at +0.3% profit
-        self.trailing_stop = 0.15        # Trail by 0.15% (lock in profits)
+        # EXIT STRATEGY - Hold while winning, exit when dropping from peak
+        self.stop_loss_percent = 0.3     # Stop loss at -0.3% from ENTRY (exit FAST on loss)
+        self.trailing_drop_percent = 0.3 # Exit when price drops 0.3% from PEAK (not entry!)
         
         # Track last trade times
         self.last_trade_time: Dict[str, datetime] = {}
@@ -426,18 +424,30 @@ class AutonomousTrader:
             trade_value = total_equity * (signal.position_size_percent / 100)
             trade_value = min(trade_value, available_usdt * 0.95)  # Keep 5% buffer
             
-            if trade_value < 10:  # Minimum $10 trade
+            logger.info(f"Trade calc: equity={total_equity:.2f}, available={available_usdt:.2f}, trade_value={trade_value:.2f}")
+            
+            if trade_value < 5:  # Minimum $5 trade (lowered from $10)
+                logger.warning(f"Trade value too low: ${trade_value:.2f} < $5 minimum")
                 return
                 
             quantity = trade_value / signal.entry_price
             
-            # Round quantity to appropriate precision
-            quantity = round(quantity, 4)
+            # Round quantity based on symbol (crypto needs different precision)
+            if signal.entry_price > 1000:  # BTC, ETH
+                quantity = round(quantity, 5)
+            elif signal.entry_price > 10:
+                quantity = round(quantity, 3)
+            else:
+                quantity = round(quantity, 1)
+            
+            if quantity <= 0:
+                logger.warning(f"Quantity too small for {signal.symbol}")
+                return
             
             # Determine side
             side = 'Buy' if signal.action == 'buy' else 'Sell'
             
-            logger.info(f"Executing {side} {signal.symbol}: qty={quantity}, price≈{signal.entry_price}")
+            logger.info(f"PLACING ORDER: {side} {signal.symbol} qty={quantity} @ ${signal.entry_price:.2f}")
             
             # Place order (qty must be string for Bybit API)
             order_result = await client.place_order(
@@ -511,62 +521,67 @@ class AutonomousTrader:
             
         current_price = float(tickers[0].get('lastPrice', 0))
         
-        # Calculate PnL percentage
-        pnl_percent = (unrealized_pnl / total_equity) * 100 if total_equity > 0 else 0
-        
-        should_close = False
-        close_reason = ""
-        
         # Calculate price change from entry
         if position['side'].lower() == 'buy':
             price_change_percent = ((current_price - entry_price) / entry_price) * 100
         else:
             price_change_percent = ((entry_price - current_price) / entry_price) * 100
         
-        # SAFE PROFIT MODE: Small consistent wins, fast exits on loss
+        should_close = False
+        close_reason = ""
         
-        # Take profit: +0.5% or more - CASH OUT!
-        if price_change_percent >= self.take_profit_percent:
+        # Track peak price for this position
+        peak_key = f"peak:{position['symbol']}:{position['side']}"
+        peak_data = await self.redis_client.get(peak_key)
+        
+        if peak_data:
+            peak_price = float(peak_data)
+            # Update peak if current is higher
+            if position['side'].lower() == 'buy' and current_price > peak_price:
+                peak_price = current_price
+                await self.redis_client.set(peak_key, str(peak_price))
+            elif position['side'].lower() == 'sell' and current_price < peak_price:
+                peak_price = current_price
+                await self.redis_client.set(peak_key, str(peak_price))
+        else:
+            # First check - set current as peak
+            peak_price = current_price
+            await self.redis_client.set(peak_key, str(peak_price))
+        
+        # Calculate drop from peak (not from entry!)
+        if position['side'].lower() == 'buy':
+            drop_from_peak = ((peak_price - current_price) / peak_price) * 100
+        else:
+            drop_from_peak = ((current_price - peak_price) / peak_price) * 100
+        
+        # === EXIT LOGIC ===
+        
+        # 1. STOP LOSS: Exit if down 0.3% from ENTRY (immediate protection)
+        if price_change_percent <= -self.stop_loss_percent:
             should_close = True
-            close_reason = f"PROFIT SECURED: +{price_change_percent:.2f}% (target: {self.take_profit_percent}%)"
+            close_reason = f"STOP LOSS: {price_change_percent:.2f}% from entry"
+            await self.redis_client.delete(peak_key)
             
-        # Stop loss: -0.3% - EXIT IMMEDIATELY
-        elif price_change_percent <= -self.stop_loss_percent:
+        # 2. TRAILING STOP: If we're in profit but price dropped 0.3% from PEAK
+        elif price_change_percent > 0 and drop_from_peak >= self.trailing_drop_percent:
             should_close = True
-            close_reason = f"STOP LOSS: {price_change_percent:.2f}% (limit: -{self.stop_loss_percent}%)"
+            close_reason = f"TRAILING STOP: Dropped {drop_from_peak:.2f}% from peak (profit: +{price_change_percent:.2f}%)"
+            await self.redis_client.delete(peak_key)
             
-        # Trailing stop: If we hit +0.3% profit and it's dropping, exit
-        elif price_change_percent >= self.trailing_activate:
-            # We're in profit, but check if price is reversing
-            # Store peak profit in Redis to track
-            peak_key = f"peak:{position['symbol']}:{position['side']}"
-            peak_profit = await self.redis_client.get(peak_key)
-            
-            if peak_profit:
-                peak = float(peak_profit)
-                if price_change_percent > peak:
-                    await self.redis_client.set(peak_key, str(price_change_percent))
-                elif peak - price_change_percent >= self.trailing_stop:
-                    # Dropped 0.15% from peak - exit with profit
-                    should_close = True
-                    close_reason = f"TRAILING STOP: Peak was +{peak:.2f}%, now +{price_change_percent:.2f}%"
-                    await self.redis_client.delete(peak_key)
-            else:
-                await self.redis_client.set(peak_key, str(price_change_percent))
-                
-        # If position is slightly negative but not at stop loss yet, check trend
-        elif price_change_percent < 0:
-            # Get quick price trend (is it still falling?)
-            # If momentum is negative, exit early before hitting stop loss
+        # 3. EMERGENCY: Market crash detection
+        elif price_change_percent < -0.1:
             ticker_result = await client.get_tickers(symbol=position['symbol'])
             if ticker_result.get('success'):
                 tickers = ticker_result.get('data', {}).get('list', [])
                 if tickers:
                     price_24h_change = float(tickers[0].get('price24hPcnt', 0)) * 100
-                    # If market is dumping hard, exit immediately
-                    if abs(price_24h_change) > 5 and price_change_percent < -0.1:
+                    if price_24h_change < -5:  # Market crashed 5%+
                         should_close = True
-                        close_reason = f"EMERGENCY EXIT: Market crash -{price_24h_change:.1f}%"
+                        close_reason = f"EMERGENCY: Market crash {price_24h_change:.1f}%"
+                        await self.redis_client.delete(peak_key)
+        
+        # Log position status periodically
+        logger.debug(f"{position['symbol']}: entry=${entry_price:.2f}, current=${current_price:.2f}, peak=${peak_price:.2f}, pnl={price_change_percent:.2f}%, drop_from_peak={drop_from_peak:.2f}%")
                     
         if should_close:
             await self._close_position(user_id, client, position, close_reason)
