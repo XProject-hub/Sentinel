@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException
 from typing import Optional
 import psutil
 import os
+import asyncio
 from datetime import datetime, timedelta
 from loguru import logger
 import redis.asyncio as redis
@@ -38,29 +39,54 @@ def get_uptime() -> str:
 
 @router.get("/system")
 async def get_system_stats():
-    """Get real system statistics"""
+    """Get real system statistics - works in Docker containers"""
     try:
-        # Real CPU usage
-        cpu_percent = psutil.cpu_percent(interval=0.5)
+        # CPU usage - try multiple methods
+        try:
+            cpu_percent = psutil.cpu_percent(interval=1)
+            if cpu_percent == 0:
+                # Try reading from /proc/stat for Docker
+                cpu_percent = await _get_docker_cpu()
+        except:
+            cpu_percent = await _get_docker_cpu()
         
-        # Real memory usage
-        memory = psutil.virtual_memory()
-        memory_percent = memory.percent
+        # Memory usage
+        try:
+            memory = psutil.virtual_memory()
+            memory_percent = memory.percent
+            memory_used = memory.used
+            memory_total = memory.total
+        except:
+            memory_percent, memory_used, memory_total = await _get_docker_memory()
         
-        # Real disk usage
-        disk = psutil.disk_usage('/')
-        disk_percent = disk.percent
+        # Disk usage
+        try:
+            disk = psutil.disk_usage('/')
+            disk_percent = disk.percent
+            disk_used = disk.used
+            disk_total = disk.total
+        except:
+            disk_percent = 0
+            disk_used = 0
+            disk_total = 0
         
-        # Active connections (network)
-        connections = len(psutil.net_connections())
+        # Try to get network connections
+        try:
+            connections = len(psutil.net_connections())
+        except:
+            connections = 0
         
         return {
             "success": True,
             "data": {
                 "uptime": get_uptime(),
-                "cpuUsage": cpu_percent,
-                "memoryUsage": memory_percent,
-                "diskUsage": disk_percent,
+                "cpuUsage": round(cpu_percent, 1),
+                "memoryUsage": round(memory_percent, 1),
+                "memoryUsedGB": round(memory_used / (1024**3), 2),
+                "memoryTotalGB": round(memory_total / (1024**3), 2),
+                "diskUsage": round(disk_percent, 1),
+                "diskUsedGB": round(disk_used / (1024**3), 2),
+                "diskTotalGB": round(disk_total / (1024**3), 2),
                 "activeConnections": connections,
                 "timestamp": datetime.now().isoformat()
             }
@@ -71,6 +97,70 @@ async def get_system_stats():
             "success": False,
             "error": str(e)
         }
+
+
+async def _get_docker_cpu() -> float:
+    """Get CPU usage from /proc/stat for Docker containers"""
+    try:
+        # Read CPU stats twice with delay
+        with open('/proc/stat', 'r') as f:
+            line1 = f.readline()
+        
+        await asyncio.sleep(0.1)
+        
+        with open('/proc/stat', 'r') as f:
+            line2 = f.readline()
+        
+        # Parse CPU times
+        def parse_cpu(line):
+            parts = line.split()
+            return [int(x) for x in parts[1:8]]
+        
+        cpu1 = parse_cpu(line1)
+        cpu2 = parse_cpu(line2)
+        
+        # Calculate deltas
+        idle1 = cpu1[3]
+        idle2 = cpu2[3]
+        total1 = sum(cpu1)
+        total2 = sum(cpu2)
+        
+        idle_delta = idle2 - idle1
+        total_delta = total2 - total1
+        
+        if total_delta == 0:
+            return 0
+            
+        cpu_percent = ((total_delta - idle_delta) / total_delta) * 100
+        return cpu_percent
+        
+    except Exception as e:
+        logger.debug(f"Docker CPU read failed: {e}")
+        return 0
+
+
+async def _get_docker_memory() -> tuple:
+    """Get memory usage from /proc/meminfo for Docker containers"""
+    try:
+        meminfo = {}
+        with open('/proc/meminfo', 'r') as f:
+            for line in f:
+                parts = line.split()
+                key = parts[0].rstrip(':')
+                value = int(parts[1]) * 1024  # Convert KB to bytes
+                meminfo[key] = value
+        
+        total = meminfo.get('MemTotal', 0)
+        available = meminfo.get('MemAvailable', meminfo.get('MemFree', 0))
+        used = total - available
+        
+        percent = (used / total * 100) if total > 0 else 0
+        
+        return percent, used, total
+        
+    except Exception as e:
+        logger.debug(f"Docker memory read failed: {e}")
+        return 0, 0, 0
 
 
 @router.get("/users")
