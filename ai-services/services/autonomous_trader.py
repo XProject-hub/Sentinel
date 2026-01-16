@@ -206,9 +206,16 @@ class AutonomousTrader:
         
         for account in balance_data.get('list', []):
             total_equity = float(account.get('totalEquity', 0))
+            # Get available margin for trading (not withdrawable amount)
+            available_margin = float(account.get('totalAvailableBalance', 0))
+            
             for coin in account.get('coin', []):
                 if coin.get('coin') == 'USDT':
-                    available_usdt = float(coin.get('availableToWithdraw', 0))
+                    # Use walletBalance or availableBalance, not availableToWithdraw
+                    wallet_bal = float(coin.get('walletBalance', 0))
+                    avail_bal = float(coin.get('availableBalance', wallet_bal))
+                    available_usdt = max(avail_bal, available_margin)
+                    logger.debug(f"USDT: wallet={wallet_bal}, available={avail_bal}, margin={available_margin}")
                     
         if total_equity < 10:  # Minimum $10 to trade
             return
