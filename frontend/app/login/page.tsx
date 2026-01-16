@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { Shield, Eye, EyeOff, ArrowRight, AlertCircle } from 'lucide-react'
 import Link from 'next/link'
@@ -17,6 +17,20 @@ export default function LoginPage() {
     email: '',
     password: '',
   })
+
+  // Check if already logged in
+  useEffect(() => {
+    const storedUser = localStorage.getItem('sentinel_user')
+    if (storedUser) {
+      const user = JSON.parse(storedUser)
+      // Redirect based on role
+      if (user.isAdmin) {
+        window.location.href = '/admin'
+      } else {
+        window.location.href = '/dashboard'
+      }
+    }
+  }, [])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()

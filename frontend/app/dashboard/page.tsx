@@ -113,24 +113,23 @@ export default function DashboardPage() {
   useEffect(() => {
     // Check if user is logged in
     const storedUser = localStorage.getItem('sentinel_user')
-    if (storedUser) {
-      setUser(JSON.parse(storedUser))
+    if (!storedUser) {
+      // No session - redirect to login
+      window.location.href = '/login'
+      return
     }
+    setUser(JSON.parse(storedUser))
     
     // Load real data
     loadData()
     
-    // Refresh data every 10 seconds for live updates
+    // Auto-refresh every 3 seconds for real-time updates
     const interval = setInterval(() => {
-      loadAIInsight()
-      // Also refresh activity if trading
-      if (tradingStatus?.is_autonomous_trading) {
-        loadBotActivity()
-      }
-    }, 10000)
+      refreshDataSilent()
+    }, 3000)
     
     return () => clearInterval(interval)
-  }, [tradingStatus?.is_autonomous_trading])
+  }, [])
 
   const loadBotActivity = async () => {
     try {
@@ -215,6 +214,46 @@ export default function DashboardPage() {
     setIsRefreshing(true)
     await loadData()
     setIsRefreshing(false)
+  }
+
+  // Silent refresh - no loading spinner (for auto-refresh)
+  const refreshDataSilent = async () => {
+    try {
+      // Check exchange connection status
+      const statusRes = await fetch('/ai/exchange/status')
+      const statusData = await statusRes.json()
+      setExchangeStatus(statusData)
+
+      if (statusData.connected) {
+        // Load all data in parallel for faster refresh
+        const [balanceRes, posRes, pnlRes, tradingRes, activityRes, insightRes] = await Promise.all([
+          fetch('/ai/exchange/balance'),
+          fetch('/ai/exchange/positions'),
+          fetch('/ai/exchange/pnl'),
+          fetch('/ai/exchange/trading/status'),
+          fetch('/ai/exchange/trading/activity'),
+          fetch('/ai/insight')
+        ])
+
+        const [balanceData, posData, pnlDataResult, tradingData, activityData, insightData] = await Promise.all([
+          balanceRes.json(),
+          posRes.json(),
+          pnlRes.json(),
+          tradingRes.json(),
+          activityRes.json(),
+          insightRes.json()
+        ])
+
+        if (balanceData.success) setBalance(balanceData.data)
+        if (posData.success) setPositions(posData.data.positions || [])
+        if (pnlDataResult.success) setPnlData(pnlDataResult.data)
+        if (tradingData.success) setTradingStatus(tradingData.data)
+        if (activityData.success) setBotActivity(activityData.data)
+        if (insightData.success) setAiInsight(insightData.data)
+      }
+    } catch (error) {
+      console.error('Silent refresh failed:', error)
+    }
   }
 
   const startTrading = async () => {
@@ -916,7 +955,7 @@ export default function DashboardPage() {
             </div>
 
             <div className="mt-4 pt-4 border-t border-sentinel-border text-xs text-sentinel-text-muted">
-              Strategy: SAFE PROFIT MODE | Take Profit: +0.5% | Stop Loss: -0.3% | Auto-refresh every 30s
+              Strategy: SAFE PROFIT MODE | Take Profit: +0.5% | Stop Loss: -0.3% | Auto-refresh every 3s
             </div>
           </motion.div>
         )}
