@@ -219,19 +219,21 @@ class AutonomousTrader:
                 coin_name = coin.get('coin')
                 wallet_bal = float(coin.get('walletBalance', 0))
                 avail_bal = float(coin.get('availableToWithdraw', 0))
-                equity = float(coin.get('equity', 0))
+                coin_equity = float(coin.get('equity', 0))
                 
-                if wallet_bal > 0:
-                    logger.info(f"Coin {coin_name}: wallet={wallet_bal}, available={avail_bal}, equity={equity}")
+                # Log ALL coins for debugging
+                logger.info(f"Coin {coin_name}: wallet={wallet_bal:.4f}, available={avail_bal:.4f}, equity={coin_equity:.4f}")
                 
                 if coin_name == 'USDT':
-                    # For trading, use equity (total value including positions) or wallet balance
-                    available_usdt = max(wallet_bal, available_margin, equity * 0.9)  # 90% of equity
+                    # For trading, use the maximum of all available sources
+                    available_usdt = max(wallet_bal, avail_bal, coin_equity * 0.9, available_margin)
                     
-            # If no USDT found but we have equity, use equity as available (cross margin)
-            if available_usdt == 0 and total_equity > 0:
-                available_usdt = available_margin if available_margin > 0 else total_equity * 0.5
-                logger.info(f"No USDT coin, using available_margin={available_margin} or 50% equity")
+            # FALLBACK: If still no available, use a portion of total equity
+            # This handles cases where all funds are in positions (cross-margin mode)
+            if available_usdt < 5 and total_equity > 10:
+                # Use 30% of equity as "virtual" available (conservative)
+                available_usdt = total_equity * 0.3
+                logger.warning(f"Low available margin! Using 30% of equity: ${available_usdt:.2f}")
                     
         if total_equity < 10:  # Minimum $10 to trade
             return
