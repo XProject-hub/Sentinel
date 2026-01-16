@@ -164,71 +164,9 @@ async def get_balance():
                             "unrealizedPnl": float(coin.get("unrealisedPnl", 0))
                         })
     
-    # Try SPOT account if UNIFIED is empty
-    if total_equity == 0:
-        logger.info("UNIFIED empty, trying SPOT account...")
-        result = await client.get_wallet_balance(account_type="SPOT")
-        all_results["SPOT"] = result
-        if result.get("success"):
-            data = result.get("data", {})
-            for account in data.get("list", []):
-                for coin in account.get("coin", []):
-                    balance = float(coin.get("walletBalance", 0))
-                    if balance > 0:
-                        usd_value = float(coin.get("usdValue", 0))
-                        total_equity += usd_value
-                        account_type_found = "SPOT"
-                        coins.append({
-                            "coin": coin.get("coin"),
-                            "balance": balance,
-                            "equity": balance,
-                            "usdValue": usd_value,
-                            "unrealizedPnl": 0
-                        })
-    
-    # Try CONTRACT account
-    if total_equity == 0:
-        logger.info("SPOT empty, trying CONTRACT account...")
-        result = await client.get_wallet_balance(account_type="CONTRACT")
-        all_results["CONTRACT"] = result
-        if result.get("success"):
-            data = result.get("data", {})
-            for account in data.get("list", []):
-                eq = float(account.get("totalEquity", 0))
-                if eq > 0:
-                    total_equity = eq
-                    account_type_found = "CONTRACT"
-                    for coin in account.get("coin", []):
-                        if float(coin.get("walletBalance", 0)) > 0:
-                            coins.append({
-                                "coin": coin.get("coin"),
-                                "balance": float(coin.get("walletBalance", 0)),
-                                "equity": float(coin.get("equity", 0)),
-                                "usdValue": float(coin.get("usdValue", 0)),
-                                "unrealizedPnl": float(coin.get("unrealisedPnl", 0))
-                            })
-
-    # Try FUND account (for holdings)
-    if total_equity == 0:
-        logger.info("CONTRACT empty, trying FUND account...")
-        result = await client.get_wallet_balance(account_type="FUND")
-        all_results["FUND"] = result
-        if result.get("success"):
-            data = result.get("data", {})
-            for account in data.get("list", []):
-                for coin in account.get("coin", []):
-                    balance = float(coin.get("walletBalance", 0))
-                    if balance > 0:
-                        usd_value = float(coin.get("usdValue", 0))
-                        total_equity += usd_value
-                        account_type_found = "FUND"
-                        coins.append({
-                            "coin": coin.get("coin"),
-                            "balance": balance,
-                            "equity": balance,
-                            "usdValue": usd_value,
-                            "unrealizedPnl": 0
-                        })
+    # Note: Most Bybit accounts now only support UNIFIED
+    # SPOT, CONTRACT, FUND are legacy account types
+    # If UNIFIED returns 0, the user needs to transfer funds to Unified Trading wallet
     
     logger.info(f"Balance fetched: €{total_equity:.2f} from {account_type_found} account, {len(coins)} coins")
     
