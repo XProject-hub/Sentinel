@@ -26,7 +26,11 @@ import {
   Play,
   Square,
   Bot,
-  PieChart as PieChartIcon
+  PieChart as PieChartIcon,
+  Newspaper,
+  GraduationCap,
+  ExternalLink,
+  Clock
 } from 'lucide-react'
 import Link from 'next/link'
 import Image from 'next/image'
@@ -116,6 +120,48 @@ interface BotActivity {
   bot_actions: any[]
 }
 
+interface NewsArticle {
+  source: string
+  title: string
+  body: string
+  url: string
+  published: string
+  sentiment: 'bullish' | 'bearish' | 'neutral'
+  coins: string[]
+}
+
+interface NewsData {
+  articles: NewsArticle[]
+  sentiment: {
+    bullish_percent: number
+    bearish_percent: number
+    neutral_percent: number
+    overall: string
+    total_articles: number
+  }
+  timestamp: string
+}
+
+interface LearningData {
+  learning: {
+    total_states_learned: number
+    active_learning_states: number
+    learning_progress: number
+    best_strategies: Record<string, { action: string; confidence: number }>
+  }
+  history: any[]
+  stats: {
+    total_trades: number
+    wins: number
+    losses: number
+    win_rate: number
+    total_profit: number
+    avg_profit_per_trade: number
+    best_trade: number
+    worst_trade: number
+  }
+}
+
 export default function DashboardPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [isRefreshing, setIsRefreshing] = useState(false)
@@ -128,6 +174,8 @@ export default function DashboardPage() {
   const [tradingStatus, setTradingStatus] = useState<TradingStatus | null>(null)
   const [isTogglingBot, setIsTogglingBot] = useState(false)
   const [botActivity, setBotActivity] = useState<BotActivity | null>(null)
+  const [newsData, setNewsData] = useState<NewsData | null>(null)
+  const [learningData, setLearningData] = useState<LearningData | null>(null)
 
   useEffect(() => {
     // Check if user is logged in
@@ -174,12 +222,39 @@ export default function DashboardPage() {
     }
   }
 
+  const loadNewsData = async () => {
+    try {
+      const newsRes = await fetch('/ai/data/news?limit=15')
+      const data = await newsRes.json()
+      if (data.success) {
+        setNewsData(data)
+      }
+    } catch (error) {
+      console.error('Failed to load news:', error)
+    }
+  }
+
+  const loadLearningData = async () => {
+    try {
+      const learningRes = await fetch('/ai/data/learning')
+      const data = await learningRes.json()
+      if (data.success) {
+        setLearningData(data)
+      }
+    } catch (error) {
+      console.error('Failed to load learning data:', error)
+    }
+  }
+
   const loadData = async () => {
     setIsLoading(true)
     
     try {
       // Load AI insight first (always available)
       await loadAIInsight()
+      
+      // Load news and learning data (always available)
+      await Promise.all([loadNewsData(), loadLearningData()])
       
       // Check exchange connection status
       const statusRes = await fetch('/ai/exchange/status')
@@ -242,6 +317,18 @@ export default function DashboardPage() {
       const statusRes = await fetch('/ai/exchange/status')
       const statusData = await statusRes.json()
       setExchangeStatus(statusData)
+
+      // Load news and learning (always available even without exchange)
+      const [newsRes, learningRes] = await Promise.all([
+        fetch('/ai/data/news?limit=15'),
+        fetch('/ai/data/learning')
+      ])
+      const [newsDataResult, learningDataResult] = await Promise.all([
+        newsRes.json(),
+        learningRes.json()
+      ])
+      if (newsDataResult.success) setNewsData(newsDataResult)
+      if (learningDataResult.success) setLearningData(learningDataResult)
 
       if (statusData.connected) {
         // Load all data in parallel for faster refresh
@@ -1149,6 +1236,246 @@ export default function DashboardPage() {
             </div>
           </motion.div>
         )}
+
+        {/* News & Learning Section */}
+        <div className="mt-8 grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Crypto News Panel */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.55 }}
+            className="p-6 rounded-2xl glass-card"
+          >
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-sentinel-accent-amber/10">
+                  <Newspaper className="w-5 h-5 text-sentinel-accent-amber" />
+                </div>
+                <h2 className="text-lg font-semibold">Crypto News - LIVE</h2>
+              </div>
+              {newsData?.sentiment && (
+                <div className="flex items-center gap-2">
+                  <span className={`text-xs px-2 py-1 rounded font-medium ${
+                    newsData.sentiment.overall === 'bullish' ? 'bg-sentinel-accent-emerald/20 text-sentinel-accent-emerald' :
+                    newsData.sentiment.overall === 'bearish' ? 'bg-sentinel-accent-crimson/20 text-sentinel-accent-crimson' :
+                    'bg-sentinel-bg-tertiary text-sentinel-text-muted'
+                  }`}>
+                    {newsData.sentiment.overall?.toUpperCase()} {newsData.sentiment.bullish_percent?.toFixed(0)}%
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {/* News Sentiment Bar */}
+            {newsData?.sentiment && (
+              <div className="mb-4">
+                <div className="flex h-2 rounded-full overflow-hidden bg-sentinel-bg-tertiary">
+                  <div 
+                    className="bg-sentinel-accent-emerald" 
+                    style={{ width: `${newsData.sentiment.bullish_percent}%` }}
+                  />
+                  <div 
+                    className="bg-sentinel-text-muted" 
+                    style={{ width: `${newsData.sentiment.neutral_percent}%` }}
+                  />
+                  <div 
+                    className="bg-sentinel-accent-crimson" 
+                    style={{ width: `${newsData.sentiment.bearish_percent}%` }}
+                  />
+                </div>
+                <div className="flex justify-between text-xs text-sentinel-text-muted mt-1">
+                  <span>Bullish {newsData.sentiment.bullish_percent?.toFixed(0)}%</span>
+                  <span>Neutral {newsData.sentiment.neutral_percent?.toFixed(0)}%</span>
+                  <span>Bearish {newsData.sentiment.bearish_percent?.toFixed(0)}%</span>
+                </div>
+              </div>
+            )}
+
+            {/* News Articles */}
+            {!newsData?.articles?.length ? (
+              <div className="text-center py-8 text-sentinel-text-muted">
+                <Newspaper className="w-10 h-10 mx-auto mb-3 opacity-30" />
+                <p>Loading crypto news...</p>
+              </div>
+            ) : (
+              <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2">
+                {newsData.articles.slice(0, 10).map((article, idx) => (
+                  <div key={idx} className="p-3 rounded-lg bg-sentinel-bg-tertiary hover:bg-sentinel-bg-secondary transition-colors">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className={`w-2 h-2 rounded-full ${
+                            article.sentiment === 'bullish' ? 'bg-sentinel-accent-emerald' :
+                            article.sentiment === 'bearish' ? 'bg-sentinel-accent-crimson' :
+                            'bg-sentinel-text-muted'
+                          }`} />
+                          <span className="text-xs text-sentinel-text-muted truncate">{article.source}</span>
+                          {article.coins?.length > 0 && (
+                            <div className="flex gap-1">
+                              {article.coins.slice(0, 2).map((coin, i) => (
+                                <span key={i} className="text-xs px-1.5 py-0.5 rounded bg-sentinel-accent-cyan/10 text-sentinel-accent-cyan">
+                                  {coin}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                        <a 
+                          href={article.url} 
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                          className="text-sm font-medium hover:text-sentinel-accent-cyan transition-colors line-clamp-2"
+                        >
+                          {article.title}
+                        </a>
+                        <p className="text-xs text-sentinel-text-muted mt-1 line-clamp-1">
+                          {article.body}
+                        </p>
+                      </div>
+                      <a 
+                        href={article.url} 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="p-1.5 rounded hover:bg-sentinel-bg-tertiary"
+                      >
+                        <ExternalLink className="w-4 h-4 text-sentinel-text-muted" />
+                      </a>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="mt-4 pt-4 border-t border-sentinel-border text-xs text-sentinel-text-muted flex items-center gap-2">
+              <Clock className="w-3 h-3" />
+              Updated: {newsData?.timestamp ? new Date(newsData.timestamp).toLocaleTimeString() : 'Loading...'} | 
+              Sources: CryptoCompare, CoinGecko, CoinPaprika, Reddit
+            </div>
+          </motion.div>
+
+          {/* AI Learning Panel */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.6 }}
+            className="p-6 rounded-2xl glass-card"
+          >
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-sentinel-accent-violet/10">
+                  <GraduationCap className="w-5 h-5 text-sentinel-accent-violet" />
+                </div>
+                <h2 className="text-lg font-semibold">AI Learning</h2>
+              </div>
+              <div className="text-sm font-mono text-sentinel-accent-violet">
+                {learningData?.learning?.learning_progress?.toFixed(0) || 0}% trained
+              </div>
+            </div>
+
+            {/* Learning Progress */}
+            <div className="mb-6">
+              <div className="flex justify-between text-sm mb-2">
+                <span className="text-sentinel-text-muted">Learning Progress</span>
+                <span className="font-mono">{learningData?.learning?.total_states_learned || 0} states</span>
+              </div>
+              <div className="h-3 rounded-full bg-sentinel-bg-tertiary overflow-hidden">
+                <div 
+                  className="h-full bg-gradient-to-r from-sentinel-accent-violet to-sentinel-accent-cyan transition-all duration-500"
+                  style={{ width: `${Math.min(learningData?.learning?.learning_progress || 0, 100)}%` }}
+                />
+              </div>
+            </div>
+
+            {/* Learning Stats Grid */}
+            <div className="grid grid-cols-2 gap-4 mb-6">
+              <div className="p-3 rounded-lg bg-sentinel-bg-tertiary text-center">
+                <div className="text-2xl font-bold text-sentinel-accent-cyan">
+                  {learningData?.stats?.total_trades || 0}
+                </div>
+                <div className="text-xs text-sentinel-text-muted">Total Trades</div>
+              </div>
+              <div className="p-3 rounded-lg bg-sentinel-bg-tertiary text-center">
+                <div className={`text-2xl font-bold ${(learningData?.stats?.win_rate || 0) >= 50 ? 'text-sentinel-accent-emerald' : 'text-sentinel-accent-crimson'}`}>
+                  {learningData?.stats?.win_rate?.toFixed(1) || 0}%
+                </div>
+                <div className="text-xs text-sentinel-text-muted">Win Rate</div>
+              </div>
+              <div className="p-3 rounded-lg bg-sentinel-bg-tertiary text-center">
+                <div className="text-2xl font-bold text-sentinel-accent-emerald">
+                  €{learningData?.stats?.best_trade?.toFixed(2) || '0.00'}
+                </div>
+                <div className="text-xs text-sentinel-text-muted">Best Trade</div>
+              </div>
+              <div className="p-3 rounded-lg bg-sentinel-bg-tertiary text-center">
+                <div className="text-2xl font-bold text-sentinel-accent-crimson">
+                  €{Math.abs(learningData?.stats?.worst_trade || 0).toFixed(2)}
+                </div>
+                <div className="text-xs text-sentinel-text-muted">Worst Trade</div>
+              </div>
+            </div>
+
+            {/* Best Learned Strategies */}
+            <div className="mb-4">
+              <h3 className="text-sm font-medium text-sentinel-text-secondary mb-3">Best Learned Strategies</h3>
+              {!learningData?.learning?.best_strategies || Object.keys(learningData.learning.best_strategies).length === 0 ? (
+                <div className="text-sm text-sentinel-text-muted py-4 text-center">
+                  <Brain className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                  AI is learning from market data...
+                </div>
+              ) : (
+                <div className="space-y-2 max-h-32 overflow-y-auto">
+                  {Object.entries(learningData.learning.best_strategies).slice(0, 5).map(([state, strategy], idx) => (
+                    <div key={idx} className="flex items-center justify-between p-2 rounded bg-sentinel-bg-tertiary">
+                      <div className="flex items-center gap-2">
+                        <div className={`w-2 h-2 rounded-full ${
+                          strategy.action === 'buy' ? 'bg-sentinel-accent-emerald' :
+                          strategy.action === 'sell' ? 'bg-sentinel-accent-crimson' :
+                          'bg-sentinel-accent-amber'
+                        }`} />
+                        <span className="text-xs font-mono truncate max-w-[150px]">{state}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className={`text-xs px-2 py-0.5 rounded ${
+                          strategy.action === 'buy' ? 'bg-sentinel-accent-emerald/20 text-sentinel-accent-emerald' :
+                          strategy.action === 'sell' ? 'bg-sentinel-accent-crimson/20 text-sentinel-accent-crimson' :
+                          'bg-sentinel-accent-amber/20 text-sentinel-accent-amber'
+                        }`}>
+                          {strategy.action?.toUpperCase()}
+                        </span>
+                        <span className="text-xs text-sentinel-text-muted">{(strategy.confidence * 100).toFixed(0)}%</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Recent Learning Events */}
+            <div>
+              <h3 className="text-sm font-medium text-sentinel-text-secondary mb-3">Recent Learning Events</h3>
+              {!learningData?.history?.length ? (
+                <div className="text-sm text-sentinel-text-muted py-2">
+                  Waiting for learning events...
+                </div>
+              ) : (
+                <div className="space-y-1 max-h-24 overflow-y-auto">
+                  {learningData.history.slice(0, 5).map((event: any, idx: number) => (
+                    <div key={idx} className="text-xs flex items-center justify-between py-1 border-b border-sentinel-border/30">
+                      <span className="text-sentinel-text-muted">{event.state?.substring(0, 20)}...</span>
+                      <span className={event.reward > 0 ? 'text-sentinel-accent-emerald' : 'text-sentinel-accent-crimson'}>
+                        {event.reward > 0 ? '+' : ''}{event.reward?.toFixed(2)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="mt-4 pt-4 border-t border-sentinel-border text-xs text-sentinel-text-muted">
+              Q-Learning AI | {learningData?.learning?.active_learning_states || 0} active learning states | Updates every trade
+            </div>
+          </motion.div>
+        </div>
 
         {/* Asset Balances */}
         {balance?.coins && balance.coins.length > 0 && (

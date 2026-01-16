@@ -19,7 +19,7 @@ from services.websocket_manager import WebSocketManager
 from services.data_aggregator import DataAggregator
 from services.learning_engine import LearningEngine
 from services.autonomous_trader import autonomous_trader
-from routers import market, sentiment, strategy, risk, trading, exchange, admin
+from routers import market, sentiment, strategy, risk, trading, exchange, admin, data
 
 # Initialize services
 market_intelligence = MarketIntelligenceService()
@@ -166,6 +166,7 @@ app.include_router(risk.router, prefix="/ai/risk", tags=["Risk Management"])
 app.include_router(trading.router, prefix="/ai/trading", tags=["Trading"])
 app.include_router(exchange.router, prefix="/ai/exchange", tags=["Exchange Connection"])
 app.include_router(admin.router, prefix="/ai/admin", tags=["Admin"])
+app.include_router(data.router, tags=["Data & News"])
 
 
 # ============================================

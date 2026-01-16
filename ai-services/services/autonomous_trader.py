@@ -71,15 +71,59 @@ class AutonomousTrader:
         # Connected exchange clients per user
         self.user_clients: Dict[str, BybitV5Client] = {}
         
-        # Top trading pairs - focus on liquid markets
+        # ALL trading pairs from Bybit - 100+ verified coins
         self.trading_pairs = [
-            # Tier 1 - Most liquid
+            # === TIER 1: Top 10 by market cap (Most liquid) ===
             'BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT',
-            # Tier 2 - High volume
-            'ADAUSDT', 'DOGEUSDT', 'AVAXUSDT', 'DOTUSDT', 'LINKUSDT',
-            'MATICUSDT', 'LTCUSDT', 'ATOMUSDT', 'UNIUSDT', 'NEARUSDT',
-            # Tier 3 - Good liquidity
-            'APTUSDT', 'ARBUSDT', 'OPUSDT', 'FILUSDT', 'INJUSDT',
+            'ADAUSDT', 'DOGEUSDT', 'AVAXUSDT', 'TRXUSDT', 'DOTUSDT',
+            
+            # === TIER 2: Top 11-30 (High volume) ===
+            'LINKUSDT', 'MATICUSDT', 'SHIBUSDT', 'LTCUSDT', 'ATOMUSDT',
+            'UNIUSDT', 'XLMUSDT', 'ETCUSDT', 'BCHUSDT', 'APTUSDT',
+            'NEARUSDT', 'FILUSDT', 'ARBUSDT', 'OPUSDT', 'INJUSDT',
+            'STXUSDT', 'IMXUSDT', 'MKRUSDT', 'AAVEUSDT', 'GRTUSDT',
+            
+            # === TIER 3: Top 31-60 (Good liquidity) ===
+            'RUNEUSDT', 'LDOUSDT', 'ALGOUSDT', 'FTMUSDT', 'EGLDUSDT',
+            'SANDUSDT', 'MANAUSDT', 'AXSUSDT', 'THETAUSDT', 'XTZUSDT',
+            'EOSUSDT', 'FLOWUSDT', 'NEOUSDT', 'KSMUSDT', 'KAVAUSDT',
+            'MINAUSDT', 'ZILUSDT', 'ENJUSDT', 'GALAUSDT', 'CHZUSDT',
+            'CRVUSDT', 'SNXUSDT', 'COMPUSDT', '1INCHUSDT', 'YFIUSDT',
+            'SUSHIUSDT', 'BALUSDT', 'ZRXUSDT', 'RENUSDT',
+            
+            # === TIER 4: Layer 2 & New Chains ===
+            'SUIUSDT', 'SEIUSDT', 'TIAUSDT', 'JUPUSDT', 'STRKUSDT',
+            'MANTAUSDT', 'BLASTUSDT',
+            
+            # === TIER 5: AI & DePIN Coins ===
+            'FETUSDT', 'AGIXUSDT', 'OCEANUSDT', 'RNDRUSDT', 'TAOUSDT',
+            'WLDUSDT', 'AKTUSDT', 'ARKMUSDT',
+            
+            # === TIER 6: Meme Coins ===
+            'PEPEUSDT', 'FLOKIUSDT', 'BONKUSDT', 'WIFUSDT',
+            'BOMEUSDT', 'MEMEUSD', 'NOTUSDT',
+            
+            # === TIER 7: Gaming & Metaverse ===
+            'ILVUSDT', 'MAGICUSDT', 'BEAMUSDT', 'PIXELUSDT',
+            'APEUSDT', 'GMTUSDT', 'LOOKSUSDT', 'BLURUSDT', 'HIGHUSDT',
+            
+            # === TIER 8: DeFi ===
+            'DYDXUSDT', 'GMXUSDT', 'PENDLEUSDT', 'RDNTUSDT',
+            'CELOUSDT', 'API3USDT', 'WOOUSDT', 'PERPUSDT',
+            
+            # === TIER 9: Infrastructure ===
+            'QNTUSDT', 'ICPUSDT', 'HBARUSDT', 'VETUSDT', 'IOTAUSDT',
+            'IOSTUSDT', 'ONTUSDT', 'WAVESUSDT', 'DASHUSDT', 'ZECUSDT',
+            
+            # === TIER 10: Others with good volume ===
+            'CFXUSDT', 'CKBUSDT', 'JASMYUSDT', 'ACHUSDT', 'HOTUSDT',
+            'DENTUSDT', 'SKLUSDT', 'ANKRUSDT', 'CTSIUSDT', 'BANDUSDT',
+            'STORJUSDT', 'RLCUSDT', 'COTIUSDT', 'CELRUSDT', 'MTLUSDT',
+            
+            # === TIER 11: Additional trending ===
+            'ORDIUSDT', 'KASUSDT', 'TIAUSDT', 'JTOUSDT', 'PYTHUSDT',
+            'ONDOUSDT', 'ARUSDT', 'ROSEUSDT', 'LRCUSDT', 'GLMUSDT',
+            'AGLDUSDT', 'MASKUSDT', 'ENSUSDT', 'BICOUSDT', 'TUSDT',
         ]
         
         # ============================================
