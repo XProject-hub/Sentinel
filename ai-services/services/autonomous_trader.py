@@ -2,6 +2,14 @@
 SENTINEL AI - Autonomous Trading System
 24/7 Non-stop trading with real money
 Learns, trades, compounds profits automatically
+
+SAFE PROFIT MODE Strategy:
+- Many small wins (0.5% target) instead of few big wins
+- Very fast exit on any loss (-0.3% max)
+- Trailing stops lock in profits
+- Better 10 trades x €1 profit than 1 trade x -€10 loss
+- Exit immediately when price starts falling
+- Emergency exit on market crash
 """
 
 import asyncio
@@ -82,11 +90,17 @@ class AutonomousTrader:
             'ILVUSDT', 'MAGICUSDT', 'PRIMAUSDT', 'BEAMUSDT', 'PIXELUSDT',
         ]
         
-        # Trading parameters
-        self.min_trade_interval_seconds = 30  # Don't trade same pair more often
-        self.max_position_percent = 10.0  # Max 10% of portfolio per position
-        self.min_confidence = 65.0  # Minimum AI confidence to trade
-        self.max_open_positions = 10  # Maximum concurrent positions
+        # Trading parameters - SAFE PROFIT MODE
+        self.min_trade_interval_seconds = 20  # Faster trading cycles
+        self.max_position_percent = 5.0  # Max 5% of portfolio per position (safer)
+        self.min_confidence = 60.0  # Minimum AI confidence to trade
+        self.max_open_positions = 15  # More smaller positions = diversified risk
+        
+        # SAFE PROFIT THRESHOLDS - Small consistent wins
+        self.take_profit_percent = 0.5   # Take profit at +0.5% (small but safe)
+        self.stop_loss_percent = 0.3     # Stop loss at -0.3% (exit FAST on loss)
+        self.trailing_activate = 0.3     # Activate trailing at +0.3% profit
+        self.trailing_stop = 0.15        # Trail by 0.15% (lock in profits)
         
         # Track last trade times
         self.last_trade_time: Dict[str, datetime] = {}
@@ -331,15 +345,15 @@ class AutonomousTrader:
             if action == 'hold':
                 return None
                 
-            # Calculate stop loss and take profit
-            atr_estimate = last_price * (volatility / 100)
+            # Calculate stop loss and take profit - SAFE PROFIT MODE
+            # Very tight stops for consistent small gains
             
             if action == 'buy':
-                stop_loss = last_price - (atr_estimate * 1.5)
-                take_profit = last_price + (atr_estimate * 2.5)
+                stop_loss = last_price * (1 - self.stop_loss_percent / 100)  # -0.3%
+                take_profit = last_price * (1 + self.take_profit_percent / 100)  # +0.5%
             else:
-                stop_loss = last_price + (atr_estimate * 1.5)
-                take_profit = last_price - (atr_estimate * 2.5)
+                stop_loss = last_price * (1 + self.stop_loss_percent / 100)  # +0.3%
+                take_profit = last_price * (1 - self.take_profit_percent / 100)  # -0.5%
                 
             # Position size based on confidence
             position_size_percent = min(
@@ -467,23 +481,56 @@ class AutonomousTrader:
         should_close = False
         close_reason = ""
         
-        # Take profit: +3% or more
-        if pnl_percent >= 3:
+        # Calculate price change from entry
+        if position['side'].lower() == 'buy':
+            price_change_percent = ((current_price - entry_price) / entry_price) * 100
+        else:
+            price_change_percent = ((entry_price - current_price) / entry_price) * 100
+        
+        # SAFE PROFIT MODE: Small consistent wins, fast exits on loss
+        
+        # Take profit: +0.5% or more - CASH OUT!
+        if price_change_percent >= self.take_profit_percent:
             should_close = True
-            close_reason = f"Take profit: +{pnl_percent:.2f}%"
+            close_reason = f"PROFIT SECURED: +{price_change_percent:.2f}% (target: {self.take_profit_percent}%)"
             
-        # Stop loss: -2% or more
-        elif pnl_percent <= -2:
+        # Stop loss: -0.3% - EXIT IMMEDIATELY
+        elif price_change_percent <= -self.stop_loss_percent:
             should_close = True
-            close_reason = f"Stop loss: {pnl_percent:.2f}%"
+            close_reason = f"STOP LOSS: {price_change_percent:.2f}% (limit: -{self.stop_loss_percent}%)"
             
-        # Trailing stop for winning trades
-        elif pnl_percent > 1:
-            # Check if price is reversing
-            if position['side'].lower() == 'buy':
-                if current_price < entry_price * 1.01:  # Fell below 1% profit
+        # Trailing stop: If we hit +0.3% profit and it's dropping, exit
+        elif price_change_percent >= self.trailing_activate:
+            # We're in profit, but check if price is reversing
+            # Store peak profit in Redis to track
+            peak_key = f"peak:{position['symbol']}:{position['side']}"
+            peak_profit = await self.redis_client.get(peak_key)
+            
+            if peak_profit:
+                peak = float(peak_profit)
+                if price_change_percent > peak:
+                    await self.redis_client.set(peak_key, str(price_change_percent))
+                elif peak - price_change_percent >= self.trailing_stop:
+                    # Dropped 0.15% from peak - exit with profit
                     should_close = True
-                    close_reason = f"Trailing stop: Price reversed"
+                    close_reason = f"TRAILING STOP: Peak was +{peak:.2f}%, now +{price_change_percent:.2f}%"
+                    await self.redis_client.delete(peak_key)
+            else:
+                await self.redis_client.set(peak_key, str(price_change_percent))
+                
+        # If position is slightly negative but not at stop loss yet, check trend
+        elif price_change_percent < 0:
+            # Get quick price trend (is it still falling?)
+            # If momentum is negative, exit early before hitting stop loss
+            ticker_result = await client.get_tickers(symbol=position['symbol'])
+            if ticker_result.get('success'):
+                tickers = ticker_result.get('data', {}).get('list', [])
+                if tickers:
+                    price_24h_change = float(tickers[0].get('price24hPcnt', 0)) * 100
+                    # If market is dumping hard, exit immediately
+                    if abs(price_24h_change) > 5 and price_change_percent < -0.1:
+                        should_close = True
+                        close_reason = f"EMERGENCY EXIT: Market crash -{price_24h_change:.1f}%"
                     
         if should_close:
             await self._close_position(user_id, client, position, close_reason)
