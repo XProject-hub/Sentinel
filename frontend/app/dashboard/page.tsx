@@ -882,6 +882,29 @@ export default function DashboardPage() {
                 const pnlPercent = investedAmount > 0 ? (position.unrealizedPnl / investedAmount) * 100 : 0
                 const coinName = position.symbol.replace('USDT', '')
                 
+                const handleClosePosition = async (symbol: string) => {
+                  if (!confirm(`Close ${symbol} position? Current P&L: €${position.unrealizedPnl.toFixed(2)}`)) {
+                    return
+                  }
+                  
+                  try {
+                    const res = await fetch(`/api/ai/exchange/close-position/${symbol}`, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' }
+                    })
+                    const data = await res.json()
+                    
+                    if (data.success) {
+                      alert(`Position closed! P&L: €${data.data.pnl.toFixed(2)}`)
+                      // Refresh will happen automatically via the 3s interval
+                    } else {
+                      alert(`Failed to close: ${data.error}`)
+                    }
+                  } catch (err) {
+                    alert('Error closing position')
+                  }
+                }
+                
                 return (
                   <div 
                     key={idx} 
@@ -893,13 +916,16 @@ export default function DashboardPage() {
                   >
                     <div className="flex items-center justify-between mb-2">
                       <span className="font-bold text-lg">{coinName}</span>
-                      <span className={`text-xs px-2 py-0.5 rounded ${
-                        position.side.toLowerCase() === 'buy' 
-                          ? 'bg-sentinel-accent-emerald/20 text-sentinel-accent-emerald' 
-                          : 'bg-sentinel-accent-crimson/20 text-sentinel-accent-crimson'
-                      }`}>
-                        {position.side.toUpperCase()}
-                      </span>
+                      <button
+                        onClick={() => handleClosePosition(position.symbol)}
+                        className={`text-xs px-2 py-1 rounded font-bold transition-all hover:scale-105 ${
+                          position.side.toLowerCase() === 'buy' 
+                            ? 'bg-sentinel-accent-crimson/80 hover:bg-sentinel-accent-crimson text-white' 
+                            : 'bg-sentinel-accent-emerald/80 hover:bg-sentinel-accent-emerald text-white'
+                        }`}
+                      >
+                        {position.side.toLowerCase() === 'buy' ? 'SELL' : 'BUY'}
+                      </button>
                     </div>
                     
                     <div className="space-y-1">

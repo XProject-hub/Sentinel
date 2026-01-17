@@ -775,3 +775,72 @@ async def sell_all_positions():
         logger.error(f"Sell all error: {e}")
         return {"success": False, "error": str(e)}
 
+
+@router.post("/close-position/{symbol}")
+async def close_single_position(symbol: str):
+    """Close a specific position by symbol"""
+    
+    if "default" not in exchange_connections:
+        return {"success": False, "error": "No exchange connected"}
+    
+    client = exchange_connections["default"]
+    
+    try:
+        # Get current positions
+        positions_result = await client.get_positions()
+        
+        if not positions_result.get('success'):
+            return {"success": False, "error": "Failed to get positions"}
+        
+        positions = positions_result.get('data', {}).get('list', [])
+        
+        # Find the specific position
+        target_position = None
+        for pos in positions:
+            if pos.get('symbol') == symbol and float(pos.get('size', 0)) > 0:
+                target_position = pos
+                break
+        
+        if not target_position:
+            return {"success": False, "error": f"No open position found for {symbol}"}
+        
+        size = float(target_position.get('size', 0))
+        side = target_position.get('side')
+        unrealized_pnl = float(target_position.get('unrealisedPnl', 0))
+        
+        # Close position (opposite side)
+        close_side = 'Sell' if side == 'Buy' else 'Buy'
+        
+        order_result = await client.place_order(
+            symbol=symbol,
+            side=close_side,
+            order_type='Market',
+            qty=str(size),
+            reduce_only=True
+        )
+        
+        if order_result.get('success'):
+            logger.info(f"MANUAL CLOSE: {symbol} {side} size={size} PnL=€{unrealized_pnl:.2f}")
+            
+            # Clear peak tracking for this symbol
+            r = await redis.from_url(settings.REDIS_URL)
+            await r.delete(f'peak:default:{symbol}')
+            await r.close()
+            
+            return {
+                "success": True,
+                "data": {
+                    "symbol": symbol,
+                    "side": side,
+                    "size": size,
+                    "pnl": unrealized_pnl,
+                    "message": f"Position closed successfully"
+                }
+            }
+        else:
+            return {"success": False, "error": order_result.get('error', 'Failed to close position')}
+        
+    except Exception as e:
+        logger.error(f"Close position error for {symbol}: {e}")
+        return {"success": False, "error": str(e)}
+
