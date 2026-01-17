@@ -494,6 +494,16 @@ class AutonomousTrader:
             last_trade = self.last_trade_time.get(f"{user_id}:{symbol}")
             if last_trade and (datetime.utcnow() - last_trade).seconds < self.analysis_interval_seconds:
                 continue
+            
+            # Skip if this symbol has been consistently losing
+            symbol_stats = await self.redis_client.hgetall(f"symbol:stats:{symbol}")
+            if symbol_stats:
+                wins = int(symbol_stats.get(b'wins', 0))
+                losses = int(symbol_stats.get(b'losses', 0))
+                total = wins + losses
+                if total >= 3 and losses > wins * 2:  # More than 2:1 loss ratio
+                    logger.debug(f"SKIPPING {symbol}: AI learned it loses (W:{wins}/L:{losses})")
+                    continue
                 
             # Deep analysis
             signal = await self._analyze_with_ai(symbol, client, market_sentiment)
@@ -640,6 +650,12 @@ class AutonomousTrader:
                 
             # === DECISION - ONLY HIGH QUALITY SIGNALS ===
             
+            # CRITICAL: Check if learning engine says this regime is PROFITABLE
+            # If Q-value is negative, AI has learned this regime loses money!
+            if q_value < -0.5:
+                logger.debug(f"{symbol}: AI learned to AVOID {regime} (Q={q_value:.2f})")
+                return None
+            
             # Need STRONG edge to trade (was 30, now 40)
             # Also need to beat opposite score by at least 15 (was 10)
             if bullish_score >= 40 and bullish_score > bearish_score + 15:
@@ -650,6 +666,13 @@ class AutonomousTrader:
                 confidence_adjustments = bearish_score
                 
             if action == 'hold':
+                return None
+            
+            # CRITICAL: Check if this specific strategy has worked
+            # Learned strategies with negative Q-values = avoid!
+            strategy_q = self.learning_engine.strategy_q_values.get(regime, {}).get(best_strategy, 0)
+            if strategy_q < -1.0:
+                logger.debug(f"{symbol}: AI learned {best_strategy} FAILS in {regime} (Q={strategy_q:.2f})")
                 return None
                 
             # Extra filter: Don't buy when market is extremely greedy
@@ -663,7 +686,13 @@ class AutonomousTrader:
                 return None
                 
             # Calculate final confidence (stricter formula)
-            final_confidence = min(95, base_confidence + (confidence_adjustments * 0.4))
+            # BOOST confidence if AI has learned this strategy works well (positive Q-value)
+            q_bonus = max(0, q_value * 10)  # Up to +15% for well-learned strategies
+            final_confidence = min(95, base_confidence + (confidence_adjustments * 0.4) + q_bonus)
+            
+            # Log when AI knowledge is being applied
+            if q_value > 0.5:
+                logger.info(f"{symbol}: AI LEARNED {best_strategy} works in {regime} (Q={q_value:.2f}, +{q_bonus:.0f}% bonus)")
             
             # Skip if below threshold
             if final_confidence < self.min_confidence:
@@ -953,6 +982,16 @@ class AutonomousTrader:
             # Update learning
             if self.learning_engine:
                 await self.learning_engine.update_from_trade(outcome)
+            
+            # Track per-symbol statistics for smarter future decisions
+            symbol = position['symbol']
+            if pnl > 0:
+                await self.redis_client.hincrby(f"symbol:stats:{symbol}", 'wins', 1)
+                await self.redis_client.hincrbyfloat(f"symbol:stats:{symbol}", 'total_profit', pnl)
+            else:
+                await self.redis_client.hincrby(f"symbol:stats:{symbol}", 'losses', 1)
+                await self.redis_client.hincrbyfloat(f"symbol:stats:{symbol}", 'total_loss', abs(pnl))
+            await self.redis_client.hincrby(f"symbol:stats:{symbol}", 'total_trades', 1)
                 
             # Store completed trade
             await self.redis_client.lpush(
