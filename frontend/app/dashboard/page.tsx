@@ -888,7 +888,7 @@ export default function DashboardPage() {
                   }
                   
                   try {
-                    const res = await fetch(`/api/ai/exchange/close-position/${symbol}`, {
+                    const res = await fetch(`/ai/exchange/close-position/${symbol}`, {
                       method: 'POST',
                       headers: { 'Content-Type': 'application/json' }
                     })
