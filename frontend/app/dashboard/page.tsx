@@ -223,6 +223,7 @@ export default function DashboardPage() {
     decisions: Array<{time: string; symbol: string; decision: string; reason: string}>
     ai_models: {regime: string; sentiment: number; edge_score: number}
   } | null>(null)
+  const [usdtEurRate, setUsdtEurRate] = useState<number>(0.86) // Default approximate rate
 
   useEffect(() => {
     // Check if user is logged in
@@ -354,6 +355,21 @@ export default function DashboardPage() {
     }
   }
 
+  // Fetch USDT to EUR exchange rate
+  const fetchUsdtEurRate = async () => {
+    try {
+      // Try CoinGecko API (free, no key required)
+      const response = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=tether&vs_currencies=eur')
+      const data = await response.json()
+      if (data?.tether?.eur) {
+        setUsdtEurRate(data.tether.eur)
+      }
+    } catch (error) {
+      console.log('Using default USDT/EUR rate')
+      // Keep default rate if API fails
+    }
+  }
+
   const loadData = async () => {
     setIsLoading(true)
     
@@ -361,8 +377,8 @@ export default function DashboardPage() {
       // Load AI insight first (always available)
       await loadAIInsight()
       
-      // Load news and learning data (always available)
-      await Promise.all([loadNewsData(), loadLearningData()])
+      // Load news, learning data, and exchange rate
+      await Promise.all([loadNewsData(), loadLearningData(), fetchUsdtEurRate()])
       
       // Check exchange connection status
       const statusRes = await fetch('/ai/exchange/status')
@@ -915,7 +931,7 @@ export default function DashboardPage() {
                 const coinName = position.symbol.replace('USDT', '')
                 
                 const handleClosePosition = async (symbol: string) => {
-                  if (!confirm(`Close ${symbol} position? Current P&L: €${formatNum(position.unrealizedPnl)}`)) {
+                  if (!confirm(`Close ${symbol} position? Current P&L: $${formatNum(position.unrealizedPnl)} USDT`)) {
                     return
                   }
                   
@@ -927,7 +943,7 @@ export default function DashboardPage() {
                     const data = await res.json()
                     
                     if (data.success) {
-                      alert(`Position closed! P&L: €${formatNum(data.data.pnl)}`)
+                      alert(`Position closed! P&L: $${formatNum(data.data.pnl)} USDT`)
                       // Refresh will happen automatically via the 3s interval
                     } else {
                       alert(`Failed to close: ${data.error}`)
@@ -964,7 +980,7 @@ export default function DashboardPage() {
                       <div className="flex justify-between items-center">
                         <span className="text-xs text-sentinel-text-muted">Invested</span>
                         <span className="font-mono font-bold text-sentinel-accent-cyan">
-                          €{formatNum(investedAmount)}
+                          ${formatNum(investedAmount)}
                         </span>
                       </div>
                       
@@ -973,7 +989,7 @@ export default function DashboardPage() {
                         <span className={`font-mono font-bold ${
                           position.unrealizedPnl >= 0 ? 'text-sentinel-accent-emerald' : 'text-sentinel-accent-crimson'
                         }`}>
-                          {safeNum(position.unrealizedPnl) >= 0 ? '+' : ''}€{formatNum(position.unrealizedPnl)}
+                          {safeNum(position.unrealizedPnl) >= 0 ? '+' : ''}${formatNum(position.unrealizedPnl)}
                         </span>
                       </div>
                       
@@ -1009,7 +1025,7 @@ export default function DashboardPage() {
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div className="text-center">
                   <div className="text-2xl font-bold font-mono text-sentinel-accent-cyan">
-                    €{formatNum(positions.reduce((sum, p) => sum + safeNum(p.size) * safeNum(p.entryPrice), 0))}
+                    ${formatNum(positions.reduce((sum, p) => sum + safeNum(p.size) * safeNum(p.entryPrice), 0))}
                   </div>
                   <div className="text-xs text-sentinel-text-muted">Total Invested</div>
                 </div>
@@ -1059,7 +1075,10 @@ export default function DashboardPage() {
               </div>
             </div>
             <div className="text-4xl font-display font-bold">
-              €{balance?.totalEquity?.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0,00'}
+              {formatNum(balance?.totalEquity, 2)} <span className="text-2xl text-sentinel-accent-cyan">USDT</span>
+            </div>
+            <div className="text-lg text-sentinel-text-secondary mt-1">
+              ≈ €{((balance?.totalEquity || 0) * usdtEurRate).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} EUR
             </div>
           </motion.div>
 
@@ -1077,7 +1096,7 @@ export default function DashboardPage() {
               <span className="text-sentinel-text-secondary">Realized P&L</span>
             </div>
             <div className={`text-2xl font-display font-bold ${(pnlData?.totalPnl || 0) >= 0 ? 'text-sentinel-accent-emerald' : 'text-sentinel-accent-crimson'}`}>
-              {(pnlData?.totalPnl || 0) >= 0 ? '+' : ''}€{pnlData?.totalPnl?.toFixed(2) || '0,00'}
+              {(pnlData?.totalPnl || 0) >= 0 ? '+' : ''}{pnlData?.totalPnl?.toFixed(2) || '0.00'} <span className="text-lg">USDT</span>
             </div>
             <div className="text-sm text-sentinel-text-muted mt-1">
               {pnlData?.winningTrades || 0}W / {pnlData?.losingTrades || 0}L ({pnlData?.winRate?.toFixed(1) || 0}%)
@@ -1191,7 +1210,7 @@ export default function DashboardPage() {
                 <h2 className="text-lg font-semibold">P&L Performance</h2>
               </div>
               <div className={`text-lg font-mono font-bold ${(pnlData?.totalPnl || 0) >= 0 ? 'text-sentinel-accent-emerald' : 'text-sentinel-accent-crimson'}`}>
-                {(pnlData?.totalPnl || 0) >= 0 ? '+' : ''}€{pnlData?.totalPnl?.toFixed(2) || '0.00'}
+                {(pnlData?.totalPnl || 0) >= 0 ? '+' : ''}${pnlData?.totalPnl?.toFixed(2) || '0.00'}
               </div>
             </div>
 
@@ -1228,10 +1247,10 @@ export default function DashboardPage() {
                     </defs>
                     <CartesianGrid strokeDasharray="3 3" stroke="#2d3548" />
                     <XAxis dataKey="name" stroke="#6b7280" tick={{ fill: '#6b7280', fontSize: 10 }} />
-                    <YAxis stroke="#6b7280" tick={{ fill: '#6b7280', fontSize: 10 }} tickFormatter={(v) => `€${v}`} />
+                    <YAxis stroke="#6b7280" tick={{ fill: '#6b7280', fontSize: 10 }} tickFormatter={(v) => `$${v}`} />
                     <Tooltip 
                       contentStyle={{ backgroundColor: '#1a1f2e', border: '1px solid #2d3548', borderRadius: '8px' }}
-                      formatter={(value: number) => [`€${value.toFixed(2)}`]}
+                      formatter={(value: number) => [`$${value.toFixed(2)} USDT`]}
                     />
                     <Area type="monotone" dataKey="cumulative" stroke="#00DC82" strokeWidth={2} fill="url(#colorPnlTop)" />
                   </AreaChart>
@@ -1243,25 +1262,25 @@ export default function DashboardPage() {
             <div className="grid grid-cols-4 gap-2 mt-4 pt-4 border-t border-sentinel-border">
               <div className="text-center">
                 <div className="text-sm font-bold text-sentinel-accent-emerald">
-                  +€{pnlData?.trades?.filter(t => t.closedPnl > 0).reduce((sum, t) => sum + t.closedPnl, 0)?.toFixed(2) || '0.00'}
+                  +${pnlData?.trades?.filter(t => t.closedPnl > 0).reduce((sum, t) => sum + t.closedPnl, 0)?.toFixed(2) || '0.00'}
                 </div>
                 <div className="text-xs text-sentinel-text-muted">Profit</div>
               </div>
               <div className="text-center">
                 <div className="text-sm font-bold text-sentinel-accent-crimson">
-                  €{pnlData?.trades?.filter(t => t.closedPnl < 0).reduce((sum, t) => sum + t.closedPnl, 0)?.toFixed(2) || '0.00'}
+                  ${pnlData?.trades?.filter(t => t.closedPnl < 0).reduce((sum, t) => sum + t.closedPnl, 0)?.toFixed(2) || '0.00'}
                 </div>
                 <div className="text-xs text-sentinel-text-muted">Loss</div>
               </div>
               <div className="text-center">
                 <div className="text-sm font-bold">
-                  €{((pnlData?.trades?.filter(t => t.closedPnl > 0).reduce((sum, t) => sum + t.closedPnl, 0) || 0) / Math.max(pnlData?.winningTrades || 1, 1)).toFixed(2)}
+                  ${((pnlData?.trades?.filter(t => t.closedPnl > 0).reduce((sum, t) => sum + t.closedPnl, 0) || 0) / Math.max(pnlData?.winningTrades || 1, 1)).toFixed(2)}
                 </div>
                 <div className="text-xs text-sentinel-text-muted">Avg Win</div>
               </div>
               <div className="text-center">
                 <div className="text-sm font-bold">
-                  €{Math.abs((pnlData?.trades?.filter(t => t.closedPnl < 0).reduce((sum, t) => sum + t.closedPnl, 0) || 0) / Math.max(pnlData?.losingTrades || 1, 1)).toFixed(2)}
+                  ${Math.abs((pnlData?.trades?.filter(t => t.closedPnl < 0).reduce((sum, t) => sum + t.closedPnl, 0) || 0) / Math.max(pnlData?.losingTrades || 1, 1)).toFixed(2)}
                 </div>
                 <div className="text-xs text-sentinel-text-muted">Avg Loss</div>
               </div>
@@ -1296,7 +1315,7 @@ export default function DashboardPage() {
                     <div>
                       <span className="text-sm text-sentinel-text-muted">Total Invested in Positions</span>
                       <div className="text-2xl font-bold font-mono text-sentinel-accent-cyan">
-                        €{positions.reduce((sum, p) => sum + (p.size * p.entryPrice), 0).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        ${positions.reduce((sum, p) => sum + (p.size * p.entryPrice), 0).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </div>
                     </div>
                     <div className="text-right">
@@ -1307,7 +1326,7 @@ export default function DashboardPage() {
                           : 'text-sentinel-accent-crimson'
                       }`}>
                         {positions.reduce((sum, p) => sum + safeNum(p.unrealizedPnl), 0) >= 0 ? '+' : ''}
-                        €{formatNum(positions.reduce((sum, p) => sum + safeNum(p.unrealizedPnl), 0))}
+                        ${formatNum(positions.reduce((sum, p) => sum + safeNum(p.unrealizedPnl), 0))}
                       </div>
                     </div>
                   </div>
@@ -1346,19 +1365,19 @@ export default function DashboardPage() {
                               {position.size}
                             </td>
                             <td className="py-4 text-right font-mono font-bold text-sentinel-accent-cyan">
-                              €{formatNum(investedAmount)}
+                              ${formatNum(investedAmount)}
                             </td>
                             <td className="py-4 text-right font-mono text-sentinel-text-secondary">
-                              €{formatNum(position.entryPrice)}
+                              ${formatNum(position.entryPrice)}
                             </td>
                             <td className="py-4 text-right font-mono">
-                              €{formatNum(position.markPrice)}
+                              ${formatNum(position.markPrice)}
                             </td>
                             <td className="py-4 text-right">
                               <div className={`font-mono font-medium ${
                                 position.unrealizedPnl >= 0 ? 'text-sentinel-accent-emerald' : 'text-sentinel-accent-crimson'
                               }`}>
-                                {safeNum(position.unrealizedPnl) >= 0 ? '+' : ''}€{formatNum(position.unrealizedPnl)}
+                                {safeNum(position.unrealizedPnl) >= 0 ? '+' : ''}${formatNum(position.unrealizedPnl)}
                               </div>
                             </td>
                           </tr>
@@ -1410,7 +1429,7 @@ export default function DashboardPage() {
                     <div className={`font-mono font-medium ${
                       trade.closedPnl >= 0 ? 'text-sentinel-accent-emerald' : 'text-sentinel-accent-crimson'
                     }`}>
-                      {safeNum(trade.closedPnl) >= 0 ? '+' : ''}€{formatNum(trade.closedPnl)}
+                      {safeNum(trade.closedPnl) >= 0 ? '+' : ''}${formatNum(trade.closedPnl)}
                     </div>
                   </div>
                 ))}
@@ -1509,7 +1528,7 @@ export default function DashboardPage() {
                           <span className={`font-mono font-medium ${
                             trade.pnl >= 0 ? 'text-sentinel-accent-emerald' : 'text-sentinel-accent-crimson'
                           }`}>
-                            {safeNum(trade.pnl) >= 0 ? '+' : ''}€{formatNum(trade.pnl)}
+                            {safeNum(trade.pnl) >= 0 ? '+' : ''}${formatNum(trade.pnl)}
                           </span>
                         </div>
                         <div className="text-xs text-sentinel-text-muted mt-1">
@@ -1831,13 +1850,13 @@ export default function DashboardPage() {
               </div>
               <div className="p-2 rounded-lg bg-sentinel-bg-tertiary text-center">
                 <div className="text-lg font-bold text-sentinel-accent-emerald">
-                  €{formatNum(learningData?.stats?.best_trade)}
+                  ${formatNum(learningData?.stats?.best_trade)}
                 </div>
                 <div className="text-[10px] text-sentinel-text-muted">Best</div>
               </div>
               <div className="p-2 rounded-lg bg-sentinel-bg-tertiary text-center">
                 <div className="text-lg font-bold text-sentinel-accent-crimson">
-                  €{Math.abs(learningData?.stats?.worst_trade || 0).toFixed(2)}
+                  ${Math.abs(learningData?.stats?.worst_trade || 0).toFixed(2)}
                 </div>
                 <div className="text-[10px] text-sentinel-text-muted">Worst</div>
               </div>
@@ -1929,7 +1948,7 @@ export default function DashboardPage() {
                 <div key={idx} className="p-4 rounded-xl bg-sentinel-bg-tertiary">
                   <div className="font-mono font-semibold text-sentinel-accent-cyan">{coin.coin}</div>
                   <div className="text-lg font-bold mt-1">{coin.balance?.toFixed(4)}</div>
-                  <div className="text-sm text-sentinel-text-muted">€{coin.usdValue?.toFixed(2)}</div>
+                  <div className="text-sm text-sentinel-text-muted">${coin.usdValue?.toFixed(2)} USDT</div>
                 </div>
               ))}
             </div>
@@ -1992,7 +2011,7 @@ export default function DashboardPage() {
                       ? 'text-sentinel-accent-emerald' 
                       : 'text-sentinel-accent-crimson'
                   }`}>
-                    {notification.isWin ? '+' : ''}€{notification.pnl.toFixed(2)}
+                    {notification.isWin ? '+' : ''}${notification.pnl.toFixed(2)}
                   </span>
                 </div>
               </div>

@@ -201,6 +201,7 @@ export default function SettingsPage() {
   const [isSellingAll, setIsSellingAll] = useState(false)
   const [sellAllStatus, setSellAllStatus] = useState<string | null>(null)
   const [equity, setEquity] = useState<number>(0)
+  const [usdtEurRate, setUsdtEurRate] = useState<number>(0.86) // Default rate
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [aiModelStatus, setAiModelStatus] = useState<AIModelStatus | null>(null)
   const [isLoadingModels, setIsLoadingModels] = useState(true)
@@ -209,6 +210,7 @@ export default function SettingsPage() {
     loadSettings()
     loadEquity()
     loadAIModelStatus()
+    fetchUsdtEurRate()
   }, [])
 
   const loadSettings = async () => {
@@ -253,6 +255,19 @@ export default function SettingsPage() {
       }
     } catch (error) {
       console.error('Failed to load equity:', error)
+    }
+  }
+
+  // Fetch USDT to EUR exchange rate
+  const fetchUsdtEurRate = async () => {
+    try {
+      const response = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=tether&vs_currencies=eur')
+      const data = await response.json()
+      if (data?.tether?.eur) {
+        setUsdtEurRate(data.tether.eur)
+      }
+    } catch (error) {
+      console.log('Using default USDT/EUR rate')
     }
   }
 
@@ -362,7 +377,7 @@ export default function SettingsPage() {
       const data = await res.json()
       
       if (data.success) {
-        setSellAllStatus(`Closed ${data.data.closedCount} positions. Total P&L: €${data.data.totalPnl?.toFixed(2)}`)
+        setSellAllStatus(`Closed ${data.data.closedCount} positions. Total P&L: ${data.data.totalPnl?.toFixed(2)} USDT`)
       } else {
         setSellAllStatus(`Error: ${data.error}`)
       }
@@ -496,7 +511,10 @@ export default function SettingsPage() {
               </div>
               <div>
                 <p className="text-sm text-sentinel-text-muted">Total Trading Budget</p>
-                <p className="text-3xl font-bold font-mono">€{equity.toFixed(2)}</p>
+                <p className="text-3xl font-bold font-mono">{equity.toFixed(2)} <span className="text-xl text-sentinel-accent-cyan">USDT</span></p>
+                <p className="text-sm text-sentinel-text-secondary">
+                  ≈ €{(equity * usdtEurRate).toFixed(2)} EUR
+                </p>
                 <p className="text-xs text-sentinel-text-muted mt-1">
                   Bot manages entire balance • Crypto & TradFi unified
                 </p>
@@ -508,7 +526,7 @@ export default function SettingsPage() {
                 {currentPreset.name}
               </p>
               <p className="text-xs text-sentinel-text-muted mt-1">
-                Max Exposure: €{(equity * settings.maxTotalExposure / 100).toFixed(2)}
+                Max Exposure: {(equity * settings.maxTotalExposure / 100).toFixed(2)} USDT
               </p>
             </div>
           </div>
@@ -921,7 +939,7 @@ export default function SettingsPage() {
                     </span>
                   </div>
                   <p className="text-xs text-sentinel-text-muted mt-1">
-                    Each trade uses max €{(equity * settings.maxPositionPercent / 100).toFixed(2)} of your budget
+                    Each trade uses max {(equity * settings.maxPositionPercent / 100).toFixed(2)} USDT of your budget
                   </p>
                 </div>
 
@@ -979,7 +997,7 @@ export default function SettingsPage() {
                     </span>
                   </div>
                   <p className="text-xs text-sentinel-text-muted mt-1">
-                    Stop trading if daily loss exceeds €{(equity * settings.maxDailyDrawdown / 100).toFixed(2)}
+                    Stop trading if daily loss exceeds {(equity * settings.maxDailyDrawdown / 100).toFixed(2)} USDT
                   </p>
                 </div>
 
@@ -1006,7 +1024,7 @@ export default function SettingsPage() {
                     </span>
                   </div>
                   <p className="text-xs text-sentinel-text-muted mt-1">
-                    Bot can invest up to €{(equity * settings.maxTotalExposure / 100).toFixed(2)} of your €{equity.toFixed(2)} budget
+                    Bot can invest up to {(equity * settings.maxTotalExposure / 100).toFixed(2)} USDT of your {equity.toFixed(2)} USDT budget
                   </p>
                 </div>
               </div>
