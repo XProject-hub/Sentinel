@@ -63,6 +63,7 @@ from services.xgboost_classifier import xgboost_classifier
 from services.finbert_sentiment import finbert_sentiment
 from services.model_trainer import model_trainer
 from services.cluster_manager import cluster_manager
+from services.training_data_manager import training_data_manager
 
 # === TRADERS ===
 from services.autonomous_trader import autonomous_trader  # Legacy v1
@@ -114,6 +115,7 @@ async def lifespan(app: FastAPI):
     # === Phase 2: V3 Components (Data, ML) ===
     logger.info("[2/6] Initializing V3 ML components...")
     await data_collector.initialize()
+    await training_data_manager.initialize()  # Quality filter for multi-user learning
     await xgboost_classifier.initialize()
     await finbert_sentiment.initialize()
     await model_trainer.initialize()
@@ -195,6 +197,7 @@ async def lifespan(app: FastAPI):
     await model_trainer.shutdown()
     await finbert_sentiment.shutdown()
     await xgboost_classifier.shutdown()
+    await training_data_manager.shutdown()
     await data_collector.shutdown()
     
     await learning_engine.shutdown()
@@ -743,6 +746,7 @@ async def models_summary():
     finbert_stats = await finbert_sentiment.get_stats()
     trainer_status = await model_trainer.get_status()
     learning_stats = await learning_engine.get_learning_stats()
+    training_stats = await training_data_manager.get_stats()
     
     return {
         "success": True,
@@ -774,7 +778,33 @@ async def models_summary():
                 "snapshots": (await data_collector.get_stats()).get('snapshots_collected', 0),
                 "trades_recorded": (await data_collector.get_stats()).get('trades_recorded', 0),
                 "features_generated": (await data_collector.get_stats()).get('features_generated', 0)
+            },
+            "multi_user_learning": {
+                "total_users": training_stats.get('total_users', 0),
+                "quality_trades": training_stats.get('quality_trades_count', 0),
+                "avg_quality_score": training_stats.get('avg_quality_score', 0),
+                "trades_rejected": training_stats.get('trades_rejected_low_quality', 0)
             }
+        }
+    }
+
+
+@app.get("/ai/training/stats")
+async def training_data_stats():
+    """Get training data statistics"""
+    stats = await training_data_manager.get_stats()
+    return {"success": True, "data": stats}
+
+
+@app.get("/ai/training/leaderboard")
+async def training_leaderboard():
+    """Get multi-user contribution leaderboard"""
+    leaderboard = await training_data_manager.get_leaderboard()
+    return {
+        "success": True,
+        "data": {
+            "leaderboard": leaderboard,
+            "message": "Top contributors to AI learning. More quality trades = higher rank."
         }
     }
 

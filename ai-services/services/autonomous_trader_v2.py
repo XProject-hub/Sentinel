@@ -39,6 +39,7 @@ from services.market_scanner import MarketScanner, TradingOpportunity
 from services.xgboost_classifier import xgboost_classifier
 from services.finbert_sentiment import finbert_sentiment
 from services.data_collector import data_collector, TradeRecord
+from services.training_data_manager import training_data_manager
 
 
 def safe_float(val, default=0.0):
@@ -749,6 +750,31 @@ class AutonomousTraderV2:
                 )
                 
                 await data_collector.record_trade(trade_record)
+                
+                # V3: Quality filter for multi-user learning
+                quality_data = {
+                    'trade_id': trade_record.trade_id,
+                    'symbol': symbol,
+                    'direction': trade_record.direction,
+                    'entry_price': position.entry_price,
+                    'exit_price': trade_record.exit_price,
+                    'quantity': position.size,
+                    'position_value': position.position_value,
+                    'edge_score': position.entry_edge,
+                    'confidence': position.entry_confidence,
+                    'regime': position.entry_regime,
+                    'xgb_signal': 'buy' if position.side == 'Buy' else 'sell',
+                    'xgb_confidence': position.entry_confidence,
+                    'finbert_sentiment': 0,  # Could store at entry
+                    'pnl_percent': pnl,
+                    'pnl_value': trade_record.pnl_value,
+                    'duration_seconds': trade_record.duration_seconds,
+                    'exit_reason': reason
+                }
+                
+                # This filters and weights the trade for ML training
+                await training_data_manager.process_trade(quality_data, user_id="default")
+                
                 logger.debug(f"Trade recorded for ML training: {symbol} {action} {pnl:.2f}%")
             
         except Exception as e:

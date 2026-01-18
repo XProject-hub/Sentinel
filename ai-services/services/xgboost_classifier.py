@@ -39,6 +39,13 @@ except ImportError:
 
 from config import settings
 
+# Import training data manager for quality-filtered data
+try:
+    from services.training_data_manager import training_data_manager
+    TRAINING_MANAGER_AVAILABLE = True
+except ImportError:
+    TRAINING_MANAGER_AVAILABLE = False
+
 
 @dataclass
 class ClassificationResult:
@@ -367,28 +374,47 @@ class XGBoostClassifier:
         return True
         
     async def _train_model(self):
-        """Train or retrain the model"""
-        logger.info("Starting XGBoost model training...")
+        """Train or retrain the model with quality-weighted data"""
+        logger.info("Starting XGBoost model training (with quality weighting)...")
         
         try:
-            # Get training data
-            X, y = await self._prepare_training_data()
+            # Try to get quality-filtered data first (V3)
+            X, y, weights = None, None, None
             
+            if TRAINING_MANAGER_AVAILABLE:
+                try:
+                    X, y, weights = await training_data_manager.get_training_dataset(max_samples=10000)
+                    if len(X) > 0:
+                        logger.info(f"Using quality-filtered data: {len(X)} samples")
+                except Exception as e:
+                    logger.warning(f"Quality data not available: {e}")
+                    
+            # Fallback to raw data if quality data not available
+            if X is None or len(X) < self.min_samples_for_training:
+                X, y = await self._prepare_training_data()
+                weights = None  # No weighting for raw data
+                
             if X is None or len(X) < self.min_samples_for_training:
                 logger.warning(f"Not enough training data: {len(X) if X is not None else 0}")
                 return
                 
-            # Split data
-            X_train, X_test, y_train, y_test = train_test_split(
-                X, y, test_size=0.2, random_state=42
-            )
+            # Split data (with stratification)
+            if weights is not None:
+                X_train, X_test, y_train, y_test, w_train, w_test = train_test_split(
+                    X, y, weights, test_size=0.2, random_state=42
+                )
+            else:
+                X_train, X_test, y_train, y_test = train_test_split(
+                    X, y, test_size=0.2, random_state=42
+                )
+                w_train, w_test = None, None
             
             # Scale features
             self.scaler = StandardScaler()
             X_train_scaled = self.scaler.fit_transform(X_train)
             X_test_scaled = self.scaler.transform(X_test)
             
-            # Train model
+            # Train model with sample weights
             self.model = xgb.XGBClassifier(
                 n_estimators=100,
                 max_depth=6,
@@ -401,8 +427,10 @@ class XGBoostClassifier:
                 random_state=42
             )
             
+            # Fit with sample weights if available
             self.model.fit(
                 X_train_scaled, y_train,
+                sample_weight=w_train,  # Quality-based weighting
                 eval_set=[(X_test_scaled, y_test)],
                 early_stopping_rounds=10,
                 verbose=False
