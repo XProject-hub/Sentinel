@@ -901,13 +901,13 @@ export default function SettingsPage() {
                 {/* Max Position Size */}
                 <div>
                   <label className="block text-sm font-medium text-sentinel-text-secondary mb-2">
-                    Max Position Size (% of portfolio)
+                    % of Budget per Trade
                   </label>
                   <div className="flex items-center gap-3">
                     <input
                       type="range"
                       min="1"
-                      max="25"
+                      max="50"
                       step="1"
                       value={settings.maxPositionPercent}
                       onChange={(e) => setSettings(prev => ({ 
@@ -921,20 +921,20 @@ export default function SettingsPage() {
                     </span>
                   </div>
                   <p className="text-xs text-sentinel-text-muted mt-1">
-                    Max €{(equity * settings.maxPositionPercent / 100).toFixed(2)} per trade
+                    Each trade uses max €{(equity * settings.maxPositionPercent / 100).toFixed(2)} of your budget
                   </p>
                 </div>
 
                 {/* Max Open Positions */}
                 <div>
                   <label className="block text-sm font-medium text-sentinel-text-secondary mb-2">
-                    Max Open Positions (0 = unlimited)
+                    Max Simultaneous Trades (0 = unlimited)
                   </label>
                   <div className="flex items-center gap-3">
                     <input
                       type="range"
                       min="0"
-                      max="50"
+                      max="100"
                       step="1"
                       value={settings.maxOpenPositions}
                       onChange={(e) => setSettings(prev => ({ 
@@ -951,8 +951,8 @@ export default function SettingsPage() {
                   </div>
                   <p className="text-xs text-sentinel-text-muted mt-1">
                     {settings.maxOpenPositions === 0 
-                      ? 'Unlimited - trade as much as budget allows' 
-                      : `Maximum ${settings.maxOpenPositions} positions at once`}
+                      ? 'UNLIMITED - Bot opens as many trades as budget allows' 
+                      : `Bot will have maximum ${settings.maxOpenPositions} trades open at once`}
                   </p>
                 </div>
 
@@ -986,7 +986,7 @@ export default function SettingsPage() {
                 {/* Max Total Exposure */}
                 <div>
                   <label className="block text-sm font-medium text-sentinel-text-secondary mb-2">
-                    Max Total Exposure %
+                    Max % of Budget to Use
                   </label>
                   <div className="flex items-center gap-3">
                     <input
@@ -1006,7 +1006,7 @@ export default function SettingsPage() {
                     </span>
                   </div>
                   <p className="text-xs text-sentinel-text-muted mt-1">
-                    Max €{(equity * settings.maxTotalExposure / 100).toFixed(2)} total in positions
+                    Bot can invest up to €{(equity * settings.maxTotalExposure / 100).toFixed(2)} of your €{equity.toFixed(2)} budget
                   </p>
                 </div>
               </div>
