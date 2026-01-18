@@ -47,6 +47,9 @@ class PositionSize:
     stop_loss_pct: float  # Where to place stop
     take_profit_pct: float  # Where to take profit
     
+    # Kelly fraction used
+    kelly_fraction: float = 0.0  # The Kelly fraction that was used
+    
     # Reasoning
     sizing_method: str  # 'kelly', 'fixed', 'reduced', 'minimum'
     adjustments: List[str]  # Why size was adjusted
@@ -345,6 +348,7 @@ class PositionSizer:
             risk_per_trade_pct=round(adjusted_fraction * 100, 2),
             stop_loss_pct=stop_loss_pct,
             take_profit_pct=take_profit_pct,
+            kelly_fraction=kelly_fraction,  # Pass through the kelly fraction
             sizing_method=sizing_method,
             adjustments=adjustments,
             is_within_limits=True,
@@ -374,6 +378,7 @@ class PositionSizer:
             risk_per_trade_pct=0,
             stop_loss_pct=0,
             take_profit_pct=0,
+            kelly_fraction=0.0,  # Blocked = no kelly
             sizing_method='blocked',
             adjustments=[],
             is_within_limits=False,

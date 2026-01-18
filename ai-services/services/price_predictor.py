@@ -212,7 +212,8 @@ class PricePredictor:
             )
             
             # Calculate predicted prices
-            volatility = np.std(closes[-20:]) / np.mean(closes[-20:])
+            mean_price = np.mean(closes[-20:])
+            volatility = np.std(closes[-20:]) / mean_price if mean_price > 0 else 0.01
             
             prediction_5m = current_price * (1 + (prob_up_5m - 0.5) * volatility * 2)
             prediction_15m = current_price * (1 + (prob_up_15m - 0.5) * volatility * 4)
@@ -449,6 +450,11 @@ class PricePredictor:
             signal = 'neutral'
             strength = 0
             
+        # Avoid division by zero
+        predicted_change_1h = 0.0
+        if prediction.current_price > 0 and prediction.prediction_1h > 0:
+            predicted_change_1h = round((prediction.prediction_1h / prediction.current_price - 1) * 100, 2)
+        
         return {
             'symbol': symbol,
             'signal': signal,
@@ -457,7 +463,7 @@ class PricePredictor:
             'prob_up_5m': prediction.prob_up_5m,
             'prob_up_1h': prediction.prob_up_1h,
             'prob_up_4h': prediction.prob_up_4h,
-            'predicted_change_1h': round((prediction.prediction_1h / prediction.current_price - 1) * 100, 2),
+            'predicted_change_1h': predicted_change_1h,
             'model': prediction.model_used
         }
         
