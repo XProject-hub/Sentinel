@@ -67,6 +67,7 @@ class AutonomousTrader:
         self.is_running = False
         self.redis_client = None
         self.learning_engine: Optional[LearningEngine] = None
+        self.ai_coordinator = None  # Advanced AI brain (LSTM + Patterns + Sentiment)
         
         # Connected exchange clients per user
         self.user_clients: Dict[str, BybitV5Client] = {}
@@ -222,11 +223,12 @@ class AutonomousTrader:
         self.active_positions: Dict[str, Dict] = {}
         self.market_data_cache: Dict[str, Dict] = {}
         
-    async def initialize(self, learning_engine: LearningEngine):
+    async def initialize(self, learning_engine: LearningEngine, ai_coordinator=None):
         """Initialize autonomous trader"""
         logger.info("Initializing SMART AI Trading System...")
         self.redis_client = await redis.from_url(settings.REDIS_URL)
         self.learning_engine = learning_engine
+        self.ai_coordinator = ai_coordinator  # Advanced AI brain
         self.is_running = True
         
         # Dynamically load available symbols after first user connects
@@ -234,6 +236,9 @@ class AutonomousTrader:
         
         # Load saved settings from Redis
         await self._load_settings_from_redis()
+        
+        if self.ai_coordinator:
+            logger.info("AI Coordinator (Brain) connected - LSTM + Patterns + Sentiment active")
         
         logger.info(f"SMART AI Trading System initialized with {len(self.trading_pairs)} default pairs")
         logger.info("Will fetch ALL available Bybit pairs when first user connects")
@@ -526,6 +531,10 @@ class AutonomousTrader:
         """Deep AI analysis combining multiple factors"""
         
         try:
+            # === USE AI COORDINATOR IF AVAILABLE ===
+            if self.ai_coordinator:
+                return await self._analyze_with_coordinator(symbol, client, market_sentiment)
+            
             # Get real-time market data
             ticker_result = await client.get_tickers(symbol=symbol)
             if not ticker_result.get('success'):
@@ -731,6 +740,96 @@ class AutonomousTrader:
             
         except Exception as e:
             logger.error(f"AI analysis error for {symbol}: {e}")
+            return None
+    
+    async def _analyze_with_coordinator(self, symbol: str, client: BybitV5Client,
+                                         market_sentiment: Dict) -> Optional[TradeSignal]:
+        """Use AI Coordinator (all models combined) for analysis"""
+        try:
+            # Get real-time market data
+            ticker_result = await client.get_tickers(symbol=symbol)
+            if not ticker_result.get('success'):
+                return None
+                
+            tickers = ticker_result.get('data', {}).get('list', [])
+            if not tickers:
+                return None
+                
+            ticker = tickers[0]
+            last_price = safe_float(ticker.get('lastPrice'))
+            price_change_24h = safe_float(ticker.get('price24hPcnt')) * 100
+            volume_24h = safe_float(ticker.get('volume24h'))
+            funding_rate = safe_float(ticker.get('fundingRate')) * 100
+            
+            if last_price <= 0 or volume_24h < self.min_24h_volume:
+                return None
+            
+            # Get regime data
+            regime_data = await self.redis_client.hgetall(f"regime:{symbol}")
+            if regime_data:
+                regime = regime_data.get(b'regime', b'sideways').decode()
+                rsi = safe_float(regime_data.get(b'rsi', b'50').decode())
+            else:
+                regime = 'sideways' if abs(price_change_24h) < 3 else ('bull_trend' if price_change_24h > 0 else 'bear_trend')
+                rsi = 50 + (price_change_24h * 3)
+                rsi = max(20, min(80, rsi))
+            
+            # Prepare market data for AI Coordinator
+            market_data = {
+                'current_price': last_price,
+                'rsi': rsi,
+                'price_change_24h': price_change_24h,
+                'funding_rate': funding_rate,
+                'volume_24h': volume_24h,
+                'regime': regime
+            }
+            
+            # === GET AI DECISION FROM COORDINATOR ===
+            decision = await self.ai_coordinator.get_ai_decision(symbol, market_data)
+            
+            if not decision:
+                return None
+                
+            # Map AI decision to trade signal
+            if decision.action in ['strong_buy', 'buy']:
+                action = 'buy'
+            elif decision.action in ['strong_sell', 'sell']:
+                action = 'sell'
+            else:
+                return None  # Hold = no trade
+                
+            # Check confidence threshold
+            if decision.confidence < self.min_confidence:
+                return None
+            
+            # Log detailed AI decision
+            logger.info(f"AI BRAIN: {symbol} → {decision.action.upper()} "
+                       f"(LSTM={decision.lstm_score:.0f}, Pattern={decision.pattern_score:.0f}, "
+                       f"Sentiment={decision.sentiment_score:.0f}, Tech={decision.technical_score:.0f})")
+            
+            if decision.reasons:
+                logger.info(f"AI REASONS: {' | '.join(decision.reasons[:3])}")
+                
+            if decision.patterns_detected:
+                logger.info(f"AI PATTERNS: {', '.join(decision.patterns_detected)}")
+            
+            return TradeSignal(
+                symbol=symbol,
+                action=action,
+                confidence=decision.confidence,
+                strategy='ai_coordinator',
+                regime=regime,
+                entry_price=last_price,
+                stop_loss=decision.suggested_stop_loss,
+                take_profit=decision.suggested_take_profit,
+                position_size_percent=decision.suggested_position_size,
+                reasoning=' | '.join(decision.reasons[:3]) if decision.reasons else 'AI Coordinator decision',
+                sentiment_score=decision.sentiment_score,
+                fear_greed=market_sentiment.get('fear_greed', 50),
+            )
+            
+        except Exception as e:
+            logger.error(f"AI Coordinator analysis error for {symbol}: {e}")
             return None
             
     async def _execute_smart_trade(self, user_id: str, client: BybitV5Client, 

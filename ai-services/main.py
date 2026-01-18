@@ -19,6 +19,9 @@ from services.websocket_manager import WebSocketManager
 from services.data_aggregator import DataAggregator
 from services.learning_engine import LearningEngine
 from services.autonomous_trader import autonomous_trader
+from services.ai_coordinator import ai_coordinator
+from services.price_predictor import price_predictor
+from services.pattern_recognition import pattern_recognition
 from routers import market, sentiment, strategy, risk, trading, exchange, admin, data
 
 # Initialize services
@@ -44,7 +47,11 @@ async def lifespan(app: FastAPI):
     await risk_engine.initialize()
     await data_aggregator.initialize()
     await learning_engine.initialize()
-    await autonomous_trader.initialize(learning_engine)
+    
+    # Initialize AI Coordinator (connects all AI models)
+    await ai_coordinator.initialize(learning_engine)
+    
+    await autonomous_trader.initialize(learning_engine, ai_coordinator)
     
     # Start background tasks
     asyncio.create_task(market_intelligence.start_data_collection())
@@ -66,6 +73,7 @@ async def lifespan(app: FastAPI):
     await sentiment_analyzer.shutdown()
     await data_aggregator.shutdown()
     await learning_engine.shutdown()
+    await ai_coordinator.shutdown()
     await autonomous_trader.shutdown()
 
 
@@ -398,6 +406,126 @@ async def get_best_strategy_for_regime(regime: str):
             "exploration_rate": learning_engine.exploration_rate * 100,
         }
     }
+
+
+@app.get("/ai/coordinator/stats")
+async def get_ai_coordinator_stats():
+    """Get AI Coordinator (brain) statistics - all models combined"""
+    stats = await ai_coordinator.get_coordinator_stats()
+    return {
+        "success": True,
+        "data": stats
+    }
+
+
+@app.get("/ai/prediction/{symbol}")
+async def get_price_prediction(symbol: str):
+    """Get LSTM price prediction for a symbol"""
+    prediction = await price_predictor.predict_price(symbol)
+    
+    if prediction:
+        return {
+            "success": True,
+            "data": {
+                "symbol": prediction.symbol,
+                "current_price": prediction.current_price,
+                "predicted_1h": prediction.predicted_price_1h,
+                "predicted_4h": prediction.predicted_price_4h,
+                "predicted_24h": prediction.predicted_price_24h,
+                "direction": prediction.direction,
+                "confidence": prediction.confidence,
+                "predicted_change": prediction.predicted_change_percent,
+                "model_agreement": prediction.model_agreement,
+                "timestamp": prediction.timestamp
+            }
+        }
+    else:
+        return {
+            "success": False,
+            "error": "Unable to generate prediction"
+        }
+
+
+@app.get("/ai/patterns/{symbol}")
+async def get_patterns(symbol: str):
+    """Get detected chart patterns for a symbol"""
+    patterns = await pattern_recognition.analyze_patterns(symbol)
+    
+    return {
+        "success": True,
+        "data": {
+            "symbol": symbol,
+            "patterns_found": len(patterns),
+            "patterns": [
+                {
+                    "name": p.pattern_name,
+                    "type": p.pattern_type,
+                    "strength": p.strength,
+                    "confidence": p.confidence,
+                    "timeframe": p.timeframe,
+                    "description": p.description,
+                    "target": p.target_price,
+                    "stop_loss": p.stop_loss,
+                    "risk_reward": p.risk_reward
+                }
+                for p in patterns
+            ]
+        }
+    }
+
+
+@app.get("/ai/decision/{symbol}")
+async def get_ai_decision(symbol: str):
+    """Get unified AI trading decision for a symbol"""
+    # Get market data
+    market_state = await market_intelligence.get_symbol_state(symbol)
+    
+    market_data = {
+        'current_price': market_state.get('price', 0),
+        'rsi': market_state.get('rsi', 50),
+        'price_change_24h': market_state.get('change_24h', 0),
+        'funding_rate': market_state.get('funding_rate', 0),
+        'regime': market_state.get('regime', 'sideways')
+    }
+    
+    decision = await ai_coordinator.get_ai_decision(symbol, market_data)
+    
+    if decision:
+        return {
+            "success": True,
+            "data": {
+                "symbol": decision.symbol,
+                "action": decision.action,
+                "confidence": decision.confidence,
+                "scores": {
+                    "lstm": decision.lstm_score,
+                    "patterns": decision.pattern_score,
+                    "sentiment": decision.sentiment_score,
+                    "technical": decision.technical_score,
+                    "learning": decision.learning_score
+                },
+                "prediction": {
+                    "direction": decision.predicted_direction,
+                    "change_percent": decision.predicted_change
+                },
+                "trade_params": {
+                    "entry": decision.suggested_entry,
+                    "stop_loss": decision.suggested_stop_loss,
+                    "take_profit": decision.suggested_take_profit,
+                    "position_size": decision.suggested_position_size,
+                    "risk_reward": decision.risk_reward_ratio
+                },
+                "reasons": decision.reasons,
+                "patterns": decision.patterns_detected,
+                "model_agreement": decision.model_agreement,
+                "timestamp": decision.timestamp
+            }
+        }
+    else:
+        return {
+            "success": False,
+            "error": "Unable to generate decision"
+        }
 
 
 if __name__ == "__main__":
