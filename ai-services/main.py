@@ -2,14 +2,33 @@
 SENTINEL AI - Ultimate AI Trading Platform
 Professional Hedge-Fund Level Autonomous Trading System
 
-Components:
+=== V3.0 Architecture ===
+
+CORE COMPONENTS:
+- DataCollector: Stores EVERYTHING for replay and training
+- XGBoostClassifier: Fast ML edge classification
+- FinBERTSentiment: Pre-trained financial NLP
+- ModelTrainer: Periodic training (not non-stop)
+- ClusterManager: Multi-server load balancing
+
+ADVANCED AI:
 - RegimeDetector: HMM-inspired market state detection
 - EdgeEstimator: Statistical edge calculation
 - PositionSizer: Kelly-based dynamic sizing
 - MarketScanner: Scans ALL 500+ Bybit pairs
 - LearningEngine: Continuous self-improvement
-- AICoordinator: Combines all AI models
-- AutonomousTraderV2: The ultimate trading system
+
+ARCHITECTURE:
+- 24/7 Analysis & Trading
+- Periodic Training (every 6-12h)
+- Controlled Learning
+- Multi-server support
+
+CPU Allocation (24 cores):
+- 8 cores: Live trading + inference
+- 8 cores: Scanning + feature generation
+- 6 cores: Background training
+- 2 cores: OS / logging / safety
 
 This is what a REAL trading system looks like.
 """
@@ -38,6 +57,13 @@ from services.edge_estimator import EdgeEstimator
 from services.position_sizer import PositionSizer
 from services.market_scanner import MarketScanner
 
+# === NEW V3 COMPONENTS ===
+from services.data_collector import data_collector
+from services.xgboost_classifier import xgboost_classifier
+from services.finbert_sentiment import finbert_sentiment
+from services.model_trainer import model_trainer
+from services.cluster_manager import cluster_manager
+
 # === TRADERS ===
 from services.autonomous_trader import autonomous_trader  # Legacy v1
 from services.autonomous_trader_v2 import autonomous_trader_v2  # Ultimate v2
@@ -64,16 +90,20 @@ market_scanner = MarketScanner()
 # Use V2 by default
 USE_V2_TRADER = True
 
+# Enable cluster mode (for multi-server)
+CLUSTER_MODE = False  # Set to True when running multiple servers
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifecycle management"""
-    logger.info("=" * 60)
-    logger.info("SENTINEL AI - Ultimate Trading Platform Starting...")
-    logger.info("=" * 60)
+    logger.info("=" * 70)
+    logger.info("   SENTINEL AI v3.0 - Ultimate AI Trading Platform")
+    logger.info("   Professional Hedge-Fund Level Autonomous Trading System")
+    logger.info("=" * 70)
     
-    # === Initialize Core Services ===
-    logger.info("Initializing core services...")
+    # === Phase 1: Core Services ===
+    logger.info("[1/6] Initializing core services...")
     await market_intelligence.initialize()
     await sentiment_analyzer.initialize()
     await strategy_planner.initialize()
@@ -81,16 +111,33 @@ async def lifespan(app: FastAPI):
     await data_aggregator.initialize()
     await learning_engine.initialize()
     
-    # === Initialize Advanced AI Components ===
-    logger.info("Initializing advanced AI components...")
+    # === Phase 2: V3 Components (Data, ML) ===
+    logger.info("[2/6] Initializing V3 ML components...")
+    await data_collector.initialize()
+    await xgboost_classifier.initialize()
+    await finbert_sentiment.initialize()
+    await model_trainer.initialize()
+    
+    # === Phase 3: Cluster (if enabled) ===
+    if CLUSTER_MODE:
+        logger.info("[3/6] Initializing cluster manager...")
+        await cluster_manager.initialize()
+        
+        # Set callback for symbol assignment
+        cluster_manager.on_symbols_assigned = on_cluster_symbols_assigned
+    else:
+        logger.info("[3/6] Cluster mode disabled (single server)")
+    
+    # === Phase 4: Advanced AI Components ===
+    logger.info("[4/6] Initializing advanced AI components...")
     await regime_detector.initialize()
     await edge_estimator.initialize()
     await position_sizer.initialize()
     await market_scanner.initialize(regime_detector, edge_estimator)
     
-    # === Initialize Trader ===
+    # === Phase 5: Trader ===
     if USE_V2_TRADER:
-        logger.info("Initializing Ultimate Autonomous Trader v2.0...")
+        logger.info("[5/6] Initializing Ultimate Autonomous Trader v2.0...")
         await autonomous_trader_v2.initialize(
             regime_detector=regime_detector,
             edge_estimator=edge_estimator,
@@ -99,11 +146,11 @@ async def lifespan(app: FastAPI):
             learning_engine=learning_engine
         )
     else:
-        logger.info("Initializing Legacy Autonomous Trader v1...")
+        logger.info("[5/6] Initializing Legacy Autonomous Trader v1...")
         await autonomous_trader.initialize(learning_engine)
     
-    # === Start Background Tasks ===
-    logger.info("Starting background tasks...")
+    # === Phase 6: Start Background Tasks ===
+    logger.info("[6/6] Starting background tasks...")
     asyncio.create_task(market_intelligence.start_data_collection())
     asyncio.create_task(sentiment_analyzer.start_news_monitoring())
     asyncio.create_task(data_aggregator.start_collection())
@@ -118,27 +165,51 @@ async def lifespan(app: FastAPI):
     # Auto-reconnect users
     asyncio.create_task(auto_reconnect_on_startup())
     
-    logger.info("=" * 60)
-    logger.info("SENTINEL AI Services Ready - Ultimate Trading Active")
-    logger.info("=" * 60)
+    logger.info("=" * 70)
+    logger.info("   SENTINEL AI v3.0 READY")
+    logger.info("   - ML Models: XGBoost, FinBERT, LSTM")
+    logger.info("   - Training: Periodic (every 6-12h)")
+    logger.info("   - Data Collection: Active (storing everything)")
+    logger.info("   - Cluster Mode: " + ("ENABLED" if CLUSTER_MODE else "DISABLED"))
+    logger.info("=" * 70)
     
     yield
     
-    # Cleanup on shutdown
+    # === Cleanup on shutdown ===
     logger.info("SENTINEL AI Services Shutting Down...")
-    await market_intelligence.shutdown()
-    await sentiment_analyzer.shutdown()
-    await data_aggregator.shutdown()
-    await learning_engine.shutdown()
-    await regime_detector.shutdown()
-    await edge_estimator.shutdown()
-    await position_sizer.shutdown()
-    await market_scanner.shutdown()
     
+    # Shutdown in reverse order
     if USE_V2_TRADER:
         await autonomous_trader_v2.shutdown()
     else:
         await autonomous_trader.shutdown()
+        
+    await market_scanner.shutdown()
+    await position_sizer.shutdown()
+    await edge_estimator.shutdown()
+    await regime_detector.shutdown()
+    
+    if CLUSTER_MODE:
+        await cluster_manager.shutdown()
+        
+    await model_trainer.shutdown()
+    await finbert_sentiment.shutdown()
+    await xgboost_classifier.shutdown()
+    await data_collector.shutdown()
+    
+    await learning_engine.shutdown()
+    await data_aggregator.shutdown()
+    await sentiment_analyzer.shutdown()
+    await market_intelligence.shutdown()
+    
+    logger.info("SENTINEL AI Shutdown Complete")
+
+
+async def on_cluster_symbols_assigned(symbols: list):
+    """Called when cluster assigns symbols to this node"""
+    logger.info(f"Cluster assigned {len(symbols)} symbols to this node")
+    # Update market scanner with assigned symbols
+    market_scanner.assigned_symbols = symbols
 
 
 async def auto_reconnect_on_startup():
@@ -522,6 +593,190 @@ async def get_trader_status():
             "connected_users": len(autonomous_trader.user_clients)
         }
     return {"success": True, "data": status}
+
+
+# ============================================
+# V3 ENDPOINTS - Advanced ML & Cluster
+# ============================================
+
+@app.get("/ai/xgboost/classify")
+async def xgboost_classify(symbol: str):
+    """Classify trade signal using XGBoost"""
+    try:
+        # Get features for symbol
+        import redis.asyncio as aioredis
+        r = await aioredis.from_url(settings.REDIS_URL)
+        
+        feature_data = await r.get(f"features:{symbol}")
+        if not feature_data:
+            return {"success": False, "error": "No feature data available"}
+            
+        import json
+        features = json.loads(feature_data)
+        features['symbol'] = symbol
+        
+        result = await xgboost_classifier.classify(features)
+        
+        await r.aclose()
+        
+        return {
+            "success": True,
+            "data": {
+                "symbol": result.symbol,
+                "signal": result.signal,
+                "confidence": result.confidence,
+                "probabilities": {
+                    "buy": result.buy_prob,
+                    "sell": result.sell_prob,
+                    "hold": result.hold_prob
+                },
+                "top_features": result.top_features,
+                "model_version": result.model_version
+            }
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@app.get("/ai/xgboost/stats")
+async def xgboost_stats():
+    """Get XGBoost classifier statistics"""
+    stats = await xgboost_classifier.get_stats()
+    return {"success": True, "data": stats}
+
+
+@app.get("/ai/finbert/analyze")
+async def finbert_analyze(text: str):
+    """Analyze text sentiment using FinBERT"""
+    result = await finbert_sentiment.analyze(text)
+    
+    return {
+        "success": True,
+        "data": {
+            "label": result.label,
+            "confidence": result.confidence,
+            "sentiment_score": result.sentiment_score,
+            "trading_signal": result.trading_signal,
+            "impact_level": result.impact_level,
+            "probabilities": {
+                "positive": result.positive_prob,
+                "negative": result.negative_prob,
+                "neutral": result.neutral_prob
+            }
+        }
+    }
+
+
+@app.get("/ai/finbert/market-sentiment")
+async def finbert_market_sentiment():
+    """Get aggregated market sentiment from FinBERT"""
+    sentiment = await finbert_sentiment.get_market_sentiment()
+    
+    if sentiment:
+        return {
+            "success": True,
+            "data": {
+                "overall_sentiment": sentiment.overall_sentiment,
+                "overall_label": sentiment.overall_label,
+                "confidence": sentiment.confidence,
+                "bullish_count": sentiment.bullish_count,
+                "bearish_count": sentiment.bearish_count,
+                "neutral_count": sentiment.neutral_count,
+                "total_analyzed": sentiment.total_analyzed,
+                "top_bullish": sentiment.top_bullish,
+                "top_bearish": sentiment.top_bearish,
+                "timestamp": sentiment.timestamp
+            }
+        }
+    else:
+        return {"success": False, "error": "No sentiment data available"}
+
+
+@app.get("/ai/finbert/stats")
+async def finbert_stats():
+    """Get FinBERT analyzer statistics"""
+    stats = await finbert_sentiment.get_stats()
+    return {"success": True, "data": stats}
+
+
+@app.get("/ai/data-collector/stats")
+async def data_collector_stats():
+    """Get data collection statistics"""
+    stats = await data_collector.get_stats()
+    return {"success": True, "data": stats}
+
+
+@app.get("/ai/trainer/status")
+async def trainer_status():
+    """Get model trainer status"""
+    status = await model_trainer.get_status()
+    return {"success": True, "data": status}
+
+
+@app.post("/ai/trainer/trigger/{job_id}")
+async def trigger_training(job_id: str):
+    """Manually trigger a training job"""
+    success = await model_trainer.trigger_training(job_id)
+    return {"success": success}
+
+
+@app.get("/ai/cluster/status")
+async def cluster_status():
+    """Get cluster status (multi-server)"""
+    if not CLUSTER_MODE:
+        return {
+            "success": True,
+            "data": {
+                "cluster_mode": False,
+                "message": "Cluster mode is disabled. Set CLUSTER_MODE=True to enable."
+            }
+        }
+        
+    status = await cluster_manager.get_cluster_status()
+    return {"success": True, "data": status}
+
+
+@app.get("/ai/models/summary")
+async def models_summary():
+    """Get summary of all AI models"""
+    xgb_stats = await xgboost_classifier.get_stats()
+    finbert_stats = await finbert_sentiment.get_stats()
+    trainer_status = await model_trainer.get_status()
+    learning_stats = await learning_engine.get_learning_stats()
+    
+    return {
+        "success": True,
+        "data": {
+            "xgboost": {
+                "available": xgb_stats.get('is_available', False),
+                "version": xgb_stats.get('model_version', 'N/A'),
+                "accuracy": xgb_stats.get('training_accuracy', 0),
+                "last_trained": xgb_stats.get('last_trained')
+            },
+            "finbert": {
+                "available": finbert_stats.get('is_available', False),
+                "device": finbert_stats.get('device', 'N/A'),
+                "texts_analyzed": finbert_stats.get('texts_analyzed', 0),
+                "avg_inference_ms": finbert_stats.get('avg_inference_time_ms', 0)
+            },
+            "learning_engine": {
+                "total_trades": learning_stats.get('total_trades', 0),
+                "win_rate": learning_stats.get('win_rate', 0),
+                "q_values_learned": learning_stats.get('q_values_count', 0),
+                "exploration_rate": learning_stats.get('exploration_rate', 0)
+            },
+            "trainer": {
+                "active_training": trainer_status.get('active_training'),
+                "jobs_defined": len(trainer_status.get('jobs', {})),
+                "recent_trainings": len(trainer_status.get('recent_history', []))
+            },
+            "data_collection": {
+                "snapshots": (await data_collector.get_stats()).get('snapshots_collected', 0),
+                "trades_recorded": (await data_collector.get_stats()).get('trades_recorded', 0),
+                "features_generated": (await data_collector.get_stats()).get('features_generated', 0)
+            }
+        }
+    }
 
 
 if __name__ == "__main__":
