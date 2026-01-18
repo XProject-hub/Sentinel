@@ -1,4 +1,4 @@
-FROM php:8.3-fpm-alpine
+FROM php:8.3-cli-alpine
 
 # Install dependencies
 RUN apk add --no-cache \
@@ -34,7 +34,11 @@ RUN mkdir -p storage/framework/cache storage/framework/sessions storage/framewor
 RUN chown -R www-data:www-data /var/www/html/storage /var/www/html/bootstrap/cache \
     && chmod -R 775 /var/www/html/storage /var/www/html/bootstrap/cache
 
+# Generate app key if not exists
+RUN php artisan key:generate --force || true
+
 EXPOSE 9000
 
-CMD ["php-fpm"]
+# Run Laravel's built-in HTTP server on port 9000
+CMD ["php", "artisan", "serve", "--host=0.0.0.0", "--port=9000"]
 
