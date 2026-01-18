@@ -206,6 +206,13 @@ export default function DashboardPage() {
   const [learningData, setLearningData] = useState<LearningData | null>(null)
   const [notifications, setNotifications] = useState<TradeNotification[]>([])
   const previousTradesRef = useRef<string[]>([])
+  const [consoleData, setConsoleData] = useState<{
+    logs: Array<{time: string; level: string; message: string; symbol?: string}>
+    current_action: string
+    scanning: {pairs_scanned: number; last_scan_time: string}
+    decisions: Array<{time: string; symbol: string; decision: string; reason: string}>
+    ai_models: {regime: string; sentiment: number; edge_score: number}
+  } | null>(null)
 
   useEffect(() => {
     // Check if user is logged in
@@ -286,6 +293,18 @@ export default function DashboardPage() {
       }
     } catch (error) {
       console.error('Failed to load bot activity:', error)
+    }
+  }
+
+  const loadConsoleData = async () => {
+    try {
+      const res = await fetch('/ai/exchange/trading/console')
+      const data = await res.json()
+      if (data.success) {
+        setConsoleData(data.data)
+      }
+    } catch (error) {
+      console.error('Failed to load console:', error)
     }
   }
 
@@ -411,22 +430,24 @@ export default function DashboardPage() {
 
       if (statusData.connected) {
         // Load all data in parallel for faster refresh
-        const [balanceRes, posRes, pnlRes, tradingRes, activityRes, insightRes] = await Promise.all([
+        const [balanceRes, posRes, pnlRes, tradingRes, activityRes, insightRes, consoleRes] = await Promise.all([
           fetch('/ai/exchange/balance'),
           fetch('/ai/exchange/positions'),
           fetch('/ai/exchange/pnl'),
           fetch('/ai/exchange/trading/status'),
           fetch('/ai/exchange/trading/activity'),
-          fetch('/ai/insight')
+          fetch('/ai/insight'),
+          fetch('/ai/exchange/trading/console')
         ])
 
-        const [balanceData, posData, pnlDataResult, tradingData, activityData, insightData] = await Promise.all([
+        const [balanceData, posData, pnlDataResult, tradingData, activityData, insightData, consoleDataRes] = await Promise.all([
           balanceRes.json(),
           posRes.json(),
           pnlRes.json(),
           tradingRes.json(),
           activityRes.json(),
-          insightRes.json()
+          insightRes.json(),
+          consoleRes.json()
         ])
 
         if (balanceData.success) setBalance(balanceData.data)
@@ -435,6 +456,7 @@ export default function DashboardPage() {
         if (tradingData.success) setTradingStatus(tradingData.data)
         if (activityData.success) setBotActivity(activityData.data)
         if (insightData.success) setAiInsight(insightData.data)
+        if (consoleDataRes.success) setConsoleData(consoleDataRes.data)
       }
     } catch (error) {
       console.error('Silent refresh failed:', error)
@@ -1493,6 +1515,107 @@ export default function DashboardPage() {
             <div className="mt-4 pt-4 border-t border-sentinel-border text-xs text-sentinel-text-muted">
               Strategy: SMART AI | Trailing: -0.8% from PEAK | Emergency Stop: -2% | HOLD while rising | Auto-refresh 3s
             </div>
+          </motion.div>
+        )}
+
+        {/* Real-Time Bot Console */}
+        {tradingStatus?.is_autonomous_trading && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.52 }}
+            className="mt-8 p-6 rounded-2xl glass-card"
+          >
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-sentinel-accent-violet/10">
+                  <Activity className="w-5 h-5 text-sentinel-accent-violet" />
+                </div>
+                <h2 className="text-lg font-semibold">Bot Console - Real-Time</h2>
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-1.5">
+                  <div className="w-2 h-2 rounded-full bg-sentinel-accent-emerald live-pulse" />
+                  <span className="text-xs text-sentinel-text-muted">
+                    {consoleData?.current_action || "Monitoring..."}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* AI Models Status Row */}
+            <div className="grid grid-cols-3 gap-4 mb-4">
+              <div className="p-3 rounded-lg bg-sentinel-bg-tertiary text-center">
+                <p className="text-xs text-sentinel-text-muted">Market Regime</p>
+                <p className="font-medium text-sm">{consoleData?.ai_models?.regime || 'Detecting...'}</p>
+              </div>
+              <div className="p-3 rounded-lg bg-sentinel-bg-tertiary text-center">
+                <p className="text-xs text-sentinel-text-muted">Sentiment</p>
+                <p className={`font-medium text-sm ${
+                  (consoleData?.ai_models?.sentiment || 0) > 0.3 ? 'text-sentinel-accent-emerald' :
+                  (consoleData?.ai_models?.sentiment || 0) < -0.3 ? 'text-sentinel-accent-crimson' :
+                  'text-sentinel-text-primary'
+                }`}>
+                  {consoleData?.ai_models?.sentiment !== undefined 
+                    ? (consoleData.ai_models.sentiment > 0 ? '+' : '') + consoleData.ai_models.sentiment.toFixed(2)
+                    : 'N/A'}
+                </p>
+              </div>
+              <div className="p-3 rounded-lg bg-sentinel-bg-tertiary text-center">
+                <p className="text-xs text-sentinel-text-muted">Pairs Scanned</p>
+                <p className="font-medium text-sm">{consoleData?.scanning?.pairs_scanned || 0}</p>
+              </div>
+            </div>
+
+            {/* Console Log */}
+            <div className="bg-sentinel-bg-secondary rounded-lg p-4 max-h-48 overflow-y-auto font-mono text-xs">
+              {consoleData?.logs?.length === 0 ? (
+                <div className="text-sentinel-text-muted">
+                  <span className="text-sentinel-accent-cyan">$</span> Waiting for bot activity...
+                </div>
+              ) : (
+                <div className="space-y-1">
+                  {consoleData?.logs?.slice(0, 20).map((log: any, idx: number) => (
+                    <div key={idx} className={`flex gap-2 ${
+                      log.level === 'ERROR' ? 'text-sentinel-accent-crimson' :
+                      log.level === 'TRADE' ? 'text-sentinel-accent-emerald' :
+                      log.level === 'SIGNAL' ? 'text-sentinel-accent-amber' :
+                      'text-sentinel-text-secondary'
+                    }`}>
+                      <span className="text-sentinel-text-muted w-20 shrink-0">
+                        {new Date(log.time).toLocaleTimeString()}
+                      </span>
+                      <span className="w-14 shrink-0">[{log.level}]</span>
+                      <span className="truncate">{log.message}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Recent Decisions */}
+            {consoleData?.decisions && consoleData.decisions.length > 0 && (
+              <div className="mt-4 pt-4 border-t border-sentinel-border">
+                <h3 className="text-sm font-medium text-sentinel-text-secondary mb-2">Recent AI Decisions</h3>
+                <div className="space-y-2">
+                  {consoleData.decisions.slice(0, 5).map((dec: any, idx: number) => (
+                    <div key={idx} className="flex justify-between items-center text-xs">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-sentinel-accent-cyan">{dec.symbol}</span>
+                        <span className={`px-2 py-0.5 rounded ${
+                          dec.decision === 'BUY' ? 'bg-sentinel-accent-emerald/20 text-sentinel-accent-emerald' :
+                          dec.decision === 'SELL' ? 'bg-sentinel-accent-crimson/20 text-sentinel-accent-crimson' :
+                          'bg-sentinel-bg-tertiary text-sentinel-text-muted'
+                        }`}>
+                          {dec.decision}
+                        </span>
+                      </div>
+                      <span className="text-sentinel-text-muted truncate max-w-xs">{dec.reason}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </motion.div>
         )}
 

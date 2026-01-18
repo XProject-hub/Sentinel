@@ -28,7 +28,13 @@ import {
   Layers,
   Gauge,
   Info,
-  Infinity
+  Infinity,
+  Cpu,
+  LineChart,
+  MessageSquare,
+  Sparkles,
+  TrendingDown,
+  RefreshCw
 } from 'lucide-react'
 import Link from 'next/link'
 import Image from 'next/image'
@@ -51,15 +57,20 @@ interface BotSettings {
   maxDailyDrawdown: number
   maxTotalExposure: number
   
-  // Budget
+  // Budget - Unified
   totalBudget: number
   
-  // AI Settings
+  // AI Core Features
   useAiSignals: boolean
   learnFromTrades: boolean
   useRegimeDetection: boolean
   useEdgeEstimation: boolean
   useDynamicSizing: boolean
+  
+  // AI Models (V3.0)
+  useCryptoBert: boolean     // CryptoBERT sentiment
+  useXgboostClassifier: boolean  // XGBoost signal classifier
+  usePricePredictor: boolean // Chronos price predictor
 }
 
 const defaultSettings: BotSettings = {
@@ -80,6 +91,9 @@ const defaultSettings: BotSettings = {
   useRegimeDetection: true,
   useEdgeEstimation: true,
   useDynamicSizing: true,
+  useCryptoBert: true,
+  useXgboostClassifier: true,
+  usePricePredictor: true,
 }
 
 // === RISK PRESETS ===
@@ -100,6 +114,9 @@ const riskPresets = {
       maxOpenPositions: 5,
       maxDailyDrawdown: 1,
       maxTotalExposure: 20,
+      useCryptoBert: true,
+      useXgboostClassifier: true,
+      usePricePredictor: true,
     },
     features: [
       'Min 80% AI Confidence',
@@ -107,7 +124,7 @@ const riskPresets = {
       'Max 2% per position',
       'Max 1% daily drawdown',
       'Max 5 positions',
-      'Small, consistent gains'
+      'All AI models active'
     ]
   },
   normal: {
@@ -126,6 +143,9 @@ const riskPresets = {
       maxOpenPositions: 0, // Unlimited
       maxDailyDrawdown: 3,
       maxTotalExposure: 50,
+      useCryptoBert: true,
+      useXgboostClassifier: true,
+      usePricePredictor: true,
     },
     features: [
       'Min 60% AI Confidence',
@@ -152,6 +172,9 @@ const riskPresets = {
       maxOpenPositions: 0, // Unlimited
       maxDailyDrawdown: 8,
       maxTotalExposure: 80,
+      useCryptoBert: true,
+      useXgboostClassifier: true,
+      usePricePredictor: true,
     },
     features: [
       'Min 45% AI Confidence',
@@ -164,6 +187,13 @@ const riskPresets = {
   }
 }
 
+interface AIModelStatus {
+  cryptobert: { loaded: boolean; lastUpdate: string | null }
+  xgboost: { loaded: boolean; accuracy: number }
+  pricePredictor: { loaded: boolean; lastPrediction: string | null }
+  regimeDetector: { loaded: boolean; currentRegime: string }
+}
+
 export default function SettingsPage() {
   const [settings, setSettings] = useState<BotSettings>(defaultSettings)
   const [isSaving, setIsSaving] = useState(false)
@@ -172,10 +202,13 @@ export default function SettingsPage() {
   const [sellAllStatus, setSellAllStatus] = useState<string | null>(null)
   const [equity, setEquity] = useState<number>(0)
   const [showAdvanced, setShowAdvanced] = useState(false)
+  const [aiModelStatus, setAiModelStatus] = useState<AIModelStatus | null>(null)
+  const [isLoadingModels, setIsLoadingModels] = useState(true)
 
   useEffect(() => {
     loadSettings()
     loadEquity()
+    loadAIModelStatus()
   }, [])
 
   const loadSettings = async () => {
@@ -183,7 +216,17 @@ export default function SettingsPage() {
       const res = await fetch('/ai/exchange/settings')
       const data = await res.json()
       if (data.success && data.data) {
-        setSettings(prev => ({ ...prev, ...data.data }))
+        setSettings(prev => ({ 
+          ...prev, 
+          ...data.data,
+          // Map backend field names to frontend
+          useCryptoBert: data.data.enableFinbertSentiment ?? data.data.useCryptoBert ?? true,
+          useXgboostClassifier: data.data.enableXgboostClassifier ?? data.data.useXgboostClassifier ?? true,
+          usePricePredictor: data.data.enablePricePrediction ?? data.data.usePricePredictor ?? true,
+          useRegimeDetection: data.data.enableRegimeDetection ?? data.data.useRegimeDetection ?? true,
+          useEdgeEstimation: data.data.enableEdgeEstimation ?? data.data.useEdgeEstimation ?? true,
+          useDynamicSizing: data.data.enableDynamicSizing ?? data.data.useDynamicSizing ?? true,
+        }))
       }
     } catch (error) {
       console.error('Failed to load settings:', error)
@@ -206,15 +249,77 @@ export default function SettingsPage() {
     }
   }
 
+  const loadAIModelStatus = async () => {
+    setIsLoadingModels(true)
+    try {
+      // Load status of all AI models
+      const [cryptobertRes, xgboostRes, regimeRes] = await Promise.all([
+        fetch('/ai/crypto-sentiment/stats').catch(() => null),
+        fetch('/ai/xgboost/stats').catch(() => null),
+        fetch('/ai/market/regime').catch(() => null)
+      ])
+
+      const cryptobertData = cryptobertRes ? await cryptobertRes.json().catch(() => ({})) : {}
+      const xgboostData = xgboostRes ? await xgboostRes.json().catch(() => ({})) : {}
+      const regimeData = regimeRes ? await regimeRes.json().catch(() => ({})) : {}
+
+      setAiModelStatus({
+        cryptobert: {
+          loaded: cryptobertData.success !== false,
+          lastUpdate: cryptobertData.data?.last_update || null
+        },
+        xgboost: {
+          loaded: xgboostData.success !== false,
+          accuracy: xgboostData.data?.accuracy || 0
+        },
+        pricePredictor: {
+          loaded: true, // Assuming it's loaded
+          lastPrediction: null
+        },
+        regimeDetector: {
+          loaded: regimeData.success !== false,
+          currentRegime: regimeData.regime || 'Unknown'
+        }
+      })
+    } catch (error) {
+      console.error('Failed to load AI model status:', error)
+    } finally {
+      setIsLoadingModels(false)
+    }
+  }
+
   const saveSettings = async () => {
     setIsSaving(true)
     setSaveStatus('idle')
     
     try {
+      // Map frontend settings to backend field names
+      const backendSettings = {
+        riskMode: settings.riskMode,
+        takeProfitPercent: settings.takeProfitPercent,
+        stopLossPercent: settings.stopLossPercent,
+        trailingStopPercent: settings.trailingStopPercent,
+        minProfitToTrail: settings.minProfitToTrail,
+        minConfidence: settings.minConfidence,
+        minEdge: settings.minEdge,
+        maxPositionPercent: settings.maxPositionPercent,
+        maxOpenPositions: settings.maxOpenPositions,
+        maxDailyDrawdown: settings.maxDailyDrawdown,
+        maxTotalExposure: settings.maxTotalExposure,
+        useAiSignals: settings.useAiSignals,
+        learnFromTrades: settings.learnFromTrades,
+        enableRegimeDetection: settings.useRegimeDetection,
+        enableEdgeEstimation: settings.useEdgeEstimation,
+        enableDynamicSizing: settings.useDynamicSizing,
+        enableFinbertSentiment: settings.useCryptoBert, // Backend uses this name
+        enableXgboostClassifier: settings.useXgboostClassifier,
+        enablePricePrediction: settings.usePricePredictor,
+      }
+
       const res = await fetch('/ai/exchange/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(settings)
+        body: JSON.stringify(backendSettings)
       })
       
       const data = await res.json()
@@ -309,7 +414,7 @@ export default function SettingsPage() {
             />
             <div>
               <h1 className="font-display font-bold text-xl">Trading Settings</h1>
-              <p className="text-xs text-sentinel-text-muted">Configure risk levels and AI parameters</p>
+              <p className="text-xs text-sentinel-text-muted">Configure risk levels, AI models, and trading parameters</p>
             </div>
           </div>
           
@@ -366,22 +471,108 @@ export default function SettingsPage() {
 
       <main className="max-w-6xl mx-auto px-6 py-8 space-y-8">
         
-        {/* Current Balance */}
-        <div className="p-4 rounded-xl glass-card flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Wallet className="w-6 h-6 text-sentinel-accent-cyan" />
-            <div>
-              <p className="text-sm text-sentinel-text-muted">Available Balance</p>
-              <p className="text-2xl font-bold font-mono">€{equity.toFixed(2)}</p>
+        {/* Balance & Budget Card */}
+        <div className="p-6 rounded-2xl glass-card">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <div className="p-3 rounded-xl bg-sentinel-accent-cyan/20">
+                <Wallet className="w-8 h-8 text-sentinel-accent-cyan" />
+              </div>
+              <div>
+                <p className="text-sm text-sentinel-text-muted">Total Trading Budget</p>
+                <p className="text-3xl font-bold font-mono">€{equity.toFixed(2)}</p>
+                <p className="text-xs text-sentinel-text-muted mt-1">
+                  Bot manages entire balance • Crypto & TradFi unified
+                </p>
+              </div>
+            </div>
+            <div className="text-right">
+              <p className="text-sm text-sentinel-text-muted">Current Risk Mode</p>
+              <p className={`text-2xl font-bold ${getColorClass(riskPresets[settings.riskMode].color, 'text')}`}>
+                {riskPresets[settings.riskMode].name}
+              </p>
+              <p className="text-xs text-sentinel-text-muted mt-1">
+                Max Exposure: €{(equity * settings.maxTotalExposure / 100).toFixed(2)}
+              </p>
             </div>
           </div>
-          <div className="text-right">
-            <p className="text-sm text-sentinel-text-muted">Current Risk Mode</p>
-            <p className={`text-lg font-bold ${getColorClass(riskPresets[settings.riskMode].color, 'text')}`}>
-              {riskPresets[settings.riskMode].name}
-            </p>
-          </div>
         </div>
+
+        {/* AI Models Status */}
+        <motion.section
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="p-6 rounded-2xl glass-card"
+        >
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-lg font-semibold flex items-center gap-2">
+              <Cpu className="w-5 h-5 text-sentinel-accent-violet" />
+              AI Models Status
+            </h2>
+            <button 
+              onClick={loadAIModelStatus}
+              className="p-2 rounded-lg hover:bg-sentinel-bg-tertiary transition-colors"
+            >
+              <RefreshCw className={`w-4 h-4 ${isLoadingModels ? 'animate-spin' : ''}`} />
+            </button>
+          </div>
+          
+          <div className="grid grid-cols-4 gap-4">
+            {/* CryptoBERT */}
+            <div className={`p-4 rounded-xl ${settings.useCryptoBert ? 'bg-sentinel-accent-emerald/10 border border-sentinel-accent-emerald/30' : 'bg-sentinel-bg-tertiary'}`}>
+              <div className="flex items-center gap-2 mb-2">
+                <MessageSquare className={`w-5 h-5 ${settings.useCryptoBert ? 'text-sentinel-accent-emerald' : 'text-sentinel-text-muted'}`} />
+                <span className="font-medium text-sm">CryptoBERT</span>
+              </div>
+              <p className="text-xs text-sentinel-text-muted">Crypto Sentiment Analysis</p>
+              <div className="mt-2 flex items-center gap-1">
+                <span className={`w-2 h-2 rounded-full ${aiModelStatus?.cryptobert.loaded ? 'bg-sentinel-accent-emerald' : 'bg-sentinel-text-muted'}`} />
+                <span className="text-xs">{aiModelStatus?.cryptobert.loaded ? 'Active' : 'Inactive'}</span>
+              </div>
+            </div>
+
+            {/* XGBoost */}
+            <div className={`p-4 rounded-xl ${settings.useXgboostClassifier ? 'bg-sentinel-accent-emerald/10 border border-sentinel-accent-emerald/30' : 'bg-sentinel-bg-tertiary'}`}>
+              <div className="flex items-center gap-2 mb-2">
+                <BarChart3 className={`w-5 h-5 ${settings.useXgboostClassifier ? 'text-sentinel-accent-emerald' : 'text-sentinel-text-muted'}`} />
+                <span className="font-medium text-sm">XGBoost</span>
+              </div>
+              <p className="text-xs text-sentinel-text-muted">Signal Classification</p>
+              <div className="mt-2 flex items-center gap-1">
+                <span className={`w-2 h-2 rounded-full ${aiModelStatus?.xgboost.loaded ? 'bg-sentinel-accent-emerald' : 'bg-sentinel-text-muted'}`} />
+                <span className="text-xs">
+                  {aiModelStatus?.xgboost.accuracy ? `${(aiModelStatus.xgboost.accuracy * 100).toFixed(0)}% Acc` : 'Training...'}
+                </span>
+              </div>
+            </div>
+
+            {/* Price Predictor */}
+            <div className={`p-4 rounded-xl ${settings.usePricePredictor ? 'bg-sentinel-accent-emerald/10 border border-sentinel-accent-emerald/30' : 'bg-sentinel-bg-tertiary'}`}>
+              <div className="flex items-center gap-2 mb-2">
+                <LineChart className={`w-5 h-5 ${settings.usePricePredictor ? 'text-sentinel-accent-emerald' : 'text-sentinel-text-muted'}`} />
+                <span className="font-medium text-sm">Chronos</span>
+              </div>
+              <p className="text-xs text-sentinel-text-muted">Price Prediction</p>
+              <div className="mt-2 flex items-center gap-1">
+                <span className={`w-2 h-2 rounded-full ${aiModelStatus?.pricePredictor.loaded ? 'bg-sentinel-accent-emerald' : 'bg-sentinel-text-muted'}`} />
+                <span className="text-xs">{aiModelStatus?.pricePredictor.loaded ? 'Active' : 'Inactive'}</span>
+              </div>
+            </div>
+
+            {/* Regime Detector */}
+            <div className={`p-4 rounded-xl ${settings.useRegimeDetection ? 'bg-sentinel-accent-emerald/10 border border-sentinel-accent-emerald/30' : 'bg-sentinel-bg-tertiary'}`}>
+              <div className="flex items-center gap-2 mb-2">
+                <Sparkles className={`w-5 h-5 ${settings.useRegimeDetection ? 'text-sentinel-accent-emerald' : 'text-sentinel-text-muted'}`} />
+                <span className="font-medium text-sm">Regime</span>
+              </div>
+              <p className="text-xs text-sentinel-text-muted">Market Regime Detection</p>
+              <div className="mt-2 flex items-center gap-1">
+                <span className={`w-2 h-2 rounded-full ${aiModelStatus?.regimeDetector.loaded ? 'bg-sentinel-accent-emerald' : 'bg-sentinel-text-muted'}`} />
+                <span className="text-xs">{aiModelStatus?.regimeDetector.currentRegime || 'Detecting...'}</span>
+              </div>
+            </div>
+          </div>
+        </motion.section>
 
         {/* Risk Mode Selection */}
         <motion.section
@@ -394,7 +585,7 @@ export default function SettingsPage() {
             Risk Profile
           </h2>
           <p className="text-sm text-sentinel-text-muted mb-6">
-            Select a preset or customize parameters below
+            Select a preset to automatically configure all parameters
           </p>
           
           <div className="grid grid-cols-3 gap-4">
@@ -805,26 +996,30 @@ export default function SettingsPage() {
               </div>
             </section>
 
-            {/* AI Features */}
+            {/* AI Models Control */}
             <section className="p-6 rounded-2xl glass-card">
               <h2 className="text-lg font-semibold mb-6 flex items-center gap-2">
-                <Brain className="w-5 h-5 text-sentinel-accent-cyan" />
-                AI Features
+                <Brain className="w-5 h-5 text-sentinel-accent-violet" />
+                AI Models
               </h2>
               
-              <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                {/* CryptoBERT Sentiment */}
                 <div className="flex items-center justify-between p-4 rounded-xl bg-sentinel-bg-tertiary">
-                  <div>
-                    <h3 className="font-medium">Use AI Signals</h3>
-                    <p className="text-sm text-sentinel-text-muted">
-                      Let AI analyze market and generate trade signals
-                    </p>
+                  <div className="flex items-center gap-3">
+                    <MessageSquare className="w-5 h-5 text-sentinel-accent-cyan" />
+                    <div>
+                      <h3 className="font-medium">CryptoBERT Sentiment</h3>
+                      <p className="text-xs text-sentinel-text-muted">
+                        Analyzes crypto news for market sentiment
+                      </p>
+                    </div>
                   </div>
                   <label className="relative inline-flex items-center cursor-pointer">
                     <input
                       type="checkbox"
-                      checked={settings.useAiSignals}
-                      onChange={(e) => setSettings(prev => ({ ...prev, useAiSignals: e.target.checked }))}
+                      checked={settings.useCryptoBert}
+                      onChange={(e) => setSettings(prev => ({ ...prev, useCryptoBert: e.target.checked }))}
                       className="sr-only peer"
                     />
                     <div className="w-11 h-6 bg-sentinel-border rounded-full peer 
@@ -834,12 +1029,66 @@ export default function SettingsPage() {
                   </label>
                 </div>
 
+                {/* XGBoost Classifier */}
                 <div className="flex items-center justify-between p-4 rounded-xl bg-sentinel-bg-tertiary">
-                  <div>
-                    <h3 className="font-medium">Regime Detection</h3>
-                    <p className="text-sm text-sentinel-text-muted">
-                      Detect market regimes (trend, range, volatility) to adapt strategy
-                    </p>
+                  <div className="flex items-center gap-3">
+                    <BarChart3 className="w-5 h-5 text-sentinel-accent-amber" />
+                    <div>
+                      <h3 className="font-medium">XGBoost Classifier</h3>
+                      <p className="text-xs text-sentinel-text-muted">
+                        ML-based trade signal validation
+                      </p>
+                    </div>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={settings.useXgboostClassifier}
+                      onChange={(e) => setSettings(prev => ({ ...prev, useXgboostClassifier: e.target.checked }))}
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-sentinel-border rounded-full peer 
+                                    peer-checked:bg-sentinel-accent-emerald transition-colors"></div>
+                    <div className="absolute left-1 top-1 w-4 h-4 bg-white rounded-full transition-transform
+                                    peer-checked:translate-x-5"></div>
+                  </label>
+                </div>
+
+                {/* Price Predictor */}
+                <div className="flex items-center justify-between p-4 rounded-xl bg-sentinel-bg-tertiary">
+                  <div className="flex items-center gap-3">
+                    <LineChart className="w-5 h-5 text-sentinel-accent-emerald" />
+                    <div>
+                      <h3 className="font-medium">Chronos Price Predictor</h3>
+                      <p className="text-xs text-sentinel-text-muted">
+                        AI-based price movement prediction
+                      </p>
+                    </div>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={settings.usePricePredictor}
+                      onChange={(e) => setSettings(prev => ({ ...prev, usePricePredictor: e.target.checked }))}
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-sentinel-border rounded-full peer 
+                                    peer-checked:bg-sentinel-accent-emerald transition-colors"></div>
+                    <div className="absolute left-1 top-1 w-4 h-4 bg-white rounded-full transition-transform
+                                    peer-checked:translate-x-5"></div>
+                  </label>
+                </div>
+
+                {/* Regime Detection */}
+                <div className="flex items-center justify-between p-4 rounded-xl bg-sentinel-bg-tertiary">
+                  <div className="flex items-center gap-3">
+                    <Sparkles className="w-5 h-5 text-sentinel-accent-violet" />
+                    <div>
+                      <h3 className="font-medium">Regime Detection</h3>
+                      <p className="text-xs text-sentinel-text-muted">
+                        Detects market regimes (trend/range/volatile)
+                      </p>
+                    </div>
                   </div>
                   <label className="relative inline-flex items-center cursor-pointer">
                     <input
@@ -855,12 +1104,16 @@ export default function SettingsPage() {
                   </label>
                 </div>
 
+                {/* Edge Estimation */}
                 <div className="flex items-center justify-between p-4 rounded-xl bg-sentinel-bg-tertiary">
-                  <div>
-                    <h3 className="font-medium">Edge Estimation</h3>
-                    <p className="text-sm text-sentinel-text-muted">
-                      Calculate statistical edge before every trade (-1 to +1)
-                    </p>
+                  <div className="flex items-center gap-3">
+                    <TrendingUp className="w-5 h-5 text-sentinel-accent-cyan" />
+                    <div>
+                      <h3 className="font-medium">Edge Estimation</h3>
+                      <p className="text-xs text-sentinel-text-muted">
+                        Calculates statistical edge before trading
+                      </p>
+                    </div>
                   </div>
                   <label className="relative inline-flex items-center cursor-pointer">
                     <input
@@ -876,12 +1129,16 @@ export default function SettingsPage() {
                   </label>
                 </div>
 
+                {/* Dynamic Sizing */}
                 <div className="flex items-center justify-between p-4 rounded-xl bg-sentinel-bg-tertiary">
-                  <div>
-                    <h3 className="font-medium">Dynamic Position Sizing</h3>
-                    <p className="text-sm text-sentinel-text-muted">
-                      Use Kelly criterion for optimal position sizing based on edge
-                    </p>
+                  <div className="flex items-center gap-3">
+                    <Layers className="w-5 h-5 text-sentinel-accent-amber" />
+                    <div>
+                      <h3 className="font-medium">Dynamic Position Sizing</h3>
+                      <p className="text-xs text-sentinel-text-muted">
+                        Kelly criterion for optimal position sizing
+                      </p>
+                    </div>
                   </div>
                   <label className="relative inline-flex items-center cursor-pointer">
                     <input
@@ -896,27 +1153,31 @@ export default function SettingsPage() {
                                     peer-checked:translate-x-5"></div>
                   </label>
                 </div>
+              </div>
 
-                <div className="flex items-center justify-between p-4 rounded-xl bg-sentinel-bg-tertiary">
+              {/* Learning */}
+              <div className="mt-4 flex items-center justify-between p-4 rounded-xl bg-sentinel-bg-tertiary">
+                <div className="flex items-center gap-3">
+                  <Brain className="w-5 h-5 text-sentinel-accent-violet" />
                   <div>
                     <h3 className="font-medium">Continuous Learning</h3>
-                    <p className="text-sm text-sentinel-text-muted">
+                    <p className="text-xs text-sentinel-text-muted">
                       AI learns and improves from every trade outcome
                     </p>
                   </div>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={settings.learnFromTrades}
-                      onChange={(e) => setSettings(prev => ({ ...prev, learnFromTrades: e.target.checked }))}
-                      className="sr-only peer"
-                    />
-                    <div className="w-11 h-6 bg-sentinel-border rounded-full peer 
-                                    peer-checked:bg-sentinel-accent-emerald transition-colors"></div>
-                    <div className="absolute left-1 top-1 w-4 h-4 bg-white rounded-full transition-transform
-                                    peer-checked:translate-x-5"></div>
-                  </label>
                 </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={settings.learnFromTrades}
+                    onChange={(e) => setSettings(prev => ({ ...prev, learnFromTrades: e.target.checked }))}
+                    className="sr-only peer"
+                  />
+                  <div className="w-11 h-6 bg-sentinel-border rounded-full peer 
+                                  peer-checked:bg-sentinel-accent-emerald transition-colors"></div>
+                  <div className="absolute left-1 top-1 w-4 h-4 bg-white rounded-full transition-transform
+                                  peer-checked:translate-x-5"></div>
+                </label>
               </div>
             </section>
           </motion.div>

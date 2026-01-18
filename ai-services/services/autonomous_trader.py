@@ -243,6 +243,51 @@ class AutonomousTrader:
         logger.info(f"SMART AI Trading System initialized with {len(self.trading_pairs)} default pairs")
         logger.info("Will fetch ALL available Bybit pairs when first user connects")
     
+    async def _log_console(self, level: str, message: str, symbol: str = None, data: Dict = None):
+        """Log to Redis console for dashboard real-time display"""
+        try:
+            if not self.redis_client:
+                return
+            
+            log_entry = {
+                "time": datetime.utcnow().isoformat(),
+                "level": level,
+                "message": message,
+                "symbol": symbol,
+                "data": data
+            }
+            
+            # Add to console logs (keep last 100)
+            await self.redis_client.lpush('bot:console:logs', json.dumps(log_entry))
+            await self.redis_client.ltrim('bot:console:logs', 0, 99)
+            
+            # Set current action if it's an INFO or important message
+            if level in ['INFO', 'TRADE', 'SIGNAL']:
+                await self.redis_client.set('bot:current_action', message, ex=60)
+                
+        except Exception as e:
+            pass  # Silent fail for logging
+    
+    async def _log_decision(self, symbol: str, decision: str, reason: str, data: Dict = None):
+        """Log trading decision for dashboard"""
+        try:
+            if not self.redis_client:
+                return
+            
+            decision_entry = {
+                "time": datetime.utcnow().isoformat(),
+                "symbol": symbol,
+                "decision": decision,
+                "reason": reason,
+                "data": data or {}
+            }
+            
+            await self.redis_client.lpush('bot:decisions', json.dumps(decision_entry))
+            await self.redis_client.ltrim('bot:decisions', 0, 49)
+            
+        except Exception:
+            pass
+    
     async def _load_settings_from_redis(self):
         """Load user settings from Redis"""
         try:
@@ -355,6 +400,7 @@ class AutonomousTrader:
     async def run_trading_loop(self):
         """Main trading loop - SMART AI mode"""
         logger.info("Starting SMART AI trading loop...")
+        await self._log_console("INFO", "🚀 SMART AI Trading System started")
         
         cycle_count = 0
         
@@ -366,15 +412,25 @@ class AutonomousTrader:
                 # Get global market data first
                 market_sentiment = await self._get_market_sentiment()
                 
+                # Update scan stats
+                if self.redis_client:
+                    await self.redis_client.hset('bot:scan_stats', mapping={
+                        'pairs_scanned': str(len(self.trading_pairs)),
+                        'last_scan_time': datetime.utcnow().isoformat(),
+                        'cycle_count': str(cycle_count)
+                    })
+                
                 for user_id, client in list(self.user_clients.items()):
                     try:
                         await self._process_user_trading(user_id, client, market_sentiment)
                     except Exception as e:
                         logger.error(f"Error processing user {user_id}: {e}")
+                        await self._log_console("ERROR", f"User trading error: {str(e)[:50]}")
                         
                 # Log status every 50 cycles
                 if cycle_count % 50 == 0:
                     await self._log_trading_status()
+                    await self._log_console("INFO", f"📊 Cycle {cycle_count}: Scanning {len(self.trading_pairs)} pairs...")
                     
                 # Wait for next analysis cycle
                 cycle_duration = (datetime.utcnow() - cycle_start).total_seconds()
@@ -877,6 +933,12 @@ class AutonomousTrader:
             logger.info(f"SMART ORDER: {side} {symbol} qty={quantity} @ ${signal.entry_price:.2f} "
                        f"(${order_value:.2f}, {signal.position_size_percent:.1f}% of portfolio)")
             
+            await self._log_console("TRADE", f"🎯 Executing {side} {symbol} @ ${signal.entry_price:.2f}", symbol, {
+                "qty": quantity,
+                "value": order_value,
+                "confidence": signal.confidence
+            })
+            
             order_result = await client.place_order(
                 symbol=symbol,
                 side=side,
@@ -886,6 +948,7 @@ class AutonomousTrader:
             
             if order_result.get('success'):
                 logger.info(f"SMART ORDER SUCCESS: {symbol} {side}")
+                await self._log_console("TRADE", f"✅ {side} {symbol} SUCCESS - ${order_value:.2f}", symbol)
                 
                 # Record trade
                 trade_record = {

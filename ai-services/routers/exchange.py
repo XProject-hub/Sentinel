@@ -595,6 +595,80 @@ async def get_live_activity(user_id: str = "default"):
     return {"success": True, "data": activity}
 
 
+@router.get("/trading/console")
+async def get_realtime_console(user_id: str = "default"):
+    """Get REAL-TIME console output - what bot is doing RIGHT NOW"""
+    
+    trader = get_trader()
+    
+    console = {
+        "timestamp": datetime.utcnow().isoformat(),
+        "logs": [],
+        "current_action": None,
+        "scanning": {
+            "pairs_scanned": 0,
+            "opportunities_found": 0,
+            "last_scan_time": None
+        },
+        "decisions": [],
+        "ai_models": {
+            "regime": None,
+            "sentiment": None,
+            "edge_score": None
+        }
+    }
+    
+    try:
+        if not hasattr(trader, 'redis_client') or not trader.redis_client:
+            return {"success": True, "data": console}
+        
+        # Get recent log entries
+        log_entries = await trader.redis_client.lrange('bot:console:logs', 0, 49)
+        console["logs"] = [json.loads(l) for l in log_entries] if log_entries else []
+        
+        # Get current action
+        current_action = await trader.redis_client.get('bot:current_action')
+        console["current_action"] = current_action.decode() if current_action else "Monitoring markets..."
+        
+        # Get scanning stats
+        scan_stats = await trader.redis_client.hgetall('bot:scan_stats')
+        if scan_stats:
+            console["scanning"] = {
+                k.decode(): v.decode() for k, v in scan_stats.items()
+            }
+        
+        # Get recent decisions
+        decisions = await trader.redis_client.lrange('bot:decisions', 0, 9)
+        console["decisions"] = [json.loads(d) for d in decisions] if decisions else []
+        
+        # Get AI model status
+        regime = await trader.redis_client.get('bot:current_regime')
+        console["ai_models"]["regime"] = regime.decode() if regime else "Unknown"
+        
+        sentiment_data = await trader.redis_client.get('market:sentiment:cryptobert')
+        if sentiment_data:
+            try:
+                sent = json.loads(sentiment_data)
+                console["ai_models"]["sentiment"] = sent.get('overall_score', 0)
+            except:
+                console["ai_models"]["sentiment"] = 0
+        
+        # Get trader stats from v2 if available
+        if USE_V2_TRADER:
+            stats = await trader.get_status()
+            console["trader_stats"] = stats.get('stats', {})
+            
+    except Exception as e:
+        logger.error(f"Error getting console: {e}")
+        console["logs"].append({
+            "time": datetime.utcnow().isoformat(),
+            "level": "ERROR",
+            "message": f"Console error: {str(e)}"
+        })
+        
+    return {"success": True, "data": console}
+
+
 @router.get("/trading/pairs")
 async def get_trading_pairs():
     """Get ALL crypto pairs from Bybit that bot can trade"""
