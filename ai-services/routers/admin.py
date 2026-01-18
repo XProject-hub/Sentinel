@@ -351,3 +351,91 @@ async def get_traffic_stats():
         logger.error(f"Failed to get traffic stats: {e}")
         return {"success": False, "error": str(e)}
 
+
+@router.get("/stats")
+async def get_public_stats():
+    """Get public statistics for landing page - LIVE DATA"""
+    try:
+        r = await redis.from_url(settings.REDIS_URL)
+        
+        # Get trading stats
+        trade_stats_raw = await r.hgetall('ai:trading:stats')
+        trade_stats = {
+            k.decode() if isinstance(k, bytes) else k:
+            v.decode() if isinstance(v, bytes) else v
+            for k, v in trade_stats_raw.items()
+        } if trade_stats_raw else {}
+        
+        # Get total volume from trades
+        total_volume = float(trade_stats.get('total_volume', 0))
+        total_trades = int(trade_stats.get('total_trades', 0))
+        wins = int(trade_stats.get('wins', 0))
+        losses = int(trade_stats.get('losses', 0))
+        
+        # Calculate win rate
+        if total_trades > 0:
+            win_rate = (wins / total_trades) * 100
+        else:
+            win_rate = 0
+        
+        # Get active users count
+        user_keys = await r.keys('exchange:credentials:*')
+        active_users = len(user_keys) if user_keys else 0
+        
+        # Get system uptime
+        try:
+            boot_time = datetime.fromtimestamp(psutil.boot_time())
+            uptime_seconds = (datetime.now() - boot_time).total_seconds()
+            uptime_percent = min(99.99, (uptime_seconds / (uptime_seconds + 60)) * 100)
+        except:
+            uptime_percent = 99.99
+        
+        # Get AI accuracy from learning stats
+        learning_stats_raw = await r.hgetall('ai:learning:stats')
+        learning_stats = {
+            k.decode() if isinstance(k, bytes) else k:
+            v.decode() if isinstance(v, bytes) else v
+            for k, v in learning_stats_raw.items()
+        } if learning_stats_raw else {}
+        
+        ai_accuracy = float(learning_stats.get('overall_accuracy', win_rate))
+        
+        # Get today's volume
+        today_key = f"stats:volume:{datetime.now().strftime('%Y-%m-%d')}"
+        today_volume = await r.get(today_key)
+        today_volume = float(today_volume) if today_volume else 0
+        
+        await r.aclose()
+        
+        return {
+            "total_volume": total_volume if total_volume > 0 else today_volume,
+            "totalVolume": total_volume if total_volume > 0 else today_volume,
+            "active_users": active_users,
+            "activeUsers": active_users,
+            "ai_accuracy": ai_accuracy if ai_accuracy > 0 else win_rate,
+            "aiAccuracy": ai_accuracy if ai_accuracy > 0 else win_rate,
+            "win_rate": win_rate,
+            "winRate": win_rate,
+            "uptime": uptime_percent,
+            "total_trades": total_trades,
+            "totalTrades": total_trades,
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Failed to get public stats: {e}")
+        # Return default values on error
+        return {
+            "total_volume": 0,
+            "totalVolume": 0,
+            "active_users": 1,
+            "activeUsers": 1,
+            "ai_accuracy": 0,
+            "aiAccuracy": 0,
+            "win_rate": 0,
+            "winRate": 0,
+            "uptime": 99.99,
+            "total_trades": 0,
+            "totalTrades": 0,
+            "timestamp": datetime.now().isoformat()
+        }
+

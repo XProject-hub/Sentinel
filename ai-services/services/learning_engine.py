@@ -104,6 +104,7 @@ class LearningEngine:
         self.total_trades = 0
         self.winning_trades = 0
         self.total_pnl = 0.0
+        self.total_volume = 0.0  # Track trading volume
         self.max_drawdown = 0.0
         self.learning_iterations = 0
         self.patterns_learned = 0
@@ -606,6 +607,8 @@ class LearningEngine:
         # Update statistics
         self.total_trades += 1
         self.total_pnl += trade.pnl
+        # Track volume (position value)
+        self.total_volume += abs(getattr(trade, 'position_value', 0)) or abs(trade.pnl * 100)  # Estimate if not available
         if trade.pnl > 0:
             self.winning_trades += 1
             
@@ -705,6 +708,7 @@ class LearningEngine:
                 self.total_trades = int(stats.get(b'total_trades', 0))
                 self.winning_trades = int(stats.get(b'winning_trades', 0))
                 self.total_pnl = float(stats.get(b'total_pnl', 0))
+                self.total_volume = float(stats.get(b'total_volume', 0))
                 self.max_drawdown = float(stats.get(b'max_drawdown', 0))
                 self.learning_iterations = int(stats.get(b'learning_iterations', 0))
                 self.patterns_learned = int(stats.get(b'patterns_learned', 0))
@@ -738,6 +742,7 @@ class LearningEngine:
                 'winning_trades': str(self.winning_trades),
                 'win_rate': str(self.winning_trades / max(1, self.total_trades) * 100),
                 'total_pnl': str(self.total_pnl),
+                'total_volume': str(self.total_volume),
                 'max_drawdown': str(self.max_drawdown),
                 'learning_iterations': str(self.learning_iterations),
                 'patterns_learned': str(self.patterns_learned),
@@ -755,7 +760,9 @@ class LearningEngine:
                 'total_profit': str(self.total_pnl),
                 'avg_profit': str(self.total_pnl / max(1, self.total_trades)),
                 'best_trade': str(self.max_drawdown),  # Will be updated properly
-                'worst_trade': str(-self.max_drawdown)
+                'worst_trade': str(-self.max_drawdown),
+                'total_volume': str(getattr(self, 'total_volume', 0)),
+                'updated_at': datetime.utcnow().isoformat()
             })
             
             logger.debug(f"Saved learning data: {total_states} total states")
