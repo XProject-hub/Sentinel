@@ -216,9 +216,16 @@ export default function SettingsPage() {
       const res = await fetch('/ai/exchange/settings')
       const data = await res.json()
       if (data.success && data.data) {
+        // Validate riskMode - map 'neutral' or any invalid value to 'normal'
+        let riskMode = data.data.riskMode || 'normal'
+        if (!['safe', 'normal', 'aggressive'].includes(riskMode)) {
+          riskMode = 'normal' // Default to normal if invalid value
+        }
+        
         setSettings(prev => ({ 
           ...prev, 
           ...data.data,
+          riskMode: riskMode as 'safe' | 'normal' | 'aggressive',
           // Map backend field names to frontend
           useCryptoBert: data.data.enableFinbertSentiment ?? data.data.useCryptoBert ?? true,
           useXgboostClassifier: data.data.enableXgboostClassifier ?? data.data.useXgboostClassifier ?? true,
@@ -396,6 +403,15 @@ export default function SettingsPage() {
     return colors[color]?.[type] || ''
   }
 
+  // Get the current preset safely (fallback to 'normal' if riskMode is invalid)
+  const getCurrentPreset = () => {
+    const validModes = ['safe', 'normal', 'aggressive'] as const
+    const mode = validModes.includes(settings.riskMode as any) ? settings.riskMode : 'normal'
+    return { mode, preset: riskPresets[mode] }
+  }
+  
+  const { mode: currentMode, preset: currentPreset } = getCurrentPreset()
+
   return (
     <div className="min-h-screen bg-sentinel-bg-primary">
       {/* Header */}
@@ -488,8 +504,8 @@ export default function SettingsPage() {
             </div>
             <div className="text-right">
               <p className="text-sm text-sentinel-text-muted">Current Risk Mode</p>
-              <p className={`text-2xl font-bold ${getColorClass(riskPresets[settings.riskMode].color, 'text')}`}>
-                {riskPresets[settings.riskMode].name}
+              <p className={`text-2xl font-bold ${getColorClass(currentPreset.color, 'text')}`}>
+                {currentPreset.name}
               </p>
               <p className="text-xs text-sentinel-text-muted mt-1">
                 Max Exposure: €{(equity * settings.maxTotalExposure / 100).toFixed(2)}
