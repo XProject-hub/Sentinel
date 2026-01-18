@@ -113,19 +113,20 @@ class AutonomousTraderV2:
         self.scan_interval = 30  # Seconds between full scans
         self.position_check_interval = 5  # Seconds between position checks
         
-        # Entry filters
+        # Entry filters (defaults, will be overridden by settings)
         self.min_edge = 0.15  # Minimum edge to consider trade
-        self.min_confidence = 55  # Minimum confidence
+        self.min_confidence = 60  # Minimum confidence
         
         # Exit strategy
         self.min_profit_to_trail = 0.8  # % profit before trailing
         self.trail_from_peak = 1.0  # Trail by 1% from peak
         self.emergency_stop_loss = 1.5  # Hard stop at -1.5%
-        self.take_profit = 5.0  # Take profit at +5%
+        self.take_profit = 3.0  # Take profit at +3%
         
-        # Risk limits (from PositionSizer, but enforced here too)
-        self.max_open_positions = 10
-        self.max_exposure_percent = 30
+        # Risk limits (0 = unlimited positions)
+        self.max_open_positions = 0  # Unlimited by default
+        self.max_exposure_percent = 50
+        self.max_daily_drawdown = 3.0
         
         # Statistics
         self.stats = {
@@ -266,8 +267,11 @@ class AutonomousTraderV2:
             await self._check_position_exit(user_id, client, position, wallet)
             
         # 4. Look for new opportunities (if room)
+        # max_open_positions = 0 means unlimited
         num_positions = len(self.active_positions.get(user_id, {}))
-        if num_positions < self.max_open_positions:
+        can_open_more = self.max_open_positions == 0 or num_positions < self.max_open_positions
+        
+        if can_open_more:
             await self._find_opportunities(user_id, client, wallet)
             
     async def _get_wallet(self, client: BybitV5Client) -> Dict:
@@ -681,17 +685,26 @@ class AutonomousTraderV2:
                     for k, v in data.items()
                 }
                 
+                # Exit strategy
                 self.emergency_stop_loss = float(parsed.get('stopLossPercent', self.emergency_stop_loss))
                 self.take_profit = float(parsed.get('takeProfitPercent', self.take_profit))
                 self.trail_from_peak = float(parsed.get('trailingStopPercent', self.trail_from_peak))
                 self.min_profit_to_trail = float(parsed.get('minProfitToTrail', self.min_profit_to_trail))
+                
+                # Entry filters
                 self.min_confidence = float(parsed.get('minConfidence', self.min_confidence))
+                self.min_edge = float(parsed.get('minEdge', self.min_edge))
+                
+                # Risk limits (0 = unlimited)
                 self.max_open_positions = int(float(parsed.get('maxOpenPositions', self.max_open_positions)))
+                self.max_exposure_percent = float(parsed.get('maxTotalExposure', self.max_exposure_percent))
+                self.max_daily_drawdown = float(parsed.get('maxDailyDrawdown', self.max_daily_drawdown))
                 
                 logger.info(f"Loaded settings: SL={self.emergency_stop_loss}%, TP={self.take_profit}%, "
-                           f"Trail={self.trail_from_peak}%, MinConf={self.min_confidence}%")
-        except:
-            pass
+                           f"Trail={self.trail_from_peak}%, MinConf={self.min_confidence}%, "
+                           f"MinEdge={self.min_edge}, MaxPos={'Unlimited' if self.max_open_positions == 0 else self.max_open_positions}")
+        except Exception as e:
+            logger.debug(f"Load settings error: {e}")
             
     async def _load_stats(self):
         """Load stats from Redis"""

@@ -68,15 +68,16 @@ class PositionSizer:
     - Regime adjustments
     """
     
-    # === HARD LIMITS (NEVER EXCEED) ===
+    # === DEFAULT LIMITS (can be overridden by settings) ===
     MAX_RISK_PER_TRADE = 0.005  # 0.5% of wallet
-    MAX_DAILY_DRAWDOWN = 0.02  # 2% daily loss limit
+    MAX_DAILY_DRAWDOWN = 0.03  # 3% daily loss limit (default)
     MAX_WEEKLY_DRAWDOWN = 0.05  # 5% weekly loss limit
-    MAX_TOTAL_EXPOSURE = 0.30  # 30% of wallet max deployed
+    MAX_TOTAL_EXPOSURE = 0.50  # 50% of wallet max deployed (default)
     MAX_SINGLE_POSITION = 0.10  # 10% max in one position
     MAX_CORRELATED_EXPOSURE = 0.15  # 15% max in correlated assets
     MIN_POSITION_VALUE = 5.0  # $5 minimum trade
     MAX_LEVERAGE = 5  # Max leverage allowed
+    MAX_OPEN_POSITIONS = 0  # 0 = unlimited
     
     def __init__(self):
         self.redis_client = None
@@ -110,7 +111,34 @@ class PositionSizer:
         # Load state
         await self._load_state()
         
+        # Load user settings
+        await self._load_settings()
+        
         logger.info("Position Sizer initialized - Risk management active")
+        
+    async def _load_settings(self):
+        """Load user risk settings from Redis"""
+        try:
+            settings_data = await self.redis_client.hgetall('bot:settings')
+            if settings_data:
+                parsed = {
+                    k.decode() if isinstance(k, bytes) else k: 
+                    v.decode() if isinstance(v, bytes) else v 
+                    for k, v in settings_data.items()
+                }
+                
+                # Apply settings
+                self.MAX_DAILY_DRAWDOWN = float(parsed.get('maxDailyDrawdown', 3)) / 100
+                self.MAX_TOTAL_EXPOSURE = float(parsed.get('maxTotalExposure', 50)) / 100
+                self.MAX_SINGLE_POSITION = float(parsed.get('maxPositionPercent', 10)) / 100
+                self.MAX_OPEN_POSITIONS = int(float(parsed.get('maxOpenPositions', 0)))
+                
+                logger.info(f"Loaded position sizer settings: MaxDD={self.MAX_DAILY_DRAWDOWN*100:.1f}%, "
+                           f"MaxExposure={self.MAX_TOTAL_EXPOSURE*100:.0f}%, "
+                           f"MaxPos={self.MAX_SINGLE_POSITION*100:.0f}%, "
+                           f"MaxOpenPos={'Unlimited' if self.MAX_OPEN_POSITIONS == 0 else self.MAX_OPEN_POSITIONS}")
+        except Exception as e:
+            logger.debug(f"Load settings error: {e}")
         
     async def shutdown(self):
         """Cleanup"""
@@ -173,6 +201,12 @@ class PositionSizer:
         if current_exposure >= self.MAX_TOTAL_EXPOSURE * wallet_balance:
             return self._blocked_position(
                 symbol, "Maximum total exposure reached", wallet_balance
+            )
+        
+        # 3.5 Check max open positions (0 = unlimited)
+        if self.MAX_OPEN_POSITIONS > 0 and len(self.open_positions) >= self.MAX_OPEN_POSITIONS:
+            return self._blocked_position(
+                symbol, f"Maximum {self.MAX_OPEN_POSITIONS} positions reached", wallet_balance
             )
             
         # 4. Check if symbol already has position

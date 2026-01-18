@@ -629,6 +629,30 @@ async def get_settings():
     
     r = await redis.from_url(settings.REDIS_URL)
     
+    # Default settings
+    defaults = {
+        "riskMode": "normal",
+        "takeProfitPercent": 3.0,
+        "stopLossPercent": 1.5,
+        "trailingStopPercent": 1.0,
+        "minProfitToTrail": 0.8,
+        "minConfidence": 60,
+        "minEdge": 0.15,
+        "maxPositionPercent": 5,
+        "maxOpenPositions": 0,  # 0 = unlimited
+        "maxDailyDrawdown": 3,
+        "maxTotalExposure": 50,
+        "cryptoBudget": 100,
+        "tradFiBudget": 0,
+        "enableCrypto": True,
+        "enableTradFi": False,
+        "useAiSignals": True,
+        "learnFromTrades": True,
+        "useRegimeDetection": True,
+        "useEdgeEstimation": True,
+        "useDynamicSizing": True,
+    }
+    
     try:
         settings_data = await r.hgetall('bot:settings')
         
@@ -643,45 +667,36 @@ async def get_settings():
             return {
                 "success": True,
                 "data": {
-                    "riskMode": parsed.get('riskMode', 'neutral'),
-                    "takeProfitPercent": float(parsed.get('takeProfitPercent', 2.0)),
-                    "stopLossPercent": float(parsed.get('stopLossPercent', 1.5)),
-                    "trailingStopPercent": float(parsed.get('trailingStopPercent', 1.2)),
-                    "minProfitToTrail": float(parsed.get('minProfitToTrail', 1.0)),
-                    "minConfidence": int(float(parsed.get('minConfidence', 70))),
-                    "maxPositionPercent": int(float(parsed.get('maxPositionPercent', 8))),
-                    "maxOpenPositions": int(float(parsed.get('maxOpenPositions', 8))),
-                    "cryptoBudget": float(parsed.get('cryptoBudget', 100)),
-                    "tradFiBudget": float(parsed.get('tradFiBudget', 50)),
+                    "riskMode": parsed.get('riskMode', defaults['riskMode']),
+                    "takeProfitPercent": float(parsed.get('takeProfitPercent', defaults['takeProfitPercent'])),
+                    "stopLossPercent": float(parsed.get('stopLossPercent', defaults['stopLossPercent'])),
+                    "trailingStopPercent": float(parsed.get('trailingStopPercent', defaults['trailingStopPercent'])),
+                    "minProfitToTrail": float(parsed.get('minProfitToTrail', defaults['minProfitToTrail'])),
+                    "minConfidence": int(float(parsed.get('minConfidence', defaults['minConfidence']))),
+                    "minEdge": float(parsed.get('minEdge', defaults['minEdge'])),
+                    "maxPositionPercent": int(float(parsed.get('maxPositionPercent', defaults['maxPositionPercent']))),
+                    "maxOpenPositions": int(float(parsed.get('maxOpenPositions', defaults['maxOpenPositions']))),
+                    "maxDailyDrawdown": float(parsed.get('maxDailyDrawdown', defaults['maxDailyDrawdown'])),
+                    "maxTotalExposure": float(parsed.get('maxTotalExposure', defaults['maxTotalExposure'])),
+                    "cryptoBudget": float(parsed.get('cryptoBudget', defaults['cryptoBudget'])),
+                    "tradFiBudget": float(parsed.get('tradFiBudget', defaults['tradFiBudget'])),
                     "enableCrypto": parsed.get('enableCrypto', 'true') == 'true',
                     "enableTradFi": parsed.get('enableTradFi', 'false') == 'true',
                     "useAiSignals": parsed.get('useAiSignals', 'true') == 'true',
                     "learnFromTrades": parsed.get('learnFromTrades', 'true') == 'true',
+                    "useRegimeDetection": parsed.get('useRegimeDetection', 'true') == 'true',
+                    "useEdgeEstimation": parsed.get('useEdgeEstimation', 'true') == 'true',
+                    "useDynamicSizing": parsed.get('useDynamicSizing', 'true') == 'true',
                 }
             }
         else:
             # Return defaults
             return {
                 "success": True,
-                "data": {
-                    "riskMode": "neutral",
-                    "takeProfitPercent": 2.0,
-                    "stopLossPercent": 1.5,
-                    "trailingStopPercent": 1.2,
-                    "minProfitToTrail": 1.0,
-                    "minConfidence": 70,
-                    "maxPositionPercent": 8,
-                    "maxOpenPositions": 8,
-                    "cryptoBudget": 100,
-                    "tradFiBudget": 50,
-                    "enableCrypto": True,
-                    "enableTradFi": False,
-                    "useAiSignals": True,
-                    "learnFromTrades": True,
-                }
+                "data": defaults
             }
     finally:
-        await r.close()
+        await r.aclose()
 
 
 @router.post("/settings")
@@ -693,45 +708,65 @@ async def save_settings(request: Request):
     r = await redis.from_url(settings.REDIS_URL)
     
     try:
-        # Save to Redis
+        # Save to Redis - all settings
         settings_to_save = {
-            'riskMode': str(body.get('riskMode', 'neutral')),
-            'takeProfitPercent': str(body.get('takeProfitPercent', 2.0)),
+            # Risk mode
+            'riskMode': str(body.get('riskMode', 'normal')),
+            
+            # Trading parameters
+            'takeProfitPercent': str(body.get('takeProfitPercent', 3.0)),
             'stopLossPercent': str(body.get('stopLossPercent', 1.5)),
-            'trailingStopPercent': str(body.get('trailingStopPercent', 1.2)),
-            'minProfitToTrail': str(body.get('minProfitToTrail', 1.0)),
-            'minConfidence': str(body.get('minConfidence', 70)),
-            'maxPositionPercent': str(body.get('maxPositionPercent', 8)),
-            'maxOpenPositions': str(body.get('maxOpenPositions', 8)),
+            'trailingStopPercent': str(body.get('trailingStopPercent', 1.0)),
+            'minProfitToTrail': str(body.get('minProfitToTrail', 0.8)),
+            'minConfidence': str(body.get('minConfidence', 60)),
+            'minEdge': str(body.get('minEdge', 0.15)),
+            
+            # Risk management
+            'maxPositionPercent': str(body.get('maxPositionPercent', 5)),
+            'maxOpenPositions': str(body.get('maxOpenPositions', 0)),  # 0 = unlimited
+            'maxDailyDrawdown': str(body.get('maxDailyDrawdown', 3)),
+            'maxTotalExposure': str(body.get('maxTotalExposure', 50)),
+            
+            # Budget allocation
             'cryptoBudget': str(body.get('cryptoBudget', 100)),
-            'tradFiBudget': str(body.get('tradFiBudget', 50)),
+            'tradFiBudget': str(body.get('tradFiBudget', 0)),
             'enableCrypto': str(body.get('enableCrypto', True)).lower(),
             'enableTradFi': str(body.get('enableTradFi', False)).lower(),
+            
+            # AI features
             'useAiSignals': str(body.get('useAiSignals', True)).lower(),
             'learnFromTrades': str(body.get('learnFromTrades', True)).lower(),
+            'useRegimeDetection': str(body.get('useRegimeDetection', True)).lower(),
+            'useEdgeEstimation': str(body.get('useEdgeEstimation', True)).lower(),
+            'useDynamicSizing': str(body.get('useDynamicSizing', True)).lower(),
         }
         
         await r.hset('bot:settings', mapping=settings_to_save)
         
         # Apply settings to autonomous trader (both v1 and v2)
         trader = get_trader()
+        
+        # Exit strategy
         if hasattr(trader, 'emergency_stop_loss'):
             trader.emergency_stop_loss = float(body.get('stopLossPercent', 1.5))
-        if hasattr(trader, 'trail_from_peak'):
-            trader.trail_from_peak = float(body.get('trailingStopPercent', 1.2))
-        if hasattr(trader, 'min_profit_to_trail'):
-            trader.min_profit_to_trail = float(body.get('minProfitToTrail', 1.0))
-        if hasattr(trader, 'min_confidence'):
-            trader.min_confidence = float(body.get('minConfidence', 70))
-        if hasattr(trader, 'max_position_percent'):
-            trader.max_position_percent = float(body.get('maxPositionPercent', 8))
-        if hasattr(trader, 'max_open_positions'):
-            trader.max_open_positions = int(body.get('maxOpenPositions', 8))
         if hasattr(trader, 'take_profit'):
-            trader.take_profit = float(body.get('takeProfitPercent', 5.0))
-        
-        # Store take profit for use (not directly in trader but in settings)
-        await r.set('bot:take_profit_percent', str(body.get('takeProfitPercent', 2.0)))
+            trader.take_profit = float(body.get('takeProfitPercent', 3.0))
+        if hasattr(trader, 'trail_from_peak'):
+            trader.trail_from_peak = float(body.get('trailingStopPercent', 1.0))
+        if hasattr(trader, 'min_profit_to_trail'):
+            trader.min_profit_to_trail = float(body.get('minProfitToTrail', 0.8))
+            
+        # Entry filters
+        if hasattr(trader, 'min_confidence'):
+            trader.min_confidence = float(body.get('minConfidence', 60))
+        if hasattr(trader, 'min_edge'):
+            trader.min_edge = float(body.get('minEdge', 0.15))
+            
+        # Risk limits
+        if hasattr(trader, 'max_open_positions'):
+            trader.max_open_positions = int(body.get('maxOpenPositions', 0))
+        if hasattr(trader, 'max_exposure_percent'):
+            trader.max_exposure_percent = float(body.get('maxTotalExposure', 50))
         
         logger.info(f"Bot settings updated: {body.get('riskMode')} mode, "
                    f"TP={body.get('takeProfitPercent')}%, SL={body.get('stopLossPercent')}%")
