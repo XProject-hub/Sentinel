@@ -751,28 +751,40 @@ class AutonomousTraderV2:
                 
                 await data_collector.record_trade(trade_record)
                 
-                # V3: Quality filter for multi-user learning
+                # V3: Quality filter for multi-user learning (professional)
+                # Includes market context for de-duplication + multi-dimensional scoring
                 quality_data = {
                     'trade_id': trade_record.trade_id,
                     'symbol': symbol,
                     'direction': trade_record.direction,
                     'entry_price': position.entry_price,
                     'exit_price': trade_record.exit_price,
+                    'expected_price': position.entry_price,  # Could track expected vs actual
                     'quantity': position.size,
                     'position_value': position.position_value,
+                    
+                    # AI signals at entry
                     'edge_score': position.entry_edge,
                     'confidence': position.entry_confidence,
                     'regime': position.entry_regime,
                     'xgb_signal': 'buy' if position.side == 'Buy' else 'sell',
                     'xgb_confidence': position.entry_confidence,
-                    'finbert_sentiment': 0,  # Could store at entry
+                    'sentiment_score': getattr(position, 'entry_sentiment', 0),
+                    
+                    # Market context (for de-duplication)
+                    'volatility': getattr(position, 'entry_volatility', 1.5),
+                    'liquidity': getattr(position, 'entry_liquidity', 50),
+                    'trend_strength': getattr(position, 'entry_trend', 0),
+                    
+                    # Outcome
                     'pnl_percent': pnl,
                     'pnl_value': trade_record.pnl_value,
+                    'stop_loss_percent': self.emergency_stop_loss,
                     'duration_seconds': trade_record.duration_seconds,
                     'exit_reason': reason
                 }
                 
-                # This filters and weights the trade for ML training
+                # Quality filter: user is source, not signal
                 await training_data_manager.process_trade(quality_data, user_id="default")
                 
                 logger.debug(f"Trade recorded for ML training: {symbol} {action} {pnl:.2f}%")

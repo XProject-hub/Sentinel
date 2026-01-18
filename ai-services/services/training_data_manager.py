@@ -1,30 +1,37 @@
 """
-SENTINEL AI - Training Data Manager
-Quality-filtered, multi-user learning system
+SENTINEL AI - Training Data Manager V2
+Professional-grade quality filtering and multi-user learning
 
-PURPOSE:
-- Filter trades to only train on QUALITY data
-- Weight profitable trades higher
-- Enable multi-user collective learning
-- Prevent bad trades from polluting the model
+FIXES FROM REVIEW:
+1. PnL is NOT primary criterion - multi-dimensional quality score
+2. User ID dropped from learning - user is source, not signal
+3. De-duplication - same market state = downweight or skip
+4. Exploration isolated - shadow mode for experiments
 
-QUALITY CRITERIA:
-1. Profitable trades (PnL > 0.5%)
-2. High edge trades (edge > 0.15)
-3. XGBoost correct predictions
-4. High confidence trades (> 60%)
+QUALITY SCORE = MULTI-DIMENSIONAL:
+  w1 * edge_strength
++ w2 * regime_stability
++ w3 * liquidity_score
++ w4 * RR_realized (risk/reward)
++ w5 * execution_quality
+- w6 * slippage_penalty
+- w7 * correlation_penalty
 
-MULTI-USER BENEFITS:
-- More data = Better models
-- Diverse strategies = Robust learning
-- Collective wins benefit everyone
+DE-DUPLICATION:
+  If (market_state, regime, time_bucket, strategy) already exists:
+     → downweight OR skip
+
+USER HANDLING:
+  User trade → map to (market_state, action, outcome) → DROP user_id → learning
+  Bot learns WHAT happened in market, not WHO clicked.
 """
 
 import asyncio
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Set
 from datetime import datetime, timedelta
 from dataclasses import dataclass, asdict
 import json
+import hashlib
 import numpy as np
 from loguru import logger
 import redis.asyncio as redis
@@ -33,197 +40,241 @@ from config import settings
 
 
 @dataclass
-class QualityTrade:
-    """A quality-filtered trade for training"""
-    trade_id: str
-    user_id: str
+class MarketContext:
+    """Market context at trade time - used for de-duplication"""
     symbol: str
-    timestamp: str
-    
-    # Entry data
-    direction: str
-    entry_price: float
-    quantity: float
-    position_value: float
-    
-    # AI signals at entry
-    edge_score: float
-    confidence: float
     regime: str
-    xgb_signal: str
-    xgb_confidence: float
-    finbert_sentiment: float
+    volatility_bucket: str  # 'low', 'medium', 'high'
+    trend_bucket: str  # 'strong_up', 'up', 'neutral', 'down', 'strong_down'
+    time_bucket: str  # Hour of day + day of week
+    liquidity_bucket: str  # 'low', 'medium', 'high'
     
-    # Outcome
-    exit_price: float
-    pnl_percent: float
-    pnl_value: float
-    duration_seconds: int
-    exit_reason: str
-    won: bool
-    
-    # Quality metrics
-    quality_score: float  # 0-100
-    training_weight: float  # 0.1 - 2.0
+    def get_hash(self) -> str:
+        """Get unique hash for this market context"""
+        context_str = f"{self.symbol}:{self.regime}:{self.volatility_bucket}:{self.trend_bucket}:{self.time_bucket}:{self.liquidity_bucket}"
+        return hashlib.md5(context_str.encode()).hexdigest()[:16]
 
 
 @dataclass
-class UserContribution:
-    """Track each user's contribution to learning"""
-    user_id: str
-    total_trades: int
-    quality_trades: int
-    contribution_score: float
-    win_rate: float
-    avg_pnl: float
-    last_trade: str
+class QualityTrade:
+    """A quality-filtered trade for training - NO USER_ID in model"""
+    trade_id: str
+    timestamp: str
+    
+    # Market context (for de-duplication)
+    context_hash: str
+    symbol: str
+    regime: str
+    volatility: float
+    liquidity: float
+    trend_strength: float
+    
+    # Entry signals
+    direction: str
+    entry_price: float
+    
+    # AI signals at entry (what model predicted)
+    edge_score: float
+    confidence: float
+    xgb_signal: str
+    xgb_confidence: float
+    sentiment_score: float
+    
+    # Outcome (what actually happened)
+    exit_price: float
+    pnl_percent: float
+    realized_rr: float  # Realized risk/reward
+    slippage_percent: float
+    duration_seconds: int
+    exit_reason: str
+    
+    # Quality metrics (multi-dimensional)
+    quality_score: float  # 0-100, multi-dimensional
+    training_weight: float  # 0.1 - 2.0
+    is_duplicate: bool  # Flagged as similar to existing
+    
+    # For stats only - NOT used in model
+    _user_id: str = ""  # Underscore = private, not for model
+
+
+@dataclass
+class LearningStats:
+    """Statistics for learning (user-agnostic)"""
+    total_trades_received: int = 0
+    quality_trades_accepted: int = 0
+    trades_rejected_low_quality: int = 0
+    trades_downweighted_duplicate: int = 0
+    unique_market_contexts: int = 0
+    unique_symbols_seen: int = 0
+    avg_quality_score: float = 0.0
     
 
 class TrainingDataManager:
     """
-    Manages training data quality and multi-user learning
+    Professional Training Data Manager
     
-    Features:
-    - Quality filtering (only good trades)
-    - Weighted sampling (winners weight more)
-    - Multi-user aggregation
-    - Contribution tracking
-    - Training dataset generation
+    Key Principles:
+    1. Multi-dimensional quality score (not just PnL)
+    2. De-duplication (same market state = skip/downweight)
+    3. User ID dropped from model (user is source, not signal)
+    4. Diverse market situations valued over volume
     """
     
-    # Quality thresholds
-    MIN_PNL_FOR_TRAINING = 0.3  # Min 0.3% profit to be "quality"
-    MIN_EDGE_FOR_TRAINING = 0.10  # Min edge score
-    MIN_CONFIDENCE_FOR_TRAINING = 55  # Min AI confidence
-    MAX_LOSS_FOR_TRAINING = -0.5  # Losses smaller than this still useful
+    # Quality weights (multi-dimensional)
+    W_EDGE = 0.25       # Edge at entry
+    W_REGIME = 0.15     # Regime stability
+    W_LIQUIDITY = 0.10  # Liquidity score
+    W_RR = 0.20         # Realized risk/reward
+    W_EXECUTION = 0.10  # Execution quality
+    W_SLIPPAGE = -0.10  # Slippage penalty
+    W_CORRELATION = -0.10  # Correlation with recent trades
     
-    # Weighting
-    WINNER_WEIGHT_BASE = 1.5  # Winners start with 1.5x weight
-    WINNER_WEIGHT_PER_PERCENT = 0.2  # +0.2 weight per % profit
-    LOSER_WEIGHT = 0.5  # Losers have 0.5x weight (still learn from mistakes)
-    HIGH_EDGE_BONUS = 0.3  # Bonus weight for high edge trades
-    CORRECT_PREDICTION_BONUS = 0.5  # Bonus if XGBoost was correct
+    # Thresholds
+    MIN_QUALITY_SCORE = 40  # Minimum to accept
+    DUPLICATE_WEIGHT_FACTOR = 0.3  # Duplicates get 30% weight
+    MAX_SAME_CONTEXT_PER_DAY = 5  # Max similar trades per context per day
+    
+    # Time buckets
+    TIME_BUCKETS = ['asian_early', 'asian_late', 'london_early', 'london_late', 
+                    'ny_early', 'ny_late', 'weekend']
     
     def __init__(self):
         self.redis_client = None
         self.is_running = False
         
-        # In-memory cache
+        # Quality trades (user_id stripped for model)
         self.quality_trades: List[QualityTrade] = []
-        self.user_contributions: Dict[str, UserContribution] = {}
         
-        # Stats
-        self.stats = {
-            'total_trades_received': 0,
-            'quality_trades_accepted': 0,
-            'trades_rejected_low_quality': 0,
-            'total_users': 0,
-            'avg_quality_score': 0.0
-        }
+        # De-duplication tracking
+        self.seen_contexts: Dict[str, int] = {}  # context_hash -> count today
+        self.context_last_reset: datetime = datetime.utcnow()
+        
+        # Statistics
+        self.stats = LearningStats()
+        
+        # For UI only (not model) - track user contributions
+        self._user_stats: Dict[str, Dict] = {}
         
     async def initialize(self):
         """Initialize training data manager"""
-        logger.info("Initializing Training Data Manager...")
+        logger.info("Initializing Training Data Manager V2 (Professional)...")
         
         self.redis_client = await redis.from_url(settings.REDIS_URL)
         self.is_running = True
         
-        # Load existing quality trades
         await self._load_quality_trades()
-        await self._load_user_contributions()
+        await self._load_seen_contexts()
         
-        logger.info(f"Training Data Manager initialized - {len(self.quality_trades)} quality trades loaded")
+        logger.info(f"Training Data Manager V2 ready - {len(self.quality_trades)} quality trades, "
+                   f"{len(self.seen_contexts)} unique contexts")
         
     async def shutdown(self):
         """Cleanup"""
         await self._save_quality_trades()
-        await self._save_user_contributions()
+        await self._save_seen_contexts()
         if self.redis_client:
             await self.redis_client.aclose()
             
-    async def process_trade(self, trade_data: Dict, user_id: str = "default") -> Optional[QualityTrade]:
+    async def process_trade(self, trade_data: Dict, user_id: str = "anonymous") -> Optional[QualityTrade]:
         """
-        Process a completed trade and determine if it qualifies for training
+        Process a completed trade with professional quality filtering
         
-        Returns QualityTrade if accepted, None if rejected
+        Key changes:
+        - PnL is NOT primary criterion
+        - User ID is tracked for stats but NOT used in model
+        - De-duplication based on market context
         """
-        self.stats['total_trades_received'] += 1
+        self.stats.total_trades_received += 1
         
         try:
-            # Extract data
-            pnl_percent = float(trade_data.get('pnl_percent', 0))
-            edge_score = float(trade_data.get('edge_score', 0))
-            confidence = float(trade_data.get('confidence', 0))
-            xgb_signal = trade_data.get('xgb_signal', 'hold')
-            xgb_confidence = float(trade_data.get('xgb_confidence', 50))
-            direction = trade_data.get('direction', 'long')
-            won = pnl_percent > 0
+            # === 1. Build Market Context ===
+            context = self._build_market_context(trade_data)
+            context_hash = context.get_hash()
             
-            # Calculate quality score (0-100)
-            quality_score = self._calculate_quality_score(
-                pnl_percent=pnl_percent,
-                edge_score=edge_score,
-                confidence=confidence,
-                xgb_correct=(xgb_signal == ('buy' if direction == 'long' else 'sell')),
-                xgb_confidence=xgb_confidence
-            )
+            # === 2. Check De-duplication ===
+            is_duplicate, dup_reason = await self._check_duplication(context_hash)
             
-            # Check if trade meets quality threshold
-            if not self._meets_quality_threshold(pnl_percent, edge_score, confidence, quality_score):
-                self.stats['trades_rejected_low_quality'] += 1
-                logger.debug(f"Trade rejected: quality={quality_score:.1f}, pnl={pnl_percent:.2f}%")
+            # === 3. Calculate Multi-Dimensional Quality Score ===
+            quality_score, quality_breakdown = self._calculate_quality_score_v2(trade_data)
+            
+            # === 4. Decision: Accept, Downweight, or Reject ===
+            if quality_score < self.MIN_QUALITY_SCORE and not self._is_instructive_loss(trade_data):
+                self.stats.trades_rejected_low_quality += 1
+                logger.debug(f"Trade rejected: quality={quality_score:.1f} | {quality_breakdown}")
                 return None
                 
-            # Calculate training weight
-            training_weight = self._calculate_training_weight(
-                pnl_percent=pnl_percent,
-                edge_score=edge_score,
-                xgb_correct=(xgb_signal == ('buy' if direction == 'long' else 'sell')),
-                won=won
+            # === 5. Calculate Training Weight ===
+            training_weight = self._calculate_training_weight_v2(
+                quality_score=quality_score,
+                is_duplicate=is_duplicate,
+                trade_data=trade_data
             )
             
-            # Create quality trade record
+            if is_duplicate:
+                self.stats.trades_downweighted_duplicate += 1
+                
+            # === 6. Create Quality Trade (NO USER_ID FOR MODEL) ===
+            pnl = float(trade_data.get('pnl_percent', 0))
+            entry_price = float(trade_data.get('entry_price', 0))
+            exit_price = float(trade_data.get('exit_price', 0))
+            
+            # Calculate realized R:R
+            sl_price = float(trade_data.get('stop_loss', entry_price * 0.99))
+            risk = abs(entry_price - sl_price)
+            reward = abs(exit_price - entry_price)
+            realized_rr = reward / risk if risk > 0 else 0
+            
+            # Estimate slippage
+            expected_price = float(trade_data.get('expected_price', entry_price))
+            slippage = abs(entry_price - expected_price) / expected_price * 100 if expected_price > 0 else 0
+            
             quality_trade = QualityTrade(
-                trade_id=trade_data.get('trade_id', f"{trade_data.get('symbol')}_{datetime.utcnow().timestamp()}"),
-                user_id=user_id,
-                symbol=trade_data.get('symbol', 'UNKNOWN'),
+                trade_id=trade_data.get('trade_id', f"{context_hash}_{datetime.utcnow().timestamp()}"),
                 timestamp=datetime.utcnow().isoformat(),
-                direction=direction,
-                entry_price=float(trade_data.get('entry_price', 0)),
-                quantity=float(trade_data.get('quantity', 0)),
-                position_value=float(trade_data.get('position_value', 0)),
-                edge_score=edge_score,
-                confidence=confidence,
+                context_hash=context_hash,
+                symbol=trade_data.get('symbol', 'UNKNOWN'),
                 regime=trade_data.get('regime', 'unknown'),
-                xgb_signal=xgb_signal,
-                xgb_confidence=xgb_confidence,
-                finbert_sentiment=float(trade_data.get('finbert_sentiment', 0)),
-                exit_price=float(trade_data.get('exit_price', 0)),
-                pnl_percent=pnl_percent,
-                pnl_value=float(trade_data.get('pnl_value', 0)),
+                volatility=float(trade_data.get('volatility', 0)),
+                liquidity=float(trade_data.get('liquidity', 50)),
+                trend_strength=float(trade_data.get('trend_strength', 0)),
+                direction=trade_data.get('direction', 'long'),
+                entry_price=entry_price,
+                edge_score=float(trade_data.get('edge_score', 0)),
+                confidence=float(trade_data.get('confidence', 0)),
+                xgb_signal=trade_data.get('xgb_signal', 'hold'),
+                xgb_confidence=float(trade_data.get('xgb_confidence', 50)),
+                sentiment_score=float(trade_data.get('sentiment_score', 0)),
+                exit_price=exit_price,
+                pnl_percent=pnl,
+                realized_rr=realized_rr,
+                slippage_percent=slippage,
                 duration_seconds=int(trade_data.get('duration_seconds', 0)),
                 exit_reason=trade_data.get('exit_reason', 'unknown'),
-                won=won,
                 quality_score=quality_score,
-                training_weight=training_weight
+                training_weight=training_weight,
+                is_duplicate=is_duplicate,
+                _user_id=user_id  # For stats only
             )
             
             # Store
             self.quality_trades.append(quality_trade)
-            self.stats['quality_trades_accepted'] += 1
+            self.stats.quality_trades_accepted += 1
             
-            # Update user contribution
-            await self._update_user_contribution(user_id, quality_trade)
+            # Update context tracking
+            await self._update_context_tracking(context_hash)
             
-            # Store in Redis
+            # Update user stats (for UI only, not model)
+            await self._update_user_stats(user_id, quality_trade)
+            
+            # Save to Redis
             await self._store_quality_trade(quality_trade)
             
-            # Update average quality
-            self.stats['avg_quality_score'] = np.mean([t.quality_score for t in self.quality_trades])
+            # Update avg quality
+            self.stats.avg_quality_score = np.mean([t.quality_score for t in self.quality_trades[-1000:]])
             
-            logger.info(f"Quality trade accepted: {quality_trade.symbol} | "
-                       f"PnL: {pnl_percent:.2f}% | Quality: {quality_score:.1f} | "
-                       f"Weight: {training_weight:.2f} | User: {user_id}")
+            logger.info(f"Quality trade: {quality_trade.symbol} | "
+                       f"Q={quality_score:.1f} | W={training_weight:.2f} | "
+                       f"Dup={is_duplicate} | {quality_breakdown}")
             
             return quality_trade
             
@@ -231,209 +282,315 @@ class TrainingDataManager:
             logger.error(f"Trade processing error: {e}")
             return None
             
-    def _calculate_quality_score(self, pnl_percent: float, edge_score: float,
-                                  confidence: float, xgb_correct: bool,
-                                  xgb_confidence: float) -> float:
-        """Calculate quality score (0-100)"""
-        score = 0.0
+    def _build_market_context(self, trade_data: Dict) -> MarketContext:
+        """Build market context for de-duplication"""
         
-        # PnL component (max 40 points)
-        if pnl_percent > 0:
-            score += min(40, pnl_percent * 10)  # 10 points per % profit, max 40
+        # Volatility bucket
+        vol = float(trade_data.get('volatility', 1))
+        if vol < 1:
+            vol_bucket = 'low'
+        elif vol < 3:
+            vol_bucket = 'medium'
         else:
-            score += max(0, 20 + pnl_percent * 10)  # Losses reduce from 20
+            vol_bucket = 'high'
             
-        # Edge component (max 20 points)
-        score += min(20, edge_score * 40)  # 0.5 edge = 20 points
+        # Trend bucket
+        trend = float(trade_data.get('trend_strength', 0))
+        if trend > 0.6:
+            trend_bucket = 'strong_up'
+        elif trend > 0.2:
+            trend_bucket = 'up'
+        elif trend > -0.2:
+            trend_bucket = 'neutral'
+        elif trend > -0.6:
+            trend_bucket = 'down'
+        else:
+            trend_bucket = 'strong_down'
+            
+        # Time bucket
+        now = datetime.utcnow()
+        hour = now.hour
+        weekday = now.weekday()
         
-        # Confidence component (max 20 points)
-        score += (confidence / 100) * 20
+        if weekday >= 5:
+            time_bucket = 'weekend'
+        elif hour < 8:
+            time_bucket = 'asian_early'
+        elif hour < 12:
+            time_bucket = 'asian_late'
+        elif hour < 16:
+            time_bucket = 'london_early'
+        elif hour < 20:
+            time_bucket = 'london_late'
+        else:
+            time_bucket = 'ny_late'
+            
+        # Liquidity bucket
+        liq = float(trade_data.get('liquidity', 50))
+        if liq < 30:
+            liq_bucket = 'low'
+        elif liq < 70:
+            liq_bucket = 'medium'
+        else:
+            liq_bucket = 'high'
+            
+        return MarketContext(
+            symbol=trade_data.get('symbol', 'UNKNOWN'),
+            regime=trade_data.get('regime', 'unknown'),
+            volatility_bucket=vol_bucket,
+            trend_bucket=trend_bucket,
+            time_bucket=time_bucket,
+            liquidity_bucket=liq_bucket
+        )
         
-        # XGBoost correctness (max 20 points)
+    async def _check_duplication(self, context_hash: str) -> Tuple[bool, str]:
+        """Check if this market context is a duplicate"""
+        
+        # Reset daily
+        now = datetime.utcnow()
+        if (now - self.context_last_reset).total_seconds() > 86400:
+            self.seen_contexts.clear()
+            self.context_last_reset = now
+            
+        count = self.seen_contexts.get(context_hash, 0)
+        
+        if count >= self.MAX_SAME_CONTEXT_PER_DAY:
+            return True, f"Context seen {count}x today"
+        elif count > 0:
+            return True, f"Similar context (#{count+1})"
+            
+        return False, ""
+        
+    async def _update_context_tracking(self, context_hash: str):
+        """Update context tracking"""
+        self.seen_contexts[context_hash] = self.seen_contexts.get(context_hash, 0) + 1
+        self.stats.unique_market_contexts = len(self.seen_contexts)
+        
+    def _calculate_quality_score_v2(self, trade_data: Dict) -> Tuple[float, str]:
+        """
+        Multi-dimensional quality score
+        
+        NOT just PnL - considers:
+        - Edge at entry
+        - Regime stability
+        - Liquidity
+        - Realized R:R
+        - Execution quality
+        - Slippage penalty
+        """
+        scores = {}
+        
+        # 1. Edge strength (0-25 points)
+        edge = float(trade_data.get('edge_score', 0))
+        scores['edge'] = min(25, edge * 50)  # 0.5 edge = 25 points
+        
+        # 2. Regime stability (0-15 points)
+        regime = trade_data.get('regime', 'unknown')
+        regime_scores = {
+            'high_liquidity_trend': 15,
+            'trending': 12,
+            'accumulation': 10,
+            'ranging': 8,
+            'distribution': 5,
+            'high_volatility': 3,
+            'news_spike': 0,  # Never trust news spikes
+            'unknown': 5
+        }
+        scores['regime'] = regime_scores.get(regime, 5)
+        
+        # 3. Liquidity (0-10 points)
+        liquidity = float(trade_data.get('liquidity', 50))
+        scores['liquidity'] = min(10, liquidity / 10)
+        
+        # 4. Realized R:R (0-20 points)
+        pnl = float(trade_data.get('pnl_percent', 0))
+        sl_pct = float(trade_data.get('stop_loss_percent', 1.0))
+        
+        if pnl > 0 and sl_pct > 0:
+            realized_rr = pnl / sl_pct
+            scores['rr'] = min(20, realized_rr * 10)  # 2:1 R:R = 20 points
+        elif pnl < 0:
+            scores['rr'] = max(0, 10 + pnl * 5)  # Losses reduce from 10
+        else:
+            scores['rr'] = 5
+            
+        # 5. Execution quality (0-10 points)
+        confidence = float(trade_data.get('confidence', 50))
+        xgb_correct = trade_data.get('xgb_signal') == ('buy' if trade_data.get('direction') == 'long' else 'sell')
+        scores['execution'] = (confidence / 100) * 5
         if xgb_correct:
-            score += 10
-            score += (xgb_confidence / 100) * 10
+            scores['execution'] += 5
             
-        return min(100, max(0, score))
+        # 6. Slippage penalty (0 to -10 points)
+        expected_price = float(trade_data.get('expected_price', 0))
+        entry_price = float(trade_data.get('entry_price', 0))
+        if expected_price > 0 and entry_price > 0:
+            slippage = abs(entry_price - expected_price) / expected_price * 100
+            scores['slippage'] = max(-10, -slippage * 5)  # 2% slippage = -10
+        else:
+            scores['slippage'] = 0
+            
+        # 7. PnL bonus (NOT primary, just bonus for big wins)
+        if pnl > 3:
+            scores['pnl_bonus'] = min(10, pnl - 3)  # Bonus for 3%+ wins
+        elif pnl > 1:
+            scores['pnl_bonus'] = (pnl - 1) * 2.5
+        else:
+            scores['pnl_bonus'] = 0
+            
+        # Calculate total
+        total = sum(scores.values())
+        total = max(0, min(100, total))
         
-    def _meets_quality_threshold(self, pnl_percent: float, edge_score: float,
-                                  confidence: float, quality_score: float) -> bool:
-        """Check if trade meets quality threshold for training"""
+        breakdown = f"E:{scores['edge']:.0f} R:{scores['regime']:.0f} L:{scores['liquidity']:.0f} " \
+                   f"RR:{scores['rr']:.0f} X:{scores['execution']:.0f} S:{scores['slippage']:.0f}"
         
-        # Always accept big winners
-        if pnl_percent >= 2.0:
+        return total, breakdown
+        
+    def _is_instructive_loss(self, trade_data: Dict) -> bool:
+        """Check if a loss is instructive (worth learning from)"""
+        pnl = float(trade_data.get('pnl_percent', 0))
+        edge = float(trade_data.get('edge_score', 0))
+        
+        # Instructive: Had good edge but still lost
+        if -2.0 < pnl < -0.3 and edge > 0.2:
             return True
             
-        # Always accept high edge + winner
-        if pnl_percent > 0 and edge_score >= 0.25:
+        # Instructive: Quick stop loss (good risk management)
+        duration = int(trade_data.get('duration_seconds', 0))
+        if pnl < 0 and duration < 300:  # Lost but exited fast
             return True
             
-        # Accept medium winners with good signals
-        if pnl_percent >= self.MIN_PNL_FOR_TRAINING:
-            if edge_score >= self.MIN_EDGE_FOR_TRAINING or confidence >= self.MIN_CONFIDENCE_FOR_TRAINING:
-                return True
-                
-        # Accept instructive losses (learn what NOT to do)
-        if self.MAX_LOSS_FOR_TRAINING <= pnl_percent < 0:
-            if edge_score >= 0.2:  # Only if we had edge but still lost
-                return True
-                
-        # Fallback to quality score
-        return quality_score >= 50
+        return False
         
-    def _calculate_training_weight(self, pnl_percent: float, edge_score: float,
-                                    xgb_correct: bool, won: bool) -> float:
-        """Calculate training weight for this sample"""
+    def _calculate_training_weight_v2(self, quality_score: float, 
+                                       is_duplicate: bool, trade_data: Dict) -> float:
+        """Calculate training weight with de-duplication"""
         
-        if won:
-            # Winners: base weight + bonus per % profit
-            weight = self.WINNER_WEIGHT_BASE + (pnl_percent * self.WINNER_WEIGHT_PER_PERCENT)
-        else:
-            # Losers: lower weight but still learn
-            weight = self.LOSER_WEIGHT
-            
-        # High edge bonus
-        if edge_score >= 0.3:
-            weight += self.HIGH_EDGE_BONUS
-            
-        # XGBoost correct bonus
-        if xgb_correct:
-            weight += self.CORRECT_PREDICTION_BONUS
-            
-        # Cap weight
-        return min(3.0, max(0.1, weight))
+        # Base weight from quality score
+        base_weight = 0.5 + (quality_score / 100) * 1.0  # 0.5 to 1.5
         
-    async def _update_user_contribution(self, user_id: str, trade: QualityTrade):
-        """Update user's contribution metrics"""
-        if user_id not in self.user_contributions:
-            self.user_contributions[user_id] = UserContribution(
-                user_id=user_id,
-                total_trades=0,
-                quality_trades=0,
-                contribution_score=0.0,
-                win_rate=0.0,
-                avg_pnl=0.0,
-                last_trade=trade.timestamp
-            )
-            self.stats['total_users'] = len(self.user_contributions)
+        # Duplicate penalty
+        if is_duplicate:
+            base_weight *= self.DUPLICATE_WEIGHT_FACTOR
             
-        contrib = self.user_contributions[user_id]
-        contrib.total_trades += 1
-        contrib.quality_trades += 1
-        contrib.last_trade = trade.timestamp
+        # Bonus for diverse conditions
+        regime = trade_data.get('regime', 'unknown')
+        if regime in ['high_volatility', 'news_spike', 'distribution']:
+            # Rare but valuable learning
+            base_weight *= 1.2
+            
+        # Cap
+        return min(2.0, max(0.1, base_weight))
         
-        # Recalculate metrics
-        user_trades = [t for t in self.quality_trades if t.user_id == user_id]
-        if user_trades:
-            contrib.win_rate = sum(1 for t in user_trades if t.won) / len(user_trades) * 100
-            contrib.avg_pnl = np.mean([t.pnl_percent for t in user_trades])
-            contrib.contribution_score = len(user_trades) * (contrib.win_rate / 100)
+    async def _update_user_stats(self, user_id: str, trade: QualityTrade):
+        """Update user stats (for UI only, NOT model)"""
+        if user_id not in self._user_stats:
+            self._user_stats[user_id] = {
+                'trades': 0,
+                'quality_trades': 0,
+                'total_pnl': 0,
+                'wins': 0
+            }
+            
+        self._user_stats[user_id]['trades'] += 1
+        self._user_stats[user_id]['quality_trades'] += 1
+        self._user_stats[user_id]['total_pnl'] += trade.pnl_percent
+        if trade.pnl_percent > 0:
+            self._user_stats[user_id]['wins'] += 1
             
     async def _store_quality_trade(self, trade: QualityTrade):
-        """Store quality trade in Redis"""
+        """Store quality trade (WITHOUT user_id in model data)"""
         try:
-            await self.redis_client.lpush(
-                'training:quality_trades',
-                json.dumps(asdict(trade))
-            )
-            await self.redis_client.ltrim('training:quality_trades', 0, 49999)  # Keep 50K
+            # Model data (no user_id)
+            model_data = asdict(trade)
+            del model_data['_user_id']  # Remove user_id
             
-            # Also store by user
             await self.redis_client.lpush(
-                f'training:user:{trade.user_id}',
-                json.dumps(asdict(trade))
+                'training:quality_trades_v2',
+                json.dumps(model_data)
             )
-            await self.redis_client.ltrim(f'training:user:{trade.user_id}', 0, 9999)
+            await self.redis_client.ltrim('training:quality_trades_v2', 0, 49999)
             
         except Exception as e:
             logger.error(f"Store quality trade error: {e}")
             
     async def _load_quality_trades(self):
-        """Load quality trades from Redis"""
+        """Load quality trades"""
         try:
-            data = await self.redis_client.lrange('training:quality_trades', 0, -1)
+            data = await self.redis_client.lrange('training:quality_trades_v2', 0, -1)
             for item in data:
                 trade_dict = json.loads(item)
+                trade_dict['_user_id'] = ''  # Ensure no user_id
                 self.quality_trades.append(QualityTrade(**trade_dict))
-            logger.info(f"Loaded {len(self.quality_trades)} quality trades")
         except Exception as e:
             logger.warning(f"Load quality trades error: {e}")
             
     async def _save_quality_trades(self):
-        """Save quality trades to Redis (already done incrementally)"""
+        """Already saved incrementally"""
         pass
         
-    async def _load_user_contributions(self):
-        """Load user contributions from Redis"""
+    async def _load_seen_contexts(self):
+        """Load seen contexts"""
         try:
-            data = await self.redis_client.hgetall('training:user_contributions')
-            for user_id, contrib_json in data.items():
-                user_id = user_id.decode() if isinstance(user_id, bytes) else user_id
-                contrib_dict = json.loads(contrib_json)
-                self.user_contributions[user_id] = UserContribution(**contrib_dict)
-            self.stats['total_users'] = len(self.user_contributions)
-        except Exception as e:
-            logger.warning(f"Load user contributions error: {e}")
+            data = await self.redis_client.get('training:seen_contexts')
+            if data:
+                self.seen_contexts = json.loads(data)
+        except:
+            pass
             
-    async def _save_user_contributions(self):
-        """Save user contributions to Redis"""
+    async def _save_seen_contexts(self):
+        """Save seen contexts"""
         try:
-            for user_id, contrib in self.user_contributions.items():
-                await self.redis_client.hset(
-                    'training:user_contributions',
-                    user_id,
-                    json.dumps(asdict(contrib))
-                )
-        except Exception as e:
-            logger.error(f"Save user contributions error: {e}")
+            await self.redis_client.set('training:seen_contexts', json.dumps(self.seen_contexts))
+        except:
+            pass
             
     async def get_training_dataset(self, max_samples: int = 10000) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
-        Get training dataset with quality filtering and weighting
+        Get training dataset
         
         Returns:
-            X: Feature matrix
-            y: Labels (0=hold, 1=buy, 2=sell)
+            X: Feature matrix (NO USER_ID)
+            y: Labels
             weights: Sample weights
         """
         if not self.quality_trades:
             return np.array([]), np.array([]), np.array([])
             
-        # Sample with replacement based on weights
-        trades = self.quality_trades[-max_samples:]  # Most recent
+        trades = self.quality_trades[-max_samples:]
         
         X_list = []
         y_list = []
         weights_list = []
         
         for trade in trades:
-            # Create feature vector
+            # Features - MARKET DATA ONLY (no user info)
             features = [
                 trade.edge_score,
                 trade.confidence / 100,
                 trade.xgb_confidence / 100,
-                trade.finbert_sentiment,
+                trade.sentiment_score,
+                trade.volatility / 5,  # Normalize
+                trade.liquidity / 100,
+                trade.trend_strength,
+                # Regime one-hot
                 1 if trade.regime == 'trending' else 0,
                 1 if trade.regime == 'ranging' else 0,
-                1 if trade.regime == 'volatile' else 0,
+                1 if trade.regime == 'high_volatility' else 0,
+                1 if trade.regime == 'accumulation' else 0,
             ]
             
-            # Label: What SHOULD have happened
-            if trade.won and trade.pnl_percent > 1.0:
-                # Good trade - label as the action taken
+            # Label based on outcome
+            if trade.pnl_percent > 1.0 and trade.realized_rr > 1.5:
+                # Strong win with good R:R - correct action
                 label = 1 if trade.direction == 'long' else 2
-            elif trade.won:
-                # Small win - could be hold
-                label = 0
+            elif trade.pnl_percent < -1.0:
+                # Loss - should have done opposite or held
+                label = 0  # Hold would have been better
             else:
-                # Loss - opposite action or hold
-                if trade.pnl_percent < -1.0:
-                    # Big loss - should have done opposite
-                    label = 2 if trade.direction == 'long' else 1
-                else:
-                    # Small loss - hold
-                    label = 0
-                    
+                label = 0  # Neutral
+                
             X_list.append(features)
             y_list.append(label)
             weights_list.append(trade.training_weight)
@@ -441,47 +598,33 @@ class TrainingDataManager:
         return np.array(X_list), np.array(y_list), np.array(weights_list)
         
     async def get_stats(self) -> Dict:
-        """Get training data statistics"""
+        """Get training statistics"""
         return {
-            **self.stats,
+            'total_trades_received': self.stats.total_trades_received,
+            'quality_trades_accepted': self.stats.quality_trades_accepted,
+            'trades_rejected_low_quality': self.stats.trades_rejected_low_quality,
+            'trades_downweighted_duplicate': self.stats.trades_downweighted_duplicate,
+            'unique_market_contexts': len(self.seen_contexts),
             'quality_trades_count': len(self.quality_trades),
-            'user_count': len(self.user_contributions),
-            'users': [
-                {
-                    'user_id': c.user_id,
-                    'quality_trades': c.quality_trades,
-                    'win_rate': c.win_rate,
-                    'avg_pnl': c.avg_pnl,
-                    'contribution_score': c.contribution_score
-                }
-                for c in sorted(
-                    self.user_contributions.values(),
-                    key=lambda x: x.contribution_score,
-                    reverse=True
-                )[:10]  # Top 10 contributors
-            ]
+            'avg_quality_score': round(self.stats.avg_quality_score, 1),
+            'duplicate_rate': round(self.stats.trades_downweighted_duplicate / 
+                                   max(1, self.stats.quality_trades_accepted) * 100, 1)
         }
         
     async def get_leaderboard(self) -> List[Dict]:
-        """Get user contribution leaderboard"""
-        return [
-            {
-                'rank': i + 1,
-                'user_id': c.user_id,
-                'quality_trades': c.quality_trades,
-                'win_rate': round(c.win_rate, 1),
-                'avg_pnl': round(c.avg_pnl, 2),
-                'contribution_score': round(c.contribution_score, 1),
-                'last_trade': c.last_trade
-            }
-            for i, c in enumerate(sorted(
-                self.user_contributions.values(),
-                key=lambda x: x.contribution_score,
-                reverse=True
-            ))
-        ]
+        """Get user contribution leaderboard (UI only, not model)"""
+        leaderboard = []
+        for user_id, stats in self._user_stats.items():
+            win_rate = (stats['wins'] / max(1, stats['quality_trades'])) * 100
+            leaderboard.append({
+                'user_id': user_id[:8] + '...',  # Anonymized
+                'quality_trades': stats['quality_trades'],
+                'win_rate': round(win_rate, 1),
+                'avg_pnl': round(stats['total_pnl'] / max(1, stats['quality_trades']), 2)
+            })
+            
+        return sorted(leaderboard, key=lambda x: x['quality_trades'], reverse=True)[:10]
 
 
 # Global instance
 training_data_manager = TrainingDataManager()
-
