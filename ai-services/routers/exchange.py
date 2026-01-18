@@ -599,7 +599,6 @@ async def get_live_activity(user_id: str = "default"):
 async def get_trading_pairs():
     """Get all crypto pairs the bot monitors"""
     
-    return {
     trader = get_trader()
     trading_pairs = getattr(trader, 'trading_pairs', [])
     
