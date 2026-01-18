@@ -35,6 +35,11 @@ from services.edge_estimator import EdgeEstimator, EdgeScore
 from services.position_sizer import PositionSizer, PositionSize
 from services.market_scanner import MarketScanner, TradingOpportunity
 
+# V3 Advanced ML Components
+from services.xgboost_classifier import xgboost_classifier
+from services.finbert_sentiment import finbert_sentiment
+from services.data_collector import data_collector, TradeRecord
+
 
 def safe_float(val, default=0.0):
     """Safely convert value to float"""
@@ -477,8 +482,8 @@ class AutonomousTraderV2:
                     if position.symbol in self.active_positions[user_id]:
                         del self.active_positions[user_id][position.symbol]
                         
-                # Store trade for dashboard
-                await self._store_trade_event(position.symbol, 'closed', pnl_percent, reason)
+                # Store trade for dashboard and data collection (V3)
+                await self._store_trade_event(position.symbol, 'closed', pnl_percent, reason, position)
                 
             else:
                 logger.error(f"Failed to close {position.symbol}: {result}")
@@ -528,7 +533,44 @@ class AutonomousTraderV2:
             self.stats['trades_rejected_low_edge'] += 1
             return False, f"Confidence too low ({opp.confidence:.1f} < {self.min_confidence})"
             
-        # 3. Regime check
+        # 3. XGBoost ML Classification (V3)
+        try:
+            # Get feature data from redis
+            feature_data = await self.redis_client.get(f"features:{opp.symbol}")
+            if feature_data:
+                features = json.loads(feature_data)
+                features['symbol'] = opp.symbol
+                
+                xgb_result = await xgboost_classifier.classify(features)
+                
+                # XGBoost must agree with direction
+                expected_signal = 'buy' if opp.direction == 'long' else 'sell'
+                if xgb_result.signal != expected_signal and xgb_result.confidence > 60:
+                    self.stats['trades_rejected_low_edge'] += 1
+                    return False, f"XGBoost disagrees ({xgb_result.signal} vs {expected_signal})"
+                    
+                # Use XGBoost confidence as additional filter
+                if xgb_result.signal == expected_signal and xgb_result.confidence < 50:
+                    self.stats['trades_rejected_low_edge'] += 1
+                    return False, f"XGBoost confidence too low ({xgb_result.confidence:.1f}%)"
+        except Exception as e:
+            logger.debug(f"XGBoost validation skipped: {e}")
+            
+        # 4. FinBERT Sentiment Check (V3) - High impact news blocker
+        try:
+            market_sentiment = await finbert_sentiment.get_market_sentiment()
+            if market_sentiment:
+                # Block trades if extreme sentiment and wrong direction
+                if opp.direction == 'long' and market_sentiment.overall_sentiment < -0.5:
+                    self.stats['trades_rejected_regime'] += 1
+                    return False, f"FinBERT bearish sentiment ({market_sentiment.overall_sentiment:.2f})"
+                elif opp.direction == 'short' and market_sentiment.overall_sentiment > 0.5:
+                    self.stats['trades_rejected_regime'] += 1
+                    return False, f"FinBERT bullish sentiment ({market_sentiment.overall_sentiment:.2f})"
+        except Exception as e:
+            logger.debug(f"FinBERT check skipped: {e}")
+            
+        # 5. Regime check
         if opp.regime_action == 'avoid':
             self.stats['trades_rejected_regime'] += 1
             return False, f"Regime recommends avoid"
@@ -656,23 +698,61 @@ class AutonomousTraderV2:
             pass
         return None
         
-    async def _store_trade_event(self, symbol: str, action: str, pnl: float, reason: str):
-        """Store trade event for dashboard"""
+    async def _store_trade_event(self, symbol: str, action: str, pnl: float, reason: str,
+                                  position: Optional[ActivePosition] = None):
+        """Store trade event for dashboard and data collection"""
         try:
+            timestamp = datetime.utcnow().isoformat()
+            
             event = {
                 'symbol': symbol,
                 'action': action,
                 'pnl_percent': pnl,
                 'reason': reason,
-                'timestamp': datetime.utcnow().isoformat()
+                'timestamp': timestamp
             }
             
-            # Push to Redis list
+            # Push to Redis list for dashboard
             await self.redis_client.lpush('trading:events', json.dumps(event))
             await self.redis_client.ltrim('trading:events', 0, 99)  # Keep last 100
             
-        except:
-            pass
+            # V3: Record to data collector for ML training
+            if position:
+                trade_record = TradeRecord(
+                    timestamp=timestamp,
+                    trade_id=f"{symbol}_{int(datetime.utcnow().timestamp())}",
+                    symbol=symbol,
+                    action=action,
+                    direction='long' if position.side == 'Buy' else 'short',
+                    confidence=position.entry_confidence,
+                    edge_score=position.entry_edge,
+                    technical_edge=0,  # Could expand
+                    momentum_edge=0,
+                    volume_edge=0,
+                    sentiment_edge=0,
+                    regime=position.entry_regime,
+                    regime_action='normal',
+                    entry_price=position.entry_price,
+                    quantity=position.size,
+                    position_value=position.position_value,
+                    leverage=1,
+                    stop_loss=position.stop_loss_price,
+                    take_profit=position.take_profit_price,
+                    kelly_fraction=position.kelly_fraction,
+                    exit_price=position.peak_price if pnl > 0 else position.trough_price,
+                    exit_time=timestamp,
+                    pnl_percent=pnl,
+                    pnl_value=position.position_value * pnl / 100,
+                    duration_seconds=int((datetime.utcnow() - position.entry_time).total_seconds()),
+                    exit_reason=reason,
+                    won=pnl > 0
+                )
+                
+                await data_collector.record_trade(trade_record)
+                logger.debug(f"Trade recorded for ML training: {symbol} {action} {pnl:.2f}%")
+            
+        except Exception as e:
+            logger.debug(f"Trade event store error: {e}")
             
     async def _load_settings(self):
         """Load settings from Redis"""
