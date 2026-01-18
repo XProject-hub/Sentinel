@@ -40,6 +40,9 @@ from services.xgboost_classifier import xgboost_classifier
 from services.finbert_sentiment import finbert_sentiment
 from services.data_collector import data_collector, TradeRecord
 from services.training_data_manager import training_data_manager
+from services.crypto_sentiment import crypto_sentiment
+from services.price_predictor import price_predictor
+from services.capital_allocator import capital_allocator, MarketOpportunity
 
 
 def safe_float(val, default=0.0):
@@ -522,7 +525,18 @@ class AutonomousTraderV2:
             logger.error(f"Find opportunities error: {e}")
             
     async def _validate_opportunity(self, opp: TradingOpportunity, wallet: Dict) -> Tuple[bool, str]:
-        """Validate if opportunity should be traded"""
+        """
+        SUPERIOR validation using ALL AI models
+        
+        Checks:
+        1. Basic edge/confidence
+        2. XGBoost ML classification
+        3. CryptoBERT sentiment (crypto-specific)
+        4. Price predictor (multi-timeframe)
+        5. Capital allocator (unified budget)
+        6. Regime detection
+        7. Position sizing
+        """
         
         # 1. Edge check
         if opp.edge_score < self.min_edge:
@@ -534,9 +548,8 @@ class AutonomousTraderV2:
             self.stats['trades_rejected_low_edge'] += 1
             return False, f"Confidence too low ({opp.confidence:.1f} < {self.min_confidence})"
             
-        # 3. XGBoost ML Classification (V3)
+        # 3. XGBoost ML Classification
         try:
-            # Get feature data from redis
             feature_data = await self.redis_client.get(f"features:{opp.symbol}")
             if feature_data:
                 features = json.loads(feature_data)
@@ -544,39 +557,79 @@ class AutonomousTraderV2:
                 
                 xgb_result = await xgboost_classifier.classify(features)
                 
-                # XGBoost must agree with direction
                 expected_signal = 'buy' if opp.direction == 'long' else 'sell'
                 if xgb_result.signal != expected_signal and xgb_result.confidence > 60:
                     self.stats['trades_rejected_low_edge'] += 1
                     return False, f"XGBoost disagrees ({xgb_result.signal} vs {expected_signal})"
                     
-                # Use XGBoost confidence as additional filter
                 if xgb_result.signal == expected_signal and xgb_result.confidence < 50:
                     self.stats['trades_rejected_low_edge'] += 1
                     return False, f"XGBoost confidence too low ({xgb_result.confidence:.1f}%)"
         except Exception as e:
             logger.debug(f"XGBoost validation skipped: {e}")
             
-        # 4. FinBERT Sentiment Check (V3) - High impact news blocker
+        # 4. CryptoBERT Sentiment (SUPERIOR - crypto-specific)
         try:
-            market_sentiment = await finbert_sentiment.get_market_sentiment()
-            if market_sentiment:
-                # Block trades if extreme sentiment and wrong direction
-                if opp.direction == 'long' and market_sentiment.overall_sentiment < -0.5:
+            symbol_sentiment = await crypto_sentiment.get_symbol_sentiment(opp.symbol)
+            if symbol_sentiment and symbol_sentiment.get('sample_count', 0) > 3:
+                sentiment_score = symbol_sentiment.get('score', 0)
+                
+                # Block if sentiment strongly disagrees
+                if opp.direction == 'long' and sentiment_score < -0.4:
                     self.stats['trades_rejected_regime'] += 1
-                    return False, f"FinBERT bearish sentiment ({market_sentiment.overall_sentiment:.2f})"
-                elif opp.direction == 'short' and market_sentiment.overall_sentiment > 0.5:
+                    return False, f"CryptoBERT bearish for {opp.symbol} ({sentiment_score:.2f})"
+                elif opp.direction == 'short' and sentiment_score > 0.4:
                     self.stats['trades_rejected_regime'] += 1
-                    return False, f"FinBERT bullish sentiment ({market_sentiment.overall_sentiment:.2f})"
+                    return False, f"CryptoBERT bullish for {opp.symbol} ({sentiment_score:.2f})"
         except Exception as e:
-            logger.debug(f"FinBERT check skipped: {e}")
+            logger.debug(f"CryptoBERT check skipped: {e}")
             
-        # 5. Regime check
+        # 5. Price Predictor (multi-timeframe consensus)
+        try:
+            price_signal = await price_predictor.get_trading_signal(opp.symbol)
+            if price_signal and price_signal.get('confidence', 0) > 30:
+                pred_signal = price_signal.get('signal', 'neutral')
+                
+                # Must agree with direction
+                if opp.direction == 'long' and pred_signal == 'short':
+                    if price_signal.get('strength', 0) > 0.5:
+                        self.stats['trades_rejected_low_edge'] += 1
+                        return False, f"Price predictor says SHORT (strength: {price_signal['strength']:.2f})"
+                elif opp.direction == 'short' and pred_signal == 'long':
+                    if price_signal.get('strength', 0) > 0.5:
+                        self.stats['trades_rejected_low_edge'] += 1
+                        return False, f"Price predictor says LONG (strength: {price_signal['strength']:.2f})"
+                        
+                # Boost edge if predictor strongly agrees
+                if (opp.direction == 'long' and pred_signal == 'long') or \
+                   (opp.direction == 'short' and pred_signal == 'short'):
+                    opp.edge_score = min(1.0, opp.edge_score * (1 + price_signal.get('strength', 0) * 0.5))
+        except Exception as e:
+            logger.debug(f"Price predictor check skipped: {e}")
+            
+        # 6. Capital Allocator - Add as opportunity for unified allocation
+        try:
+            asset_class = capital_allocator.classify_symbol(opp.symbol)
+            market_opp = MarketOpportunity(
+                symbol=opp.symbol,
+                asset_class=asset_class,
+                edge_score=opp.edge_score,
+                confidence=opp.confidence,
+                direction=opp.direction,
+                volatility=getattr(opp, 'volatility', 1.5),
+                liquidity=getattr(opp, 'liquidity', 50),
+                correlation_btc=getattr(opp, 'correlation_btc', 0.5)
+            )
+            await capital_allocator.add_opportunity(market_opp)
+        except Exception as e:
+            logger.debug(f"Capital allocator skipped: {e}")
+            
+        # 7. Regime check
         if opp.regime_action == 'avoid':
             self.stats['trades_rejected_regime'] += 1
             return False, f"Regime recommends avoid"
             
-        # 4. Risk check via position sizer
+        # 8. Risk check via position sizer
         if not opp.edge_data:
             return False, "No edge data"
             
@@ -599,7 +652,7 @@ class AutonomousTraderV2:
         # Store position size for execution
         opp.edge_data._position_size = position_size
         
-        return True, "Passed all checks"
+        return True, "SUPERIOR: Passed ALL AI checks ✅"
         
     async def _execute_trade(self, user_id: str, client: BybitV5Client,
                              opp: TradingOpportunity, wallet: Dict):

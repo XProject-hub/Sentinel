@@ -64,6 +64,9 @@ from services.finbert_sentiment import finbert_sentiment
 from services.model_trainer import model_trainer
 from services.cluster_manager import cluster_manager
 from services.training_data_manager import training_data_manager
+from services.crypto_sentiment import crypto_sentiment
+from services.price_predictor import price_predictor
+from services.capital_allocator import capital_allocator
 
 # === TRADERS ===
 from services.autonomous_trader import autonomous_trader  # Legacy v1
@@ -118,6 +121,9 @@ async def lifespan(app: FastAPI):
     await training_data_manager.initialize()  # Quality filter for multi-user learning
     await xgboost_classifier.initialize()
     await finbert_sentiment.initialize()
+    await crypto_sentiment.initialize()  # CryptoBERT - superior crypto sentiment
+    await price_predictor.initialize()  # Multi-model price prediction
+    await capital_allocator.initialize()  # Unified budget allocation
     await model_trainer.initialize()
     
     # === Phase 3: Cluster (if enabled) ===
@@ -196,6 +202,9 @@ async def lifespan(app: FastAPI):
         
     await model_trainer.shutdown()
     await finbert_sentiment.shutdown()
+    await crypto_sentiment.shutdown()
+    await price_predictor.shutdown()
+    await capital_allocator.shutdown()
     await xgboost_classifier.shutdown()
     await training_data_manager.shutdown()
     await data_collector.shutdown()
@@ -807,6 +816,105 @@ async def training_leaderboard():
             "message": "Top contributors to AI learning. More quality trades = higher rank."
         }
     }
+
+
+# ========== NEW SUPERIOR AI ENDPOINTS ==========
+
+@app.get("/ai/crypto-sentiment/market")
+async def get_crypto_market_sentiment():
+    """Get overall crypto market sentiment using CryptoBERT"""
+    sentiment = await crypto_sentiment.get_market_sentiment()
+    return {"success": True, "data": sentiment}
+
+
+@app.post("/ai/crypto-sentiment/analyze")
+async def analyze_crypto_text(request: Request):
+    """Analyze crypto-specific text sentiment"""
+    body = await request.json()
+    text = body.get('text', '')
+    symbol = body.get('symbol')
+    
+    result = await crypto_sentiment.analyze_text(text, symbol)
+    return {
+        "success": True,
+        "data": {
+            "sentiment": result.sentiment,
+            "score": result.score,
+            "confidence": result.confidence,
+            "crypto_specific": result.crypto_specific,
+            "model": result.model_used
+        }
+    }
+
+
+@app.get("/ai/crypto-sentiment/symbol/{symbol}")
+async def get_symbol_sentiment(symbol: str):
+    """Get sentiment for specific symbol"""
+    data = await crypto_sentiment.get_symbol_sentiment(symbol)
+    return {"success": True, "data": data}
+
+
+@app.get("/ai/crypto-sentiment/stats")
+async def crypto_sentiment_stats():
+    """Get CryptoBERT stats"""
+    stats = await crypto_sentiment.get_stats()
+    return {"success": True, "data": stats}
+
+
+@app.get("/ai/price-predictor/predict/{symbol}")
+async def predict_price(symbol: str):
+    """Get price predictions for symbol"""
+    prediction = await price_predictor.predict(symbol)
+    return {
+        "success": True,
+        "data": {
+            "symbol": prediction.symbol,
+            "current_price": prediction.current_price,
+            "predictions": {
+                "5m": {"price": prediction.prediction_5m, "prob_up": prediction.prob_up_5m},
+                "15m": {"price": prediction.prediction_15m, "prob_up": prediction.prob_up_15m},
+                "1h": {"price": prediction.prediction_1h, "prob_up": prediction.prob_up_1h},
+                "4h": {"price": prediction.prediction_4h, "prob_up": prediction.prob_up_4h}
+            },
+            "confidence": prediction.confidence,
+            "model": prediction.model_used
+        }
+    }
+
+
+@app.get("/ai/price-predictor/signal/{symbol}")
+async def get_trading_signal(symbol: str):
+    """Get trading signal based on price prediction"""
+    signal = await price_predictor.get_trading_signal(symbol)
+    return {"success": True, "data": signal}
+
+
+@app.get("/ai/price-predictor/stats")
+async def price_predictor_stats():
+    """Get price predictor accuracy stats"""
+    stats = await price_predictor.get_stats()
+    return {"success": True, "data": stats}
+
+
+@app.get("/ai/capital-allocator/status")
+async def allocation_status():
+    """Get current capital allocation status"""
+    status = await capital_allocator.get_allocation_status()
+    return {"success": True, "data": status}
+
+
+@app.get("/ai/capital-allocator/tradfi")
+async def get_tradfi_opportunities():
+    """Get available TradFi opportunities"""
+    opps = await capital_allocator.get_tradfi_opportunities()
+    return {"success": True, "data": opps}
+
+
+@app.get("/ai/capital-allocator/stats")
+async def allocator_stats():
+    """Get capital allocator statistics"""
+    stats = await capital_allocator.get_stats()
+    return {"success": True, "data": stats}
 
 
 if __name__ == "__main__":
