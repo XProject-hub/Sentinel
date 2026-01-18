@@ -671,22 +671,37 @@ class AutonomousTraderV2:
             qty_step = symbol_info.get('qty_step', 0.001)
             
             # Calculate quantity
-            qty = pos_size.position_value_usdt / opp.current_price
+            qty_raw = pos_size.position_value_usdt / opp.current_price
             
             # Round to step
-            qty = max(min_qty, round(qty / qty_step) * qty_step)
+            qty_raw = max(min_qty, round(qty_raw / qty_step) * qty_step)
+            
+            # Determine decimal precision from qty_step
+            # e.g., qty_step=0.001 -> 3 decimals, qty_step=1 -> 0 decimals
+            if qty_step >= 1:
+                qty_decimals = 0
+            else:
+                qty_decimals = len(str(qty_step).split('.')[-1].rstrip('0'))
+            
+            # Format quantity as string with correct precision (Bybit requires string)
+            if qty_decimals == 0:
+                qty_str = str(int(qty_raw))
+            else:
+                qty_str = f"{qty_raw:.{qty_decimals}f}"
+            
+            qty = qty_raw  # Keep float for internal tracking
             
             # Determine side
             side = 'Buy' if opp.direction == 'long' else 'Sell'
             
-            logger.info(f"EXECUTING: {side} {opp.symbol} | Qty: {qty} | "
+            logger.info(f"EXECUTING: {side} {opp.symbol} | Qty: {qty_str} | "
                        f"Edge: {opp.edge_score:.2f} | Confidence: {opp.confidence:.1f}%")
             
             result = await client.place_order(
                 symbol=opp.symbol,
                 side=side,
                 order_type='Market',
-                qty=qty
+                qty=qty_str  # Pass as string!
             )
             
             if result.get('success'):
