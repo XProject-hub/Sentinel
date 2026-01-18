@@ -1,6 +1,17 @@
 """
-SENTINEL AI - Core AI Services
-Market Intelligence, Sentiment Analysis, Strategy Planning, Risk Management
+SENTINEL AI - Ultimate AI Trading Platform
+Professional Hedge-Fund Level Autonomous Trading System
+
+Components:
+- RegimeDetector: HMM-inspired market state detection
+- EdgeEstimator: Statistical edge calculation
+- PositionSizer: Kelly-based dynamic sizing
+- MarketScanner: Scans ALL 500+ Bybit pairs
+- LearningEngine: Continuous self-improvement
+- AICoordinator: Combines all AI models
+- AutonomousTraderV2: The ultimate trading system
+
+This is what a REAL trading system looks like.
 """
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Depends
@@ -10,6 +21,8 @@ import asyncio
 from loguru import logger
 
 from config import settings
+
+# === CORE SERVICES ===
 from services.market_intelligence import MarketIntelligenceService
 from services.sentiment_analyzer import SentimentAnalyzer
 from services.strategy_planner import StrategyPlanner
@@ -18,10 +31,18 @@ from services.trading_executor import TradingExecutor
 from services.websocket_manager import WebSocketManager
 from services.data_aggregator import DataAggregator
 from services.learning_engine import LearningEngine
-from services.autonomous_trader import autonomous_trader
-from services.ai_coordinator import ai_coordinator
-from services.price_predictor import price_predictor
-from services.pattern_recognition import pattern_recognition
+
+# === ADVANCED AI COMPONENTS ===
+from services.regime_detector import RegimeDetector
+from services.edge_estimator import EdgeEstimator
+from services.position_sizer import PositionSizer
+from services.market_scanner import MarketScanner
+
+# === TRADERS ===
+from services.autonomous_trader import autonomous_trader  # Legacy v1
+from services.autonomous_trader_v2 import autonomous_trader_v2  # Ultimate v2
+
+# === ROUTERS ===
 from routers import market, sentiment, strategy, risk, trading, exchange, admin, data
 
 # Initialize services
@@ -34,13 +55,25 @@ ws_manager = WebSocketManager()
 data_aggregator = DataAggregator()
 learning_engine = LearningEngine()
 
+# Initialize advanced AI components
+regime_detector = RegimeDetector()
+edge_estimator = EdgeEstimator()
+position_sizer = PositionSizer()
+market_scanner = MarketScanner()
+
+# Use V2 by default
+USE_V2_TRADER = True
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifecycle management"""
-    logger.info("SENTINEL AI Services Starting...")
+    logger.info("=" * 60)
+    logger.info("SENTINEL AI - Ultimate Trading Platform Starting...")
+    logger.info("=" * 60)
     
-    # Initialize all services
+    # === Initialize Core Services ===
+    logger.info("Initializing core services...")
     await market_intelligence.initialize()
     await sentiment_analyzer.initialize()
     await strategy_planner.initialize()
@@ -48,24 +81,48 @@ async def lifespan(app: FastAPI):
     await data_aggregator.initialize()
     await learning_engine.initialize()
     
-    # Initialize AI Coordinator (connects all AI models)
-    await ai_coordinator.initialize(learning_engine)
+    # === Initialize Advanced AI Components ===
+    logger.info("Initializing advanced AI components...")
+    await regime_detector.initialize()
+    await edge_estimator.initialize()
+    await position_sizer.initialize()
+    await market_scanner.initialize(regime_detector, edge_estimator)
     
-    await autonomous_trader.initialize(learning_engine, ai_coordinator)
+    # === Initialize Trader ===
+    if USE_V2_TRADER:
+        logger.info("Initializing Ultimate Autonomous Trader v2.0...")
+        await autonomous_trader_v2.initialize(
+            regime_detector=regime_detector,
+            edge_estimator=edge_estimator,
+            position_sizer=position_sizer,
+            market_scanner=market_scanner,
+            learning_engine=learning_engine
+        )
+    else:
+        logger.info("Initializing Legacy Autonomous Trader v1...")
+        await autonomous_trader.initialize(learning_engine)
     
-    # Start background tasks
+    # === Start Background Tasks ===
+    logger.info("Starting background tasks...")
     asyncio.create_task(market_intelligence.start_data_collection())
     asyncio.create_task(sentiment_analyzer.start_news_monitoring())
     asyncio.create_task(data_aggregator.start_collection())
     asyncio.create_task(run_main_loop())
-    asyncio.create_task(autonomous_trader.run_trading_loop())  # 24/7 TRADING
     
-    # Auto-reconnect users who had trading enabled before restart
+    # Start the appropriate trader
+    if USE_V2_TRADER:
+        asyncio.create_task(autonomous_trader_v2.run_trading_loop())
+    else:
+        asyncio.create_task(autonomous_trader.run_trading_loop())
+    
+    # Auto-reconnect users
     asyncio.create_task(auto_reconnect_on_startup())
     
-    logger.info("SENTINEL AI Services Ready")
+    logger.info("=" * 60)
+    logger.info("SENTINEL AI Services Ready - Ultimate Trading Active")
+    logger.info("=" * 60)
     
-    yield  # THIS IS REQUIRED FOR LIFESPAN!
+    yield
     
     # Cleanup on shutdown
     logger.info("SENTINEL AI Services Shutting Down...")
@@ -73,8 +130,15 @@ async def lifespan(app: FastAPI):
     await sentiment_analyzer.shutdown()
     await data_aggregator.shutdown()
     await learning_engine.shutdown()
-    await ai_coordinator.shutdown()
-    await autonomous_trader.shutdown()
+    await regime_detector.shutdown()
+    await edge_estimator.shutdown()
+    await position_sizer.shutdown()
+    await market_scanner.shutdown()
+    
+    if USE_V2_TRADER:
+        await autonomous_trader_v2.shutdown()
+    else:
+        await autonomous_trader.shutdown()
 
 
 async def auto_reconnect_on_startup():
@@ -87,7 +151,7 @@ async def auto_reconnect_on_startup():
         r = await aioredis.from_url(settings.REDIS_URL)
         reconnected = 0
         
-        # Method 1: Check exchange:credentials:default (main storage)
+        # Check exchange:credentials:default
         creds = await r.hgetall("exchange:credentials:default")
         if creds:
             api_key_enc = creds.get(b"api_key", b"").decode() if creds.get(b"api_key") else ""
@@ -95,12 +159,10 @@ async def auto_reconnect_on_startup():
             
             if api_key_enc and api_secret_enc:
                 try:
-                    # Decrypt (simple base64)
                     api_key = base64.b64decode(api_key_enc.encode()).decode()
                     api_secret = base64.b64decode(api_secret_enc.encode()).decode()
                     
                     if api_key and api_secret:
-                        # Import and connect
                         from services.bybit_client import BybitV5Client
                         from routers.exchange import exchange_connections
                         
@@ -110,12 +172,20 @@ async def auto_reconnect_on_startup():
                         if result.get("success"):
                             exchange_connections["default"] = client
                             
-                            # Also connect to autonomous trader
-                            success = await autonomous_trader.connect_user(
-                                user_id="default",
-                                api_key=api_key,
-                                api_secret=api_secret,
-                            )
+                            # Connect to the appropriate trader
+                            if USE_V2_TRADER:
+                                success = await autonomous_trader_v2.connect_user(
+                                    user_id="default",
+                                    api_key=api_key,
+                                    api_secret=api_secret,
+                                )
+                            else:
+                                success = await autonomous_trader.connect_user(
+                                    user_id="default",
+                                    api_key=api_key,
+                                    api_secret=api_secret,
+                                )
+                                
                             if success:
                                 reconnected += 1
                                 logger.info("Auto-reconnected exchange from saved credentials!")
@@ -124,35 +194,7 @@ async def auto_reconnect_on_startup():
                 except Exception as e:
                     logger.error(f"Failed to decode credentials: {e}")
         
-        # Method 2: Check trading:enabled:* keys (legacy)
-        keys_raw = await r.keys("trading:enabled:*")
-        keys = list(keys_raw) if keys_raw else []
-        
-        for key in keys:
-            user_id = key.decode().split(":")[-1]
-            data = await r.hgetall(key)
-            
-            if data.get(b"enabled", b"0").decode() == "1":
-                api_key_enc = data.get(b"api_key", b"").decode()
-                api_secret_enc = data.get(b"api_secret", b"").decode()
-                
-                try:
-                    api_key = base64.b64decode(api_key_enc.encode()).decode()
-                    api_secret = base64.b64decode(api_secret_enc.encode()).decode()
-                    
-                    if api_key and api_secret:
-                        success = await autonomous_trader.connect_user(
-                            user_id=user_id,
-                            api_key=api_key,
-                            api_secret=api_secret,
-                        )
-                        if success:
-                            reconnected += 1
-                            logger.info(f"Auto-reconnected trading for user: {user_id}")
-                except Exception as e:
-                    logger.error(f"Failed to reconnect user {user_id}: {e}")
-                    
-        await r.close()
+        await r.aclose()
         
         if reconnected > 0:
             logger.info(f"Auto-reconnected {reconnected} users for autonomous trading")
@@ -164,7 +206,7 @@ async def auto_reconnect_on_startup():
 
 
 async def run_main_loop():
-    """Main AI processing loop - runs every few seconds"""
+    """Main AI processing loop"""
     while True:
         try:
             # Get current market state
@@ -176,10 +218,7 @@ async def run_main_loop():
             # Detect market regime
             regime = await strategy_planner.detect_regime(market_state, sentiment_data)
             
-            # For each active user, run strategy planning
-            # This would be triggered per-user in production
-            
-            await asyncio.sleep(5)  # Run every 5 seconds
+            await asyncio.sleep(5)
             
         except Exception as e:
             logger.error(f"Main loop error: {e}")
@@ -188,9 +227,9 @@ async def run_main_loop():
 
 # Create FastAPI app
 app = FastAPI(
-    title="SENTINEL AI Services",
-    description="Autonomous Market Intelligence & Trading System",
-    version="1.0.0",
+    title="SENTINEL AI - Ultimate Trading Platform",
+    description="Professional Hedge-Fund Level Autonomous Trading System",
+    version="2.0.0",
     lifespan=lifespan
 )
 
@@ -225,7 +264,6 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str):
     
     try:
         while True:
-            # Send real-time updates to connected users
             data = await ws_manager.receive(websocket)
             
             if data.get("type") == "ping":
@@ -245,11 +283,15 @@ async def health_check():
     """Health check endpoint"""
     return {
         "status": "healthy",
+        "version": "2.0.0",
+        "trader_version": "v2" if USE_V2_TRADER else "v1",
         "services": {
             "market_intelligence": market_intelligence.is_running,
             "sentiment_analyzer": sentiment_analyzer.is_running,
-            "strategy_planner": True,
-            "risk_engine": True,
+            "regime_detector": regime_detector is not None,
+            "edge_estimator": edge_estimator is not None,
+            "position_sizer": position_sizer is not None,
+            "market_scanner": market_scanner is not None,
         }
     }
 
@@ -257,30 +299,110 @@ async def health_check():
 @app.get("/ai/status")
 async def get_system_status():
     """Get overall AI system status"""
+    trader_status = await autonomous_trader_v2.get_status() if USE_V2_TRADER else {}
+    
     return {
         "active": True,
+        "trader_version": "v2" if USE_V2_TRADER else "v1",
         "market_data_age_seconds": await market_intelligence.get_data_age(),
         "sentiment_data_age_seconds": await sentiment_analyzer.get_data_age(),
-        "active_strategies": await strategy_planner.get_active_count(),
-        "risk_alerts": await risk_engine.get_active_alerts_count(),
+        "trader": trader_status
     }
 
 
 @app.get("/ai/regime/{symbol}")
 async def get_market_regime(symbol: str):
-    """Get current market regime for a symbol"""
-    market_state = await market_intelligence.get_symbol_state(symbol)
-    sentiment = await sentiment_analyzer.get_asset_sentiment(symbol.replace("USDT", ""))
-    regime = await strategy_planner.detect_regime(market_state, sentiment)
+    """Get current market regime for a symbol using advanced detector"""
+    regime = await regime_detector.detect_regime(symbol)
     
     return {
         "symbol": symbol,
-        "regime": regime["regime"],
-        "confidence": regime["confidence"],
-        "volatility": regime["volatility"],
-        "trend_strength": regime["trend_strength"],
-        "recommended_strategy": regime["recommended_strategy"],
+        "regime": regime.regime,
+        "confidence": regime.confidence,
+        "stability": regime.stability,
+        "volatility": regime.volatility,
+        "liquidity_score": regime.liquidity_score,
+        "trend_strength": regime.trend_strength,
+        "trend_direction": regime.trend_direction,
+        "volume_profile": regime.volume_profile,
+        "recommended_action": regime.recommended_action,
+        "duration_minutes": regime.duration_minutes,
+        "timestamp": regime.timestamp
     }
+
+
+@app.get("/ai/edge/{symbol}")
+async def get_edge_score(symbol: str, direction: str = "long"):
+    """Get edge score for a trading opportunity"""
+    edge = await edge_estimator.calculate_edge(symbol, direction)
+    
+    return {
+        "symbol": symbol,
+        "direction": direction,
+        "edge": edge.edge,
+        "confidence": edge.confidence,
+        "components": {
+            "technical": edge.technical_edge,
+            "regime": edge.regime_edge,
+            "momentum": edge.momentum_edge,
+            "volume": edge.volume_edge,
+            "correlation": edge.correlation_edge,
+            "sentiment": edge.sentiment_edge
+        },
+        "expected_return": edge.expected_return,
+        "risk_reward_ratio": edge.risk_reward_ratio,
+        "win_probability": edge.win_probability,
+        "kelly_fraction": edge.kelly_fraction,
+        "recommended_size": edge.recommended_size,
+        "reasons": edge.reasons,
+        "warnings": edge.warnings,
+        "timestamp": edge.timestamp
+    }
+
+
+@app.get("/ai/opportunities")
+async def get_trading_opportunities(limit: int = 20):
+    """Get top trading opportunities from scanner"""
+    opportunities = await market_scanner.get_top_opportunities(limit)
+    
+    return {
+        "success": True,
+        "count": len(opportunities),
+        "opportunities": [
+            {
+                "symbol": o.symbol,
+                "direction": o.direction,
+                "edge_score": o.edge_score,
+                "confidence": o.confidence,
+                "opportunity_score": o.opportunity_score,
+                "regime": o.regime,
+                "regime_action": o.regime_action,
+                "current_price": o.current_price,
+                "price_change_24h": o.price_change_24h,
+                "volume_24h": o.volume_24h,
+                "should_trade": o.should_trade,
+                "reasons": o.reasons[:5],
+                "warnings": o.warnings
+            }
+            for o in opportunities
+        ]
+    }
+
+
+@app.get("/ai/risk-status")
+async def get_risk_status():
+    """Get current risk management status"""
+    try:
+        import redis.asyncio as aioredis
+        r = await aioredis.from_url(settings.REDIS_URL)
+        equity = await r.get('wallet:equity')
+        wallet_balance = float(equity) if equity else 0
+        await r.aclose()
+        
+        status = await position_sizer.get_risk_status(wallet_balance)
+        return {"success": True, "data": status}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
 
 
 @app.get("/ai/insight")
@@ -293,30 +415,18 @@ async def get_ai_insight():
         aggregated_data = await data_aggregator.get_aggregated_data()
         
         # Detect regime for BTC (primary indicator)
-        btc_state = market_state.get('BTCUSDT', {})
-        btc_sentiment = sentiment_data.get('BTC', {})
-        regime = await strategy_planner.detect_regime({'BTCUSDT': btc_state}, sentiment_data)
+        btc_regime = await regime_detector.detect_regime('BTCUSDT')
         
         # Calculate overall AI confidence
-        confidence = regime.get('confidence', 0.5)
+        confidence = btc_regime.confidence / 100
         
-        # Adjust confidence based on data freshness
-        market_age = await market_intelligence.get_data_age()
-        sentiment_age = await sentiment_analyzer.get_data_age()
-        
-        if market_age > 60:  # Data older than 60 seconds
-            confidence *= 0.9
-        if sentiment_age > 600:  # Sentiment older than 10 minutes
-            confidence *= 0.95
-            
         # Get AI insight text
         insight = await data_aggregator.get_market_insight()
         
         # Determine risk status
-        volatility = regime.get('volatility', 1.5)
-        if volatility > 4.0:
+        if btc_regime.volatility > 4.0:
             risk_status = 'CAUTION'
-        elif volatility > 2.5:
+        elif btc_regime.volatility > 2.5:
             risk_status = 'ELEVATED'
         else:
             risk_status = 'SAFE'
@@ -327,17 +437,18 @@ async def get_ai_insight():
         return {
             "success": True,
             "data": {
-                "confidence": round(confidence * 100, 1),
+                "confidence": round(btc_regime.confidence, 1),
                 "confidence_label": "High" if confidence > 0.7 else "Medium" if confidence > 0.5 else "Low",
                 "risk_status": risk_status,
                 "insight": insight,
-                "regime": regime.get('regime', 'sideways'),
-                "volatility": round(volatility, 2),
-                "trend": regime.get('trend', 'sideways'),
+                "regime": btc_regime.regime,
+                "volatility": round(btc_regime.volatility, 2),
+                "trend": btc_regime.trend_direction,
+                "trend_strength": round(btc_regime.trend_strength, 2),
                 "fear_greed_index": int(fng.get('value', 50)),
                 "fear_greed_label": fng.get('classification', 'Neutral'),
-                "recommended_action": regime.get('recommended_strategy', 'hold'),
-                "timestamp": regime.get('timestamp')
+                "recommended_action": btc_regime.recommended_action,
+                "timestamp": btc_regime.timestamp
             }
         }
     except Exception as e:
@@ -352,6 +463,7 @@ async def get_ai_insight():
                 "regime": "initializing",
                 "volatility": 0,
                 "trend": "neutral",
+                "trend_strength": 0,
                 "fear_greed_index": 50,
                 "fear_greed_label": "Neutral",
                 "recommended_action": "hold",
@@ -362,32 +474,23 @@ async def get_ai_insight():
 
 @app.get("/ai/aggregated-data")
 async def get_all_aggregated_data():
-    """Get all aggregated market data (whale alerts, on-chain, etc.)"""
+    """Get all aggregated market data"""
     data = await data_aggregator.get_aggregated_data()
-    return {
-        "success": True,
-        "data": data
-    }
+    return {"success": True, "data": data}
 
 
 @app.get("/ai/learning/stats")
 async def get_learning_statistics():
-    """Get AI learning statistics and performance"""
+    """Get AI learning statistics"""
     stats = await learning_engine.get_learning_stats()
-    return {
-        "success": True,
-        "data": stats
-    }
+    return {"success": True, "data": stats}
 
 
 @app.get("/ai/learning/events")
 async def get_learning_events(limit: int = 20):
     """Get recent AI learning events"""
     events = await learning_engine.get_recent_learning_events(limit)
-    return {
-        "success": True,
-        "data": events
-    }
+    return {"success": True, "data": events}
 
 
 @app.get("/ai/learning/strategy/{regime}")
@@ -408,127 +511,19 @@ async def get_best_strategy_for_regime(regime: str):
     }
 
 
-@app.get("/ai/coordinator/stats")
-async def get_ai_coordinator_stats():
-    """Get AI Coordinator (brain) statistics - all models combined"""
-    stats = await ai_coordinator.get_coordinator_stats()
-    return {
-        "success": True,
-        "data": stats
-    }
-
-
-@app.get("/ai/prediction/{symbol}")
-async def get_price_prediction(symbol: str):
-    """Get LSTM price prediction for a symbol"""
-    prediction = await price_predictor.predict_price(symbol)
-    
-    if prediction:
-        return {
-            "success": True,
-            "data": {
-                "symbol": prediction.symbol,
-                "current_price": prediction.current_price,
-                "predicted_1h": prediction.predicted_price_1h,
-                "predicted_4h": prediction.predicted_price_4h,
-                "predicted_24h": prediction.predicted_price_24h,
-                "direction": prediction.direction,
-                "confidence": prediction.confidence,
-                "predicted_change": prediction.predicted_change_percent,
-                "model_agreement": prediction.model_agreement,
-                "timestamp": prediction.timestamp
-            }
-        }
+@app.get("/ai/trader/status")
+async def get_trader_status():
+    """Get ultimate trader status"""
+    if USE_V2_TRADER:
+        status = await autonomous_trader_v2.get_status()
     else:
-        return {
-            "success": False,
-            "error": "Unable to generate prediction"
+        status = {
+            "is_running": autonomous_trader.is_running,
+            "connected_users": len(autonomous_trader.user_clients)
         }
-
-
-@app.get("/ai/patterns/{symbol}")
-async def get_patterns(symbol: str):
-    """Get detected chart patterns for a symbol"""
-    patterns = await pattern_recognition.analyze_patterns(symbol)
-    
-    return {
-        "success": True,
-        "data": {
-            "symbol": symbol,
-            "patterns_found": len(patterns),
-            "patterns": [
-                {
-                    "name": p.pattern_name,
-                    "type": p.pattern_type,
-                    "strength": p.strength,
-                    "confidence": p.confidence,
-                    "timeframe": p.timeframe,
-                    "description": p.description,
-                    "target": p.target_price,
-                    "stop_loss": p.stop_loss,
-                    "risk_reward": p.risk_reward
-                }
-                for p in patterns
-            ]
-        }
-    }
-
-
-@app.get("/ai/decision/{symbol}")
-async def get_ai_decision(symbol: str):
-    """Get unified AI trading decision for a symbol"""
-    # Get market data
-    market_state = await market_intelligence.get_symbol_state(symbol)
-    
-    market_data = {
-        'current_price': market_state.get('price', 0),
-        'rsi': market_state.get('rsi', 50),
-        'price_change_24h': market_state.get('change_24h', 0),
-        'funding_rate': market_state.get('funding_rate', 0),
-        'regime': market_state.get('regime', 'sideways')
-    }
-    
-    decision = await ai_coordinator.get_ai_decision(symbol, market_data)
-    
-    if decision:
-        return {
-            "success": True,
-            "data": {
-                "symbol": decision.symbol,
-                "action": decision.action,
-                "confidence": decision.confidence,
-                "scores": {
-                    "lstm": decision.lstm_score,
-                    "patterns": decision.pattern_score,
-                    "sentiment": decision.sentiment_score,
-                    "technical": decision.technical_score,
-                    "learning": decision.learning_score
-                },
-                "prediction": {
-                    "direction": decision.predicted_direction,
-                    "change_percent": decision.predicted_change
-                },
-                "trade_params": {
-                    "entry": decision.suggested_entry,
-                    "stop_loss": decision.suggested_stop_loss,
-                    "take_profit": decision.suggested_take_profit,
-                    "position_size": decision.suggested_position_size,
-                    "risk_reward": decision.risk_reward_ratio
-                },
-                "reasons": decision.reasons,
-                "patterns": decision.patterns_detected,
-                "model_agreement": decision.model_agreement,
-                "timestamp": decision.timestamp
-            }
-        }
-    else:
-        return {
-            "success": False,
-            "error": "Unable to generate decision"
-        }
+    return {"success": True, "data": status}
 
 
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
-

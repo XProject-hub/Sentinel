@@ -388,6 +388,14 @@ async def get_connection_status():
 # ========================================
 
 from services.autonomous_trader import autonomous_trader
+from services.autonomous_trader_v2 import autonomous_trader_v2
+
+# Use V2 by default
+USE_V2_TRADER = True
+
+def get_trader():
+    """Get the active trader instance"""
+    return autonomous_trader_v2 if USE_V2_TRADER else autonomous_trader
 
 
 class EnableTradingRequest(BaseModel):
@@ -400,7 +408,8 @@ class EnableTradingRequest(BaseModel):
 async def enable_autonomous_trading(request: EnableTradingRequest):
     """Enable 24/7 autonomous trading for a user - PERSISTED"""
     
-    success = await autonomous_trader.connect_user(
+    trader = get_trader()
+    success = await trader.connect_user(
         user_id=request.user_id,
         api_key=request.api_key,
         api_secret=request.api_secret,
@@ -450,7 +459,8 @@ async def auto_reconnect_trading():
                 api_secret = simple_decrypt(data.get(b"api_secret", b"").decode())
                 
                 if api_key and api_secret:
-                    success = await autonomous_trader.connect_user(
+                    trader = get_trader()
+                    success = await trader.connect_user(
                         user_id=user_id,
                         api_key=api_key,
                         api_secret=api_secret,
@@ -472,8 +482,8 @@ async def auto_reconnect_trading():
 @router.post("/trading/disable")
 async def disable_autonomous_trading(user_id: str = "default"):
     """Disable autonomous trading for a user"""
-    
-    await autonomous_trader.disconnect_user(user_id)
+    trader = get_trader()
+    await trader.disconnect_user(user_id)
     
     return {
         "success": True,
@@ -484,23 +494,29 @@ async def disable_autonomous_trading(user_id: str = "default"):
 @router.get("/trading/status")
 async def get_trading_status(user_id: str = "default"):
     """Get autonomous trading status"""
-    
-    is_trading = user_id in autonomous_trader.user_clients
+    trader = get_trader()
+    is_trading = user_id in trader.user_clients
     
     # Get recent trades
     trades = []
-    if autonomous_trader.redis_client:
-        trade_data = await autonomous_trader.redis_client.lrange(f"trades:completed:{user_id}", 0, 9)
+    if hasattr(trader, 'redis_client') and trader.redis_client:
+        trade_data = await trader.redis_client.lrange(f"trades:completed:{user_id}", 0, 9)
         trades = [json.loads(t) for t in trade_data]
+    
+    # Get trading pairs (different attribute in v2)
+    trading_pairs = getattr(trader, 'trading_pairs', [])
+    max_positions = getattr(trader, 'max_open_positions', 10)
+    min_conf = getattr(trader, 'min_confidence', 55)
         
     return {
         "success": True,
         "data": {
             "is_autonomous_trading": is_trading,
-            "trading_pairs": autonomous_trader.trading_pairs if is_trading else [],
-            "max_positions": autonomous_trader.max_open_positions,
-            "min_confidence": autonomous_trader.min_confidence,
+            "trading_pairs": trading_pairs if is_trading else [],
+            "max_positions": max_positions,
+            "min_confidence": min_conf,
             "recent_trades": trades,
+            "version": "v2" if USE_V2_TRADER else "v1"
         }
     }
 
@@ -508,11 +524,11 @@ async def get_trading_status(user_id: str = "default"):
 @router.get("/trading/log")
 async def get_trading_log(limit: int = 50):
     """Get trading activity log"""
-    
-    if not autonomous_trader.redis_client:
+    trader = get_trader()
+    if not hasattr(trader, 'redis_client') or not trader.redis_client:
         return {"success": False, "error": "Not initialized"}
         
-    trades = await autonomous_trader.redis_client.lrange('trades:log', 0, limit - 1)
+    trades = await trader.redis_client.lrange('trades:log', 0, limit - 1)
     
     return {
         "success": True,
@@ -524,45 +540,54 @@ async def get_trading_log(limit: int = 50):
 async def get_live_activity(user_id: str = "default"):
     """Get LIVE bot activity - what is the bot doing right now?"""
     
+    trader = get_trader()
+    trading_pairs = getattr(trader, 'trading_pairs', [])
+    
     activity = {
-        "is_running": autonomous_trader.is_running,
-        "is_user_connected": user_id in autonomous_trader.user_clients,
-        "total_pairs_monitoring": len(autonomous_trader.trading_pairs),
+        "is_running": trader.is_running,
+        "is_user_connected": user_id in trader.user_clients,
+        "total_pairs_monitoring": len(trading_pairs),
         "active_trades": [],
         "recent_completed": [],
         "bot_actions": [],
         "current_analysis": None,
+        "version": "v2" if USE_V2_TRADER else "v1"
     }
     
-    if not autonomous_trader.redis_client:
+    if not hasattr(trader, 'redis_client') or not trader.redis_client:
         return {"success": True, "data": activity}
     
     try:
         # Get active trades for this user
-        active_trades = await autonomous_trader.redis_client.lrange(f"trades:active:{user_id}", 0, -1)
+        active_trades = await trader.redis_client.lrange(f"trades:active:{user_id}", 0, -1)
         activity["active_trades"] = [json.loads(t) for t in active_trades]
         
         # Get recent completed trades
-        completed = await autonomous_trader.redis_client.lrange(f"trades:completed:{user_id}", 0, 9)
+        completed = await trader.redis_client.lrange(f"trades:completed:{user_id}", 0, 9)
         activity["recent_completed"] = [json.loads(t) for t in completed]
         
-        # Get last bot actions/decisions
-        bot_log = await autonomous_trader.redis_client.lrange('trades:log', 0, 19)
+        # Get last bot actions/decisions (from new v2 events list)
+        bot_log = await trader.redis_client.lrange('trading:events', 0, 19)
         activity["bot_actions"] = [json.loads(t) for t in bot_log]
         
         # Get current market analysis if available
-        analysis = await autonomous_trader.redis_client.hgetall('market:current_analysis')
+        analysis = await trader.redis_client.hgetall('market:current_analysis')
         if analysis:
             activity["current_analysis"] = {
                 k.decode(): v.decode() for k, v in analysis.items()
             }
             
         # Get trading stats
-        trading_status = await autonomous_trader.redis_client.hgetall('trading:status')
+        trading_status = await trader.redis_client.hgetall('trading:status')
         if trading_status:
             activity["trading_stats"] = {
                 k.decode(): v.decode() for k, v in trading_status.items()
             }
+        
+        # V2 specific: Get trader stats
+        if USE_V2_TRADER:
+            stats = await trader.get_status()
+            activity["trader_stats"] = stats.get('stats', {})
             
     except Exception as e:
         logger.error(f"Error getting activity: {e}")
@@ -575,15 +600,20 @@ async def get_trading_pairs():
     """Get all crypto pairs the bot monitors"""
     
     return {
+    trader = get_trader()
+    trading_pairs = getattr(trader, 'trading_pairs', [])
+    
+    return {
         "success": True,
         "data": {
-            "pairs": autonomous_trader.trading_pairs,
-            "total": len(autonomous_trader.trading_pairs),
+            "pairs": trading_pairs,
+            "total": len(trading_pairs),
+            "version": "v2" if USE_V2_TRADER else "v1",
             "categories": {
-                "top10": autonomous_trader.trading_pairs[:10],
-                "defi": [p for p in autonomous_trader.trading_pairs if p in ['COMPUSDT', 'SNXUSDT', 'CRVUSDT', 'YFIUSDT', 'SUSHIUSDT', '1INCHUSDT', 'DYDXUSDT', 'GMXUSDT', 'PENDLEUSDT', 'ENSUSDT']],
-                "meme": [p for p in autonomous_trader.trading_pairs if p in ['SHIBUSDT', 'PEPEUSDT', 'FLOKIUSDT', 'BONKUSDT', 'WIFUSDT']],
-                "ai": [p for p in autonomous_trader.trading_pairs if p in ['TAOUSDT', 'WLDUSDT', 'OCEANUSDT', 'RNDRAUSDT', 'AKTUSDT']],
+                "top10": trading_pairs[:10] if trading_pairs else [],
+                "defi": [p for p in trading_pairs if p in ['COMPUSDT', 'SNXUSDT', 'CRVUSDT', 'YFIUSDT', 'SUSHIUSDT', '1INCHUSDT', 'DYDXUSDT', 'GMXUSDT', 'PENDLEUSDT', 'ENSUSDT']],
+                "meme": [p for p in trading_pairs if p in ['SHIBUSDT', 'PEPEUSDT', 'FLOKIUSDT', 'BONKUSDT', 'WIFUSDT']],
+                "ai": [p for p in trading_pairs if p in ['TAOUSDT', 'WLDUSDT', 'OCEANUSDT', 'RNDRAUSDT', 'AKTUSDT']],
             }
         }
     }
@@ -683,13 +713,22 @@ async def save_settings(request: Request):
         
         await r.hset('bot:settings', mapping=settings_to_save)
         
-        # Apply settings to autonomous trader
-        autonomous_trader.emergency_stop_loss = float(body.get('stopLossPercent', 1.5))
-        autonomous_trader.trail_from_peak = float(body.get('trailingStopPercent', 1.2))
-        autonomous_trader.min_profit_to_trail = float(body.get('minProfitToTrail', 1.0))
-        autonomous_trader.min_confidence = float(body.get('minConfidence', 70))
-        autonomous_trader.max_position_percent = float(body.get('maxPositionPercent', 8))
-        autonomous_trader.max_open_positions = int(body.get('maxOpenPositions', 8))
+        # Apply settings to autonomous trader (both v1 and v2)
+        trader = get_trader()
+        if hasattr(trader, 'emergency_stop_loss'):
+            trader.emergency_stop_loss = float(body.get('stopLossPercent', 1.5))
+        if hasattr(trader, 'trail_from_peak'):
+            trader.trail_from_peak = float(body.get('trailingStopPercent', 1.2))
+        if hasattr(trader, 'min_profit_to_trail'):
+            trader.min_profit_to_trail = float(body.get('minProfitToTrail', 1.0))
+        if hasattr(trader, 'min_confidence'):
+            trader.min_confidence = float(body.get('minConfidence', 70))
+        if hasattr(trader, 'max_position_percent'):
+            trader.max_position_percent = float(body.get('maxPositionPercent', 8))
+        if hasattr(trader, 'max_open_positions'):
+            trader.max_open_positions = int(body.get('maxOpenPositions', 8))
+        if hasattr(trader, 'take_profit'):
+            trader.take_profit = float(body.get('takeProfitPercent', 5.0))
         
         # Store take profit for use (not directly in trader but in settings)
         await r.set('bot:take_profit_percent', str(body.get('takeProfitPercent', 2.0)))

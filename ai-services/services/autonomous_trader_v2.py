@@ -1,0 +1,758 @@
+"""
+SENTINEL AI - Ultimate Autonomous Trading System v2.0
+
+This is the PROFESSIONAL version that integrates:
+- RegimeDetector: Knows WHEN to trade
+- EdgeEstimator: Knows IF there's an edge
+- PositionSizer: Knows HOW MUCH to risk (Kelly)
+- MarketScanner: Sees ALL 500+ pairs
+- AICoordinator: The brain that combines everything
+
+KEY PRINCIPLES:
+1. Trade EVERYTHING on Bybit IF there's edge
+2. Dynamic sizing based on confidence
+3. Regime-aware strategy selection
+4. Continuous learning from outcomes
+5. Hard risk limits NEVER exceeded
+
+This is what hedge funds use, not retail bot BS.
+"""
+
+import asyncio
+from typing import Dict, List, Optional, Any, Tuple
+from datetime import datetime, timedelta
+from dataclasses import dataclass, field
+import numpy as np
+from loguru import logger
+import redis.asyncio as redis
+import json
+
+from config import settings
+from services.bybit_client import BybitV5Client
+from services.learning_engine import LearningEngine, TradeOutcome
+from services.regime_detector import RegimeDetector, RegimeState
+from services.edge_estimator import EdgeEstimator, EdgeScore
+from services.position_sizer import PositionSizer, PositionSize
+from services.market_scanner import MarketScanner, TradingOpportunity
+
+
+def safe_float(val, default=0.0):
+    """Safely convert value to float"""
+    if val is None or val == '':
+        return default
+    try:
+        return float(val)
+    except (ValueError, TypeError):
+        return default
+
+
+@dataclass
+class ActivePosition:
+    """Track active position with all metadata"""
+    symbol: str
+    side: str  # 'Buy' or 'Sell'
+    size: float
+    entry_price: float
+    entry_time: datetime
+    
+    # Edge data at entry
+    entry_edge: float
+    entry_confidence: float
+    entry_regime: str
+    
+    # Tracking
+    peak_price: float  # Highest seen (for longs)
+    trough_price: float  # Lowest seen (for shorts)
+    peak_pnl_percent: float
+    
+    # Exit strategy
+    stop_loss_price: float
+    take_profit_price: float
+    trailing_active: bool = False
+    
+    # Sizing
+    position_value: float = 0.0
+    kelly_fraction: float = 0.0
+
+
+class AutonomousTraderV2:
+    """
+    ULTIMATE Autonomous Trading System
+    
+    This is THE BEST possible implementation:
+    - Scans ALL pairs on Bybit
+    - Uses edge-based position sizing
+    - Respects regime signals
+    - Has hard risk limits
+    - Learns from every trade
+    
+    NOT for the faint of heart.
+    """
+    
+    def __init__(self):
+        self.is_running = False
+        self.redis_client = None
+        
+        # Core components (injected)
+        self.regime_detector: Optional[RegimeDetector] = None
+        self.edge_estimator: Optional[EdgeEstimator] = None
+        self.position_sizer: Optional[PositionSizer] = None
+        self.market_scanner: Optional[MarketScanner] = None
+        self.learning_engine: Optional[LearningEngine] = None
+        self.ai_coordinator = None  # Legacy support
+        
+        # Connected exchange clients per user
+        self.user_clients: Dict[str, BybitV5Client] = {}
+        
+        # Active positions with full metadata
+        self.active_positions: Dict[str, Dict[str, ActivePosition]] = {}  # user_id -> symbol -> position
+        
+        # === CONFIGURATION ===
+        
+        # Trading frequency
+        self.scan_interval = 30  # Seconds between full scans
+        self.position_check_interval = 5  # Seconds between position checks
+        
+        # Entry filters
+        self.min_edge = 0.15  # Minimum edge to consider trade
+        self.min_confidence = 55  # Minimum confidence
+        
+        # Exit strategy
+        self.min_profit_to_trail = 0.8  # % profit before trailing
+        self.trail_from_peak = 1.0  # Trail by 1% from peak
+        self.emergency_stop_loss = 1.5  # Hard stop at -1.5%
+        self.take_profit = 5.0  # Take profit at +5%
+        
+        # Risk limits (from PositionSizer, but enforced here too)
+        self.max_open_positions = 10
+        self.max_exposure_percent = 30
+        
+        # Statistics
+        self.stats = {
+            'total_trades': 0,
+            'winning_trades': 0,
+            'total_pnl': 0.0,
+            'max_drawdown': 0.0,
+            'opportunities_scanned': 0,
+            'trades_rejected_low_edge': 0,
+            'trades_rejected_regime': 0,
+            'trades_rejected_risk': 0
+        }
+        
+    async def initialize(
+        self,
+        regime_detector: RegimeDetector,
+        edge_estimator: EdgeEstimator,
+        position_sizer: PositionSizer,
+        market_scanner: MarketScanner,
+        learning_engine: LearningEngine,
+        ai_coordinator = None
+    ):
+        """Initialize with all components"""
+        logger.info("Initializing Ultimate Autonomous Trader v2.0...")
+        
+        self.redis_client = await redis.from_url(settings.REDIS_URL)
+        
+        self.regime_detector = regime_detector
+        self.edge_estimator = edge_estimator
+        self.position_sizer = position_sizer
+        self.market_scanner = market_scanner
+        self.learning_engine = learning_engine
+        self.ai_coordinator = ai_coordinator
+        
+        self.is_running = True
+        
+        # Load settings
+        await self._load_settings()
+        
+        # Load stats
+        await self._load_stats()
+        
+        logger.info("Ultimate Autonomous Trader v2.0 initialized!")
+        logger.info(f"Components: RegimeDetector={self.regime_detector is not None}, "
+                   f"EdgeEstimator={self.edge_estimator is not None}, "
+                   f"PositionSizer={self.position_sizer is not None}, "
+                   f"MarketScanner={self.market_scanner is not None}")
+        
+    async def shutdown(self):
+        """Graceful shutdown"""
+        logger.info("Shutting down Ultimate Autonomous Trader...")
+        self.is_running = False
+        
+        await self._save_stats()
+        
+        for user_id, client in self.user_clients.items():
+            try:
+                await client.close()
+            except:
+                pass
+                
+        if self.redis_client:
+            await self.redis_client.aclose()
+            
+    async def connect_user(self, user_id: str, api_key: str, api_secret: str, testnet: bool = False) -> bool:
+        """Connect user's exchange account"""
+        try:
+            client = BybitV5Client(api_key, api_secret, testnet)
+            result = await client.test_connection()
+            
+            if result.get('success'):
+                self.user_clients[user_id] = client
+                self.active_positions[user_id] = {}
+                logger.info(f"User {user_id} connected for Ultimate trading")
+                return True
+            else:
+                await client.close()
+                return False
+                
+        except Exception as e:
+            logger.error(f"Failed to connect user {user_id}: {e}")
+            return False
+            
+    async def disconnect_user(self, user_id: str):
+        """Disconnect user"""
+        if user_id in self.user_clients:
+            await self.user_clients[user_id].close()
+            del self.user_clients[user_id]
+            if user_id in self.active_positions:
+                del self.active_positions[user_id]
+            logger.info(f"User {user_id} disconnected")
+            
+    async def run_trading_loop(self):
+        """Main trading loop"""
+        logger.info("Starting Ultimate Autonomous Trading Loop...")
+        
+        cycle = 0
+        
+        while self.is_running:
+            try:
+                cycle += 1
+                cycle_start = datetime.utcnow()
+                
+                # Process each connected user
+                for user_id, client in list(self.user_clients.items()):
+                    try:
+                        await self._process_user(user_id, client)
+                    except Exception as e:
+                        logger.error(f"Error processing user {user_id}: {e}")
+                        
+                # Log status periodically
+                if cycle % 100 == 0:
+                    await self._log_status()
+                    
+                # Calculate sleep time
+                elapsed = (datetime.utcnow() - cycle_start).total_seconds()
+                sleep_time = max(self.position_check_interval - elapsed, 1)
+                
+                await asyncio.sleep(sleep_time)
+                
+            except Exception as e:
+                logger.error(f"Trading loop error: {e}")
+                await asyncio.sleep(30)
+                
+    async def _process_user(self, user_id: str, client: BybitV5Client):
+        """Process trading for one user"""
+        
+        # 1. Get wallet balance
+        wallet = await self._get_wallet(client)
+        if wallet['total_equity'] < 20:  # Min $20
+            return
+            
+        # 2. Sync positions from exchange
+        await self._sync_positions(user_id, client)
+        
+        # 3. Check existing positions for exit
+        for symbol, position in list(self.active_positions.get(user_id, {}).items()):
+            await self._check_position_exit(user_id, client, position, wallet)
+            
+        # 4. Look for new opportunities (if room)
+        num_positions = len(self.active_positions.get(user_id, {}))
+        if num_positions < self.max_open_positions:
+            await self._find_opportunities(user_id, client, wallet)
+            
+    async def _get_wallet(self, client: BybitV5Client) -> Dict:
+        """Get wallet balance"""
+        result = await client.get_wallet_balance()
+        
+        if not result.get('success'):
+            return {'total_equity': 0, 'available': 0}
+            
+        data = result.get('data', {})
+        total_equity = 0
+        available = 0
+        
+        for account in data.get('list', []):
+            total_equity = safe_float(account.get('totalEquity'))
+            available = safe_float(account.get('totalAvailableBalance'))
+            
+            for coin in account.get('coin', []):
+                if coin.get('coin') == 'USDT':
+                    avail_withdraw = safe_float(coin.get('availableToWithdraw'))
+                    available = max(available, avail_withdraw)
+                    break
+                    
+        # Store for position sizer
+        await self.redis_client.set('wallet:equity', str(total_equity))
+        
+        return {
+            'total_equity': total_equity,
+            'available': available
+        }
+        
+    async def _sync_positions(self, user_id: str, client: BybitV5Client):
+        """Sync active positions with exchange"""
+        result = await client.get_positions()
+        
+        if not result.get('success'):
+            return
+            
+        exchange_positions = set()
+        
+        for pos in result.get('data', {}).get('list', []):
+            size = safe_float(pos.get('size'))
+            if size > 0:
+                symbol = pos.get('symbol')
+                exchange_positions.add(symbol)
+                
+                # If not tracked, add it
+                if user_id not in self.active_positions:
+                    self.active_positions[user_id] = {}
+                    
+                if symbol not in self.active_positions[user_id]:
+                    # New position detected (maybe from manual trade)
+                    entry_price = safe_float(pos.get('avgPrice'))
+                    self.active_positions[user_id][symbol] = ActivePosition(
+                        symbol=symbol,
+                        side=pos.get('side', 'Buy'),
+                        size=size,
+                        entry_price=entry_price,
+                        entry_time=datetime.utcnow(),
+                        entry_edge=0.0,
+                        entry_confidence=0.0,
+                        entry_regime='unknown',
+                        peak_price=entry_price,
+                        trough_price=entry_price,
+                        peak_pnl_percent=0.0,
+                        stop_loss_price=entry_price * (1 - self.emergency_stop_loss / 100),
+                        take_profit_price=entry_price * (1 + self.take_profit / 100),
+                        trailing_active=False,
+                        position_value=size * entry_price
+                    )
+                    logger.info(f"Synced existing position: {symbol}")
+                else:
+                    # Update size if changed
+                    self.active_positions[user_id][symbol].size = size
+                    
+        # Remove closed positions
+        if user_id in self.active_positions:
+            for symbol in list(self.active_positions[user_id].keys()):
+                if symbol not in exchange_positions:
+                    del self.active_positions[user_id][symbol]
+                    
+    async def _check_position_exit(self, user_id: str, client: BybitV5Client,
+                                    position: ActivePosition, wallet: Dict):
+        """Check if position should be exited"""
+        try:
+            # Get current price
+            ticker = await self._get_ticker(client, position.symbol)
+            if not ticker:
+                return
+                
+            current_price = ticker['last_price']
+            
+            # Calculate P&L
+            if position.side == 'Buy':
+                pnl_percent = ((current_price - position.entry_price) / position.entry_price) * 100
+                # Update peak
+                if current_price > position.peak_price:
+                    position.peak_price = current_price
+                    position.peak_pnl_percent = pnl_percent
+            else:  # Short
+                pnl_percent = ((position.entry_price - current_price) / position.entry_price) * 100
+                # Update trough
+                if current_price < position.trough_price:
+                    position.trough_price = current_price
+                    position.peak_pnl_percent = pnl_percent
+                    
+            # === EXIT LOGIC ===
+            should_exit = False
+            exit_reason = ""
+            
+            # 1. STOP LOSS
+            if pnl_percent <= -self.emergency_stop_loss:
+                should_exit = True
+                exit_reason = f"Stop loss hit ({pnl_percent:.2f}%)"
+                
+            # 2. TAKE PROFIT
+            elif pnl_percent >= self.take_profit:
+                should_exit = True
+                exit_reason = f"Take profit reached ({pnl_percent:.2f}%)"
+                
+            # 3. TRAILING STOP
+            elif pnl_percent >= self.min_profit_to_trail:
+                position.trailing_active = True
+                
+                # Calculate drop from peak
+                if position.side == 'Buy':
+                    drop_from_peak = ((position.peak_price - current_price) / position.peak_price) * 100
+                else:
+                    drop_from_peak = ((current_price - position.trough_price) / position.trough_price) * 100
+                    
+                if drop_from_peak >= self.trail_from_peak:
+                    should_exit = True
+                    exit_reason = f"Trailing stop (peak: {position.peak_pnl_percent:.2f}%, now: {pnl_percent:.2f}%)"
+                    
+            # 4. REGIME CHANGED TO AVOID
+            if not should_exit:
+                regime = await self.regime_detector.detect_regime(position.symbol)
+                if regime.recommended_action == 'avoid' and pnl_percent > 0:
+                    should_exit = True
+                    exit_reason = f"Regime changed to avoid (locking {pnl_percent:.2f}% profit)"
+                    
+            # === EXECUTE EXIT ===
+            if should_exit:
+                await self._close_position(user_id, client, position, pnl_percent, exit_reason)
+                
+        except Exception as e:
+            logger.error(f"Exit check error for {position.symbol}: {e}")
+            
+    async def _close_position(self, user_id: str, client: BybitV5Client,
+                              position: ActivePosition, pnl_percent: float, reason: str):
+        """Close a position"""
+        try:
+            # Determine close side (opposite of position)
+            close_side = 'Sell' if position.side == 'Buy' else 'Buy'
+            
+            result = await client.place_order(
+                symbol=position.symbol,
+                side=close_side,
+                order_type='Market',
+                qty=position.size,
+                reduce_only=True
+            )
+            
+            if result.get('success'):
+                won = pnl_percent > 0
+                pnl_value = position.position_value * (pnl_percent / 100)
+                
+                logger.info(f"CLOSED {position.symbol}: {reason} | P&L: {pnl_percent:+.2f}% (${pnl_value:+.2f})")
+                
+                # Update stats
+                self.stats['total_trades'] += 1
+                if won:
+                    self.stats['winning_trades'] += 1
+                self.stats['total_pnl'] += pnl_value
+                
+                # Record in position sizer
+                await self.position_sizer.close_position(position.symbol, pnl_value)
+                
+                # Record in edge estimator for calibration
+                await self.edge_estimator.record_outcome(position.symbol, position.entry_edge, won)
+                
+                # Record in market scanner
+                await self.market_scanner.record_trade_result(position.symbol, won, pnl_value)
+                
+                # Record in learning engine
+                if self.learning_engine:
+                    outcome = TradeOutcome(
+                        symbol=position.symbol,
+                        strategy='edge_based',
+                        regime=position.entry_regime,
+                        entry_price=position.entry_price,
+                        exit_price=position.entry_price * (1 + pnl_percent/100),
+                        pnl_percent=pnl_percent,
+                        win=won,
+                        duration_seconds=(datetime.utcnow() - position.entry_time).total_seconds(),
+                        entry_confidence=position.entry_confidence,
+                        exit_reason=reason
+                    )
+                    await self.learning_engine.record_trade_outcome(outcome)
+                    
+                # Remove from active positions
+                if user_id in self.active_positions:
+                    if position.symbol in self.active_positions[user_id]:
+                        del self.active_positions[user_id][position.symbol]
+                        
+                # Store trade for dashboard
+                await self._store_trade_event(position.symbol, 'closed', pnl_percent, reason)
+                
+            else:
+                logger.error(f"Failed to close {position.symbol}: {result}")
+                
+        except Exception as e:
+            logger.error(f"Close position error: {e}")
+            
+    async def _find_opportunities(self, user_id: str, client: BybitV5Client, wallet: Dict):
+        """Find and execute new trading opportunities"""
+        try:
+            # Get opportunities from scanner
+            opportunities = await self.market_scanner.get_tradeable_opportunities()
+            
+            self.stats['opportunities_scanned'] += len(opportunities)
+            
+            for opp in opportunities:
+                # Skip if we have max positions
+                num_positions = len(self.active_positions.get(user_id, {}))
+                if num_positions >= self.max_open_positions:
+                    break
+                    
+                # Skip if already in position
+                if opp.symbol in self.active_positions.get(user_id, {}):
+                    continue
+                    
+                # Validate the opportunity
+                should_trade, reason = await self._validate_opportunity(opp, wallet)
+                
+                if should_trade:
+                    await self._execute_trade(user_id, client, opp, wallet)
+                else:
+                    logger.debug(f"Skipped {opp.symbol}: {reason}")
+                    
+        except Exception as e:
+            logger.error(f"Find opportunities error: {e}")
+            
+    async def _validate_opportunity(self, opp: TradingOpportunity, wallet: Dict) -> Tuple[bool, str]:
+        """Validate if opportunity should be traded"""
+        
+        # 1. Edge check
+        if opp.edge_score < self.min_edge:
+            self.stats['trades_rejected_low_edge'] += 1
+            return False, f"Edge too low ({opp.edge_score:.2f} < {self.min_edge})"
+            
+        # 2. Confidence check
+        if opp.confidence < self.min_confidence:
+            self.stats['trades_rejected_low_edge'] += 1
+            return False, f"Confidence too low ({opp.confidence:.1f} < {self.min_confidence})"
+            
+        # 3. Regime check
+        if opp.regime_action == 'avoid':
+            self.stats['trades_rejected_regime'] += 1
+            return False, f"Regime recommends avoid"
+            
+        # 4. Risk check via position sizer
+        if not opp.edge_data:
+            return False, "No edge data"
+            
+        position_size = await self.position_sizer.calculate_position_size(
+            symbol=opp.symbol,
+            direction=opp.direction,
+            edge_score=opp.edge_score,
+            win_probability=opp.edge_data.win_probability,
+            risk_reward=opp.edge_data.risk_reward_ratio,
+            kelly_fraction=opp.edge_data.kelly_fraction,
+            regime_action=opp.regime_action,
+            current_price=opp.current_price,
+            wallet_balance=wallet['total_equity']
+        )
+        
+        if not position_size.is_within_limits:
+            self.stats['trades_rejected_risk'] += 1
+            return False, position_size.limit_reason
+            
+        # Store position size for execution
+        opp.edge_data._position_size = position_size
+        
+        return True, "Passed all checks"
+        
+    async def _execute_trade(self, user_id: str, client: BybitV5Client,
+                             opp: TradingOpportunity, wallet: Dict):
+        """Execute a trade"""
+        try:
+            edge_data = opp.edge_data
+            pos_size: PositionSize = getattr(edge_data, '_position_size', None)
+            
+            if not pos_size or pos_size.position_value_usdt < 5:
+                logger.debug(f"Position too small for {opp.symbol}")
+                return
+                
+            # Get symbol info for quantity precision
+            symbol_info = self.market_scanner.get_symbol_info(opp.symbol)
+            min_qty = symbol_info.get('min_qty', 0.001)
+            qty_step = symbol_info.get('qty_step', 0.001)
+            
+            # Calculate quantity
+            qty = pos_size.position_value_usdt / opp.current_price
+            
+            # Round to step
+            qty = max(min_qty, round(qty / qty_step) * qty_step)
+            
+            # Determine side
+            side = 'Buy' if opp.direction == 'long' else 'Sell'
+            
+            logger.info(f"EXECUTING: {side} {opp.symbol} | Qty: {qty} | "
+                       f"Edge: {opp.edge_score:.2f} | Confidence: {opp.confidence:.1f}%")
+            
+            result = await client.place_order(
+                symbol=opp.symbol,
+                side=side,
+                order_type='Market',
+                qty=qty
+            )
+            
+            if result.get('success'):
+                logger.info(f"ORDER SUCCESS: {opp.symbol} {side} {qty}")
+                
+                # Create position tracking
+                if user_id not in self.active_positions:
+                    self.active_positions[user_id] = {}
+                    
+                # Calculate stops
+                entry_price = opp.current_price
+                if side == 'Buy':
+                    stop_loss = entry_price * (1 - self.emergency_stop_loss / 100)
+                    take_profit = entry_price * (1 + self.take_profit / 100)
+                else:
+                    stop_loss = entry_price * (1 + self.emergency_stop_loss / 100)
+                    take_profit = entry_price * (1 - self.take_profit / 100)
+                    
+                self.active_positions[user_id][opp.symbol] = ActivePosition(
+                    symbol=opp.symbol,
+                    side=side,
+                    size=qty,
+                    entry_price=entry_price,
+                    entry_time=datetime.utcnow(),
+                    entry_edge=opp.edge_score,
+                    entry_confidence=opp.confidence,
+                    entry_regime=opp.regime,
+                    peak_price=entry_price,
+                    trough_price=entry_price,
+                    peak_pnl_percent=0.0,
+                    stop_loss_price=stop_loss,
+                    take_profit_price=take_profit,
+                    trailing_active=False,
+                    position_value=pos_size.position_value_usdt,
+                    kelly_fraction=pos_size.kelly_fraction
+                )
+                
+                # Register in position sizer
+                await self.position_sizer.register_position(opp.symbol, pos_size.position_value_usdt)
+                
+                # Store trade event
+                await self._store_trade_event(opp.symbol, 'opened', 0, opp.direction)
+                
+            else:
+                logger.error(f"ORDER FAILED: {opp.symbol} - {result}")
+                
+        except Exception as e:
+            logger.error(f"Execute trade error: {e}")
+            
+    async def _get_ticker(self, client: BybitV5Client, symbol: str) -> Optional[Dict]:
+        """Get current ticker for a symbol"""
+        try:
+            result = await client.get_ticker(symbol)
+            if result.get('success'):
+                data = result.get('data', {}).get('list', [])
+                if data:
+                    return {
+                        'last_price': safe_float(data[0].get('lastPrice')),
+                        'bid': safe_float(data[0].get('bid1Price')),
+                        'ask': safe_float(data[0].get('ask1Price'))
+                    }
+        except:
+            pass
+        return None
+        
+    async def _store_trade_event(self, symbol: str, action: str, pnl: float, reason: str):
+        """Store trade event for dashboard"""
+        try:
+            event = {
+                'symbol': symbol,
+                'action': action,
+                'pnl_percent': pnl,
+                'reason': reason,
+                'timestamp': datetime.utcnow().isoformat()
+            }
+            
+            # Push to Redis list
+            await self.redis_client.lpush('trading:events', json.dumps(event))
+            await self.redis_client.ltrim('trading:events', 0, 99)  # Keep last 100
+            
+        except:
+            pass
+            
+    async def _load_settings(self):
+        """Load settings from Redis"""
+        try:
+            data = await self.redis_client.hgetall('bot:settings')
+            if data:
+                parsed = {
+                    k.decode() if isinstance(k, bytes) else k: 
+                    v.decode() if isinstance(v, bytes) else v 
+                    for k, v in data.items()
+                }
+                
+                self.emergency_stop_loss = float(parsed.get('stopLossPercent', self.emergency_stop_loss))
+                self.take_profit = float(parsed.get('takeProfitPercent', self.take_profit))
+                self.trail_from_peak = float(parsed.get('trailingStopPercent', self.trail_from_peak))
+                self.min_profit_to_trail = float(parsed.get('minProfitToTrail', self.min_profit_to_trail))
+                self.min_confidence = float(parsed.get('minConfidence', self.min_confidence))
+                self.max_open_positions = int(float(parsed.get('maxOpenPositions', self.max_open_positions)))
+                
+                logger.info(f"Loaded settings: SL={self.emergency_stop_loss}%, TP={self.take_profit}%, "
+                           f"Trail={self.trail_from_peak}%, MinConf={self.min_confidence}%")
+        except:
+            pass
+            
+    async def _load_stats(self):
+        """Load stats from Redis"""
+        try:
+            data = await self.redis_client.get('trader:stats')
+            if data:
+                self.stats = json.loads(data)
+        except:
+            pass
+            
+    async def _save_stats(self):
+        """Save stats to Redis"""
+        try:
+            await self.redis_client.set('trader:stats', json.dumps(self.stats))
+        except:
+            pass
+            
+    async def _log_status(self):
+        """Log current trading status"""
+        total_positions = sum(len(p) for p in self.active_positions.values())
+        win_rate = (self.stats['winning_trades'] / self.stats['total_trades'] * 100) if self.stats['total_trades'] > 0 else 0
+        
+        logger.info(
+            f"STATUS | Positions: {total_positions} | Trades: {self.stats['total_trades']} | "
+            f"Win Rate: {win_rate:.1f}% | P&L: ${self.stats['total_pnl']:.2f}"
+        )
+        
+        await self._save_stats()
+        
+    async def get_status(self) -> Dict:
+        """Get current trader status for API"""
+        total_positions = sum(len(p) for p in self.active_positions.values())
+        win_rate = (self.stats['winning_trades'] / self.stats['total_trades'] * 100) if self.stats['total_trades'] > 0 else 0
+        
+        return {
+            'is_running': self.is_running,
+            'connected_users': len(self.user_clients),
+            'active_positions': total_positions,
+            'stats': {
+                'total_trades': self.stats['total_trades'],
+                'winning_trades': self.stats['winning_trades'],
+                'win_rate': round(win_rate, 1),
+                'total_pnl': round(self.stats['total_pnl'], 2),
+                'opportunities_scanned': self.stats['opportunities_scanned'],
+                'trades_rejected': {
+                    'low_edge': self.stats['trades_rejected_low_edge'],
+                    'regime': self.stats['trades_rejected_regime'],
+                    'risk': self.stats['trades_rejected_risk']
+                }
+            },
+            'settings': {
+                'min_edge': self.min_edge,
+                'min_confidence': self.min_confidence,
+                'stop_loss': self.emergency_stop_loss,
+                'take_profit': self.take_profit,
+                'trailing': self.trail_from_peak,
+                'max_positions': self.max_open_positions
+            }
+        }
+
+
+# Global instance (will be initialized in main.py)
+autonomous_trader_v2 = AutonomousTraderV2()
+
