@@ -190,6 +190,16 @@ interface TradeNotification {
   timestamp: number
 }
 
+// Safe number formatting helper
+const safeNum = (val: any, fallback: number = 0): number => {
+  if (val === null || val === undefined || isNaN(val)) return fallback
+  return Number(val)
+}
+
+const formatNum = (val: any, decimals: number = 2, fallback: number = 0): string => {
+  return safeNum(val, fallback).toFixed(decimals)
+}
+
 export default function DashboardPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [isRefreshing, setIsRefreshing] = useState(false)
@@ -905,7 +915,7 @@ export default function DashboardPage() {
                 const coinName = position.symbol.replace('USDT', '')
                 
                 const handleClosePosition = async (symbol: string) => {
-                  if (!confirm(`Close ${symbol} position? Current P&L: €${position.unrealizedPnl.toFixed(2)}`)) {
+                  if (!confirm(`Close ${symbol} position? Current P&L: €${formatNum(position.unrealizedPnl)}`)) {
                     return
                   }
                   
@@ -917,7 +927,7 @@ export default function DashboardPage() {
                     const data = await res.json()
                     
                     if (data.success) {
-                      alert(`Position closed! P&L: €${data.data.pnl.toFixed(2)}`)
+                      alert(`Position closed! P&L: €${formatNum(data.data.pnl)}`)
                       // Refresh will happen automatically via the 3s interval
                     } else {
                       alert(`Failed to close: ${data.error}`)
@@ -954,7 +964,7 @@ export default function DashboardPage() {
                       <div className="flex justify-between items-center">
                         <span className="text-xs text-sentinel-text-muted">Invested</span>
                         <span className="font-mono font-bold text-sentinel-accent-cyan">
-                          €{investedAmount.toFixed(2)}
+                          €{formatNum(investedAmount)}
                         </span>
                       </div>
                       
@@ -963,7 +973,7 @@ export default function DashboardPage() {
                         <span className={`font-mono font-bold ${
                           position.unrealizedPnl >= 0 ? 'text-sentinel-accent-emerald' : 'text-sentinel-accent-crimson'
                         }`}>
-                          {position.unrealizedPnl >= 0 ? '+' : ''}€{position.unrealizedPnl.toFixed(2)}
+                          {safeNum(position.unrealizedPnl) >= 0 ? '+' : ''}€{formatNum(position.unrealizedPnl)}
                         </span>
                       </div>
                       
@@ -972,7 +982,7 @@ export default function DashboardPage() {
                         <span className={`font-mono text-sm ${
                           pnlPercent >= 0 ? 'text-sentinel-accent-emerald' : 'text-sentinel-accent-crimson'
                         }`}>
-                          {pnlPercent >= 0 ? '+' : ''}{pnlPercent.toFixed(2)}%
+                          {safeNum(pnlPercent) >= 0 ? '+' : ''}{formatNum(pnlPercent)}%
                         </span>
                       </div>
                     </div>
@@ -999,7 +1009,7 @@ export default function DashboardPage() {
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div className="text-center">
                   <div className="text-2xl font-bold font-mono text-sentinel-accent-cyan">
-                    €{positions.reduce((sum, p) => sum + (p.size * p.entryPrice), 0).toFixed(2)}
+                    €{formatNum(positions.reduce((sum, p) => sum + safeNum(p.size) * safeNum(p.entryPrice), 0))}
                   </div>
                   <div className="text-xs text-sentinel-text-muted">Total Invested</div>
                 </div>
@@ -1296,8 +1306,8 @@ export default function DashboardPage() {
                           ? 'text-sentinel-accent-emerald' 
                           : 'text-sentinel-accent-crimson'
                       }`}>
-                        {positions.reduce((sum, p) => sum + p.unrealizedPnl, 0) >= 0 ? '+' : ''}
-                        €{positions.reduce((sum, p) => sum + p.unrealizedPnl, 0).toFixed(2)}
+                        {positions.reduce((sum, p) => sum + safeNum(p.unrealizedPnl), 0) >= 0 ? '+' : ''}
+                        €{formatNum(positions.reduce((sum, p) => sum + safeNum(p.unrealizedPnl), 0))}
                       </div>
                     </div>
                   </div>
@@ -1336,19 +1346,19 @@ export default function DashboardPage() {
                               {position.size}
                             </td>
                             <td className="py-4 text-right font-mono font-bold text-sentinel-accent-cyan">
-                              €{investedAmount.toFixed(2)}
+                              €{formatNum(investedAmount)}
                             </td>
                             <td className="py-4 text-right font-mono text-sentinel-text-secondary">
-                              €{position.entryPrice?.toFixed(2)}
+                              €{formatNum(position.entryPrice)}
                             </td>
                             <td className="py-4 text-right font-mono">
-                              €{position.markPrice?.toFixed(2)}
+                              €{formatNum(position.markPrice)}
                             </td>
                             <td className="py-4 text-right">
                               <div className={`font-mono font-medium ${
                                 position.unrealizedPnl >= 0 ? 'text-sentinel-accent-emerald' : 'text-sentinel-accent-crimson'
                               }`}>
-                                {position.unrealizedPnl >= 0 ? '+' : ''}€{position.unrealizedPnl?.toFixed(2)}
+                                {safeNum(position.unrealizedPnl) >= 0 ? '+' : ''}€{formatNum(position.unrealizedPnl)}
                               </div>
                             </td>
                           </tr>
@@ -1400,7 +1410,7 @@ export default function DashboardPage() {
                     <div className={`font-mono font-medium ${
                       trade.closedPnl >= 0 ? 'text-sentinel-accent-emerald' : 'text-sentinel-accent-crimson'
                     }`}>
-                      {trade.closedPnl >= 0 ? '+' : ''}€{trade.closedPnl?.toFixed(2)}
+                      {safeNum(trade.closedPnl) >= 0 ? '+' : ''}€{formatNum(trade.closedPnl)}
                     </div>
                   </div>
                 ))}
@@ -1449,7 +1459,7 @@ export default function DashboardPage() {
                           </span>
                         </div>
                         <div className="text-xs text-sentinel-text-muted mt-1">
-                          {trade.strategy} - {trade.confidence?.toFixed(0)}% confident
+                          {trade.strategy} - {formatNum(trade.confidence, 0)}% confident
                         </div>
                       </div>
                     ))}
@@ -1499,7 +1509,7 @@ export default function DashboardPage() {
                           <span className={`font-mono font-medium ${
                             trade.pnl >= 0 ? 'text-sentinel-accent-emerald' : 'text-sentinel-accent-crimson'
                           }`}>
-                            {trade.pnl >= 0 ? '+' : ''}€{trade.pnl?.toFixed(2)}
+                            {safeNum(trade.pnl) >= 0 ? '+' : ''}€{formatNum(trade.pnl)}
                           </span>
                         </div>
                         <div className="text-xs text-sentinel-text-muted mt-1">
@@ -1557,7 +1567,7 @@ export default function DashboardPage() {
                   'text-sentinel-text-primary'
                 }`}>
                   {consoleData?.ai_models?.sentiment !== undefined 
-                    ? (consoleData.ai_models.sentiment > 0 ? '+' : '') + consoleData.ai_models.sentiment.toFixed(2)
+                    ? (safeNum(consoleData.ai_models.sentiment) > 0 ? '+' : '') + formatNum(consoleData.ai_models.sentiment)
                     : 'N/A'}
                 </p>
               </div>
@@ -1642,7 +1652,7 @@ export default function DashboardPage() {
                     newsData.sentiment.overall === 'bearish' ? 'bg-sentinel-accent-crimson/20 text-sentinel-accent-crimson' :
                     'bg-sentinel-bg-tertiary text-sentinel-text-muted'
                   }`}>
-                    {newsData.sentiment.overall?.toUpperCase()} {newsData.sentiment.bullish_percent?.toFixed(0)}%
+                    {newsData.sentiment.overall?.toUpperCase() || 'N/A'} {formatNum(newsData.sentiment.bullish_percent, 0)}%
                   </span>
                 </div>
               )}
@@ -1666,9 +1676,9 @@ export default function DashboardPage() {
                   />
                 </div>
                 <div className="flex justify-between text-xs text-sentinel-text-muted mt-1">
-                  <span>Bullish {newsData.sentiment.bullish_percent?.toFixed(0)}%</span>
-                  <span>Neutral {newsData.sentiment.neutral_percent?.toFixed(0)}%</span>
-                  <span>Bearish {newsData.sentiment.bearish_percent?.toFixed(0)}%</span>
+                  <span>Bullish {formatNum(newsData.sentiment.bullish_percent, 0)}%</span>
+                  <span>Neutral {formatNum(newsData.sentiment.neutral_percent, 0)}%</span>
+                  <span>Bearish {formatNum(newsData.sentiment.bearish_percent, 0)}%</span>
                 </div>
               </div>
             )}
@@ -1752,7 +1762,7 @@ export default function DashboardPage() {
               <div className="flex items-center gap-2">
                 <div className="w-2 h-2 rounded-full bg-sentinel-accent-emerald live-pulse" />
                 <span className="text-sm font-mono text-sentinel-accent-violet">
-                  {learningData?.learning?.learning_progress?.toFixed(0) || 0}%
+                  {formatNum(learningData?.learning?.learning_progress, 0)}%
                 </span>
               </div>
             </div>
@@ -1815,13 +1825,13 @@ export default function DashboardPage() {
               </div>
               <div className="p-2 rounded-lg bg-sentinel-bg-tertiary text-center">
                 <div className={`text-lg font-bold ${(learningData?.stats?.win_rate || 0) >= 50 ? 'text-sentinel-accent-emerald' : 'text-sentinel-accent-crimson'}`}>
-                  {learningData?.stats?.win_rate?.toFixed(0) || 0}%
+                  {formatNum(learningData?.stats?.win_rate, 0)}%
                 </div>
                 <div className="text-[10px] text-sentinel-text-muted">Win Rate</div>
               </div>
               <div className="p-2 rounded-lg bg-sentinel-bg-tertiary text-center">
                 <div className="text-lg font-bold text-sentinel-accent-emerald">
-                  €{(learningData?.stats?.best_trade || 0).toFixed(2)}
+                  €{formatNum(learningData?.stats?.best_trade)}
                 </div>
                 <div className="text-[10px] text-sentinel-text-muted">Best</div>
               </div>
