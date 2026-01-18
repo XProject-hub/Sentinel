@@ -105,8 +105,8 @@ class MarketScanner:
         # Scan settings
         self.scan_interval = 30  # seconds
         self.max_parallel_scans = 50  # Concurrent API calls
-        self.min_volume_24h = 100000  # $100k minimum volume
-        self.min_liquidity = 40  # Minimum liquidity score
+        self.min_volume_24h = 10000  # $10k minimum volume (lowered to include more pairs)
+        self.min_liquidity = 30  # Minimum liquidity score (lowered)
         
     async def initialize(self, regime_detector: RegimeDetector, 
                          edge_estimator: EdgeEstimator):
@@ -567,6 +567,22 @@ class MarketScanner:
             'tick_size': 0.01,
             'min_notional': 5
         })
+        
+    async def get_stats(self) -> Dict:
+        """Get scanner statistics"""
+        return {
+            'total_pairs_loaded': len(self.all_symbols),
+            'pairs_with_info': len(self.symbol_info),
+            'blacklisted': len(self.blacklist),
+            'min_volume_24h': self.min_volume_24h,
+            'scan_interval': self.scan_interval,
+            'all_symbols': self.all_symbols,  # Return ALL symbols
+            'last_scan': (await self.redis_client.get('scanner:results')) if self.redis_client else None
+        }
+        
+    def get_all_pairs(self) -> List[str]:
+        """Get all loaded trading pairs"""
+        return self.all_symbols.copy()
 
 
 # Global instance

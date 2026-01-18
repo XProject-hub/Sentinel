@@ -597,8 +597,57 @@ async def get_live_activity(user_id: str = "default"):
 
 @router.get("/trading/pairs")
 async def get_trading_pairs():
-    """Get all crypto pairs the bot monitors"""
+    """Get ALL crypto pairs from Bybit that bot can trade"""
+    import httpx
     
+    try:
+        # Get ALL pairs directly from Bybit API
+        async with httpx.AsyncClient(timeout=30) as client:
+            response = await client.get(
+                "https://api.bybit.com/v5/market/instruments-info",
+                params={'category': 'linear', 'limit': 1000}
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                instruments = data.get('result', {}).get('list', [])
+                
+                # Get ALL USDT pairs
+                all_pairs = [inst['symbol'] for inst in instruments if inst['symbol'].endswith('USDT')]
+                
+                # Categorize
+                defi_pairs = ['AAVEUSDT', 'MKRUSDT', 'UNIUSDT', 'CRVUSDT', 'SNXUSDT', 'COMPUSDT', 
+                             '1INCHUSDT', 'YFIUSDT', 'SUSHIUSDT', 'DYDXUSDT', 'GMXUSDT', 'PENDLEUSDT']
+                meme_pairs = ['DOGEUSDT', 'SHIBUSDT', 'PEPEUSDT', 'FLOKIUSDT', 'BONKUSDT', 'WIFUSDT', 
+                             'BOMEUSDT', 'MEMEUSDT', 'NOTUSDT', 'NEIROUSDT']
+                ai_pairs = ['FETUSDT', 'AGIXUSDT', 'OCEANUSDT', 'RNDRUSDT', 'TAOUSDT', 'WLDUSDT', 
+                           'AKTUSDT', 'ARKMUSDT', 'AIUSDT']
+                layer1 = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'AVAXUSDT', 'ADAUSDT', 'DOTUSDT', 
+                         'ATOMUSDT', 'NEARUSDT', 'SUIUSDT', 'APTUSDT', 'SEIUSDT', 'TIAUSDT']
+                layer2 = ['ARBUSDT', 'OPUSDT', 'MATICUSDT', 'STRKUSDT', 'MANTAUSDT', 'ZKUSDT', 
+                         'BLASTUSDT', 'SCROLLUSDT', 'LINEAUSDT', 'METISUSDT']
+                
+                return {
+                    "success": True,
+                    "data": {
+                        "pairs": all_pairs,
+                        "total": len(all_pairs),
+                        "version": "v2" if USE_V2_TRADER else "v1",
+                        "source": "bybit_api_live",
+                        "categories": {
+                            "layer1": [p for p in all_pairs if p in layer1],
+                            "layer2": [p for p in all_pairs if p in layer2],
+                            "defi": [p for p in all_pairs if p in defi_pairs],
+                            "meme": [p for p in all_pairs if p in meme_pairs],
+                            "ai": [p for p in all_pairs if p in ai_pairs],
+                            "top10_by_volume": all_pairs[:10]  # Usually sorted by volume
+                        }
+                    }
+                }
+    except Exception as e:
+        logger.error(f"Error getting pairs from Bybit: {e}")
+    
+    # Fallback to trader's list
     trader = get_trader()
     trading_pairs = getattr(trader, 'trading_pairs', [])
     
@@ -608,12 +657,8 @@ async def get_trading_pairs():
             "pairs": trading_pairs,
             "total": len(trading_pairs),
             "version": "v2" if USE_V2_TRADER else "v1",
-            "categories": {
-                "top10": trading_pairs[:10] if trading_pairs else [],
-                "defi": [p for p in trading_pairs if p in ['COMPUSDT', 'SNXUSDT', 'CRVUSDT', 'YFIUSDT', 'SUSHIUSDT', '1INCHUSDT', 'DYDXUSDT', 'GMXUSDT', 'PENDLEUSDT', 'ENSUSDT']],
-                "meme": [p for p in trading_pairs if p in ['SHIBUSDT', 'PEPEUSDT', 'FLOKIUSDT', 'BONKUSDT', 'WIFUSDT']],
-                "ai": [p for p in trading_pairs if p in ['TAOUSDT', 'WLDUSDT', 'OCEANUSDT', 'RNDRAUSDT', 'AKTUSDT']],
-            }
+            "source": "fallback",
+            "categories": {}
         }
     }
 

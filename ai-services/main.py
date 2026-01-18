@@ -917,6 +917,38 @@ async def allocator_stats():
     return {"success": True, "data": stats}
 
 
+@app.get("/ai/scanner/stats")
+async def scanner_stats():
+    """Get market scanner statistics - ALL pairs being scanned"""
+    stats = await market_scanner.get_stats()
+    return {
+        "success": True, 
+        "data": {
+            "total_pairs": stats['total_pairs_loaded'],
+            "pairs_with_info": stats['pairs_with_info'],
+            "blacklisted": stats['blacklisted'],
+            "min_volume_filter": stats['min_volume_24h'],
+            "scan_interval_seconds": stats['scan_interval'],
+            "message": f"Scanning {stats['total_pairs_loaded']} USDT perpetual pairs from Bybit"
+        }
+    }
+
+
+@app.get("/ai/scanner/pairs")
+async def scanner_pairs():
+    """Get ALL trading pairs the scanner is monitoring"""
+    pairs = market_scanner.get_all_pairs()
+    return {
+        "success": True,
+        "data": {
+            "pairs": pairs,
+            "total": len(pairs),
+            "source": "market_scanner",
+            "note": "These are ALL USDT perpetual pairs loaded from Bybit"
+        }
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
