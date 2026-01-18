@@ -980,7 +980,7 @@ export default function DashboardPage() {
                       <div className="flex justify-between items-center">
                         <span className="text-xs text-sentinel-text-muted">Invested</span>
                         <span className="font-mono font-bold text-sentinel-accent-cyan">
-                          ${formatNum(investedAmount)}
+                          €{formatNum(investedAmount)}
                         </span>
                       </div>
                       
@@ -989,7 +989,7 @@ export default function DashboardPage() {
                         <span className={`font-mono font-bold ${
                           position.unrealizedPnl >= 0 ? 'text-sentinel-accent-emerald' : 'text-sentinel-accent-crimson'
                         }`}>
-                          {safeNum(position.unrealizedPnl) >= 0 ? '+' : ''}${formatNum(position.unrealizedPnl)}
+                          {safeNum(position.unrealizedPnl) >= 0 ? '+' : ''}€{formatNum(position.unrealizedPnl)}
                         </span>
                       </div>
                       
@@ -1025,7 +1025,7 @@ export default function DashboardPage() {
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div className="text-center">
                   <div className="text-2xl font-bold font-mono text-sentinel-accent-cyan">
-                    ${formatNum(positions.reduce((sum, p) => sum + safeNum(p.size) * safeNum(p.entryPrice), 0))}
+                    €{formatNum(positions.reduce((sum, p) => sum + safeNum(p.size) * safeNum(p.entryPrice), 0))}
                   </div>
                   <div className="text-xs text-sentinel-text-muted">Total Invested</div>
                 </div>
