@@ -839,7 +839,7 @@ export default function DashboardPage() {
               {tradingStatus?.is_autonomous_trading && (
                 <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-sentinel-bg-tertiary">
                   <div className="w-2 h-2 rounded-full bg-sentinel-accent-emerald live-pulse" />
-                  <span className="text-sm font-mono">{tradingStatus?.trading_pairs?.length || 80}+ pairs</span>
+                  <span className="text-sm font-mono">{tradingStatus?.total_pairs || tradingStatus?.trading_pairs?.length || 500}+ pairs</span>
                 </div>
               )}
 
@@ -880,7 +880,7 @@ export default function DashboardPage() {
           {tradingStatus?.is_autonomous_trading && (
             <div className="mt-4 pt-4 border-t border-sentinel-border">
               <div className="flex items-center gap-6 text-sm text-sentinel-text-secondary">
-                <span>Max positions: <strong className="text-sentinel-text-primary">{tradingStatus?.max_positions || 10}</strong></span>
+                <span>Max positions: <strong className="text-sentinel-text-primary">{tradingStatus?.max_positions === 0 ? '∞' : (tradingStatus?.max_positions || '∞')}</strong></span>
                 <span>Strategy: <strong className="text-sentinel-text-primary capitalize">{aiInsight?.recommended_action || 'Auto'}</strong></span>
                 <span>Regime: <strong className="text-sentinel-text-primary capitalize">{aiInsight?.regime?.replace('_', ' ') || 'Analyzing'}</strong></span>
               </div>

@@ -506,14 +506,29 @@ async def get_trading_status(user_id: str = "default"):
     
     # Get trading pairs (different attribute in v2)
     trading_pairs = getattr(trader, 'trading_pairs', [])
-    max_positions = getattr(trader, 'max_open_positions', 10)
+    max_positions = getattr(trader, 'max_open_positions', 0)  # 0 = unlimited
     min_conf = getattr(trader, 'min_confidence', 55)
+    
+    # Get total pairs from market scanner
+    total_pairs = 0
+    if hasattr(trader, 'market_scanner') and trader.market_scanner:
+        total_pairs = len(getattr(trader.market_scanner, 'all_symbols', []))
+    
+    # Fallback: check Redis for stored count
+    if total_pairs == 0 and hasattr(trader, 'redis_client') and trader.redis_client:
+        try:
+            symbols_str = await trader.redis_client.get('trading:available_symbols')
+            if symbols_str:
+                total_pairs = len(symbols_str.split(','))
+        except:
+            pass
         
     return {
         "success": True,
         "data": {
             "is_autonomous_trading": is_trading,
             "trading_pairs": trading_pairs if is_trading else [],
+            "total_pairs": total_pairs,
             "max_positions": max_positions,
             "min_confidence": min_conf,
             "recent_trades": trades,
@@ -544,10 +559,24 @@ async def get_live_activity(user_id: str = "default"):
     trader = get_trader()
     trading_pairs = getattr(trader, 'trading_pairs', [])
     
+    # Get total pairs from market scanner
+    total_pairs = 0
+    if hasattr(trader, 'market_scanner') and trader.market_scanner:
+        total_pairs = len(getattr(trader.market_scanner, 'all_symbols', []))
+    
+    # Fallback: check Redis for stored count
+    if total_pairs == 0 and hasattr(trader, 'redis_client') and trader.redis_client:
+        try:
+            symbols_str = await trader.redis_client.get('trading:available_symbols')
+            if symbols_str:
+                total_pairs = len(symbols_str.split(','))
+        except:
+            pass
+    
     activity = {
         "is_running": trader.is_running,
         "is_user_connected": user_id in trader.user_clients,
-        "total_pairs_monitoring": len(trading_pairs),
+        "total_pairs_monitoring": total_pairs if total_pairs > 0 else len(trading_pairs),
         "active_trades": [],
         "recent_completed": [],
         "bot_actions": [],
@@ -637,6 +666,17 @@ async def get_realtime_console(user_id: str = "default"):
             console["scanning"] = {
                 k.decode(): v.decode() for k, v in scan_stats.items()
             }
+        
+        # Fallback: get pairs count from market_scanner if not in Redis
+        if console["scanning"].get("pairs_scanned", 0) == 0:
+            if hasattr(trader, 'market_scanner') and trader.market_scanner:
+                console["scanning"]["pairs_scanned"] = len(getattr(trader.market_scanner, 'all_symbols', []))
+                console["scanning"]["last_scan_time"] = datetime.utcnow().isoformat()
+            else:
+                # Try Redis stored symbols
+                symbols_str = await trader.redis_client.get('trading:available_symbols')
+                if symbols_str:
+                    console["scanning"]["pairs_scanned"] = len(symbols_str.split(','))
         
         # Get recent decisions
         decisions = await trader.redis_client.lrange('bot:decisions', 0, 9)
