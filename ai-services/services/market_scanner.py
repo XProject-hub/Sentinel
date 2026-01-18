@@ -220,11 +220,19 @@ class MarketScanner:
                 )
                 
                 # Determine if should trade
+                # Note: Allow trading if regime is unknown (new symbol/startup)
+                regime_action = regime.get('action', 'hold')
+                regime_allows = regime_action in ['aggressive', 'normal', 'reduced', 'hold']
+                
+                # Also allow if regime is unknown but edge is strong
+                if regime.get('regime') == 'unknown' and edge_data.edge > 0.20:
+                    regime_allows = True
+                
                 should_trade = (
                     edge_data.edge > 0.15 and
                     edge_data.confidence > 50 and
                     edge_data.recommended_size != 'skip' and
-                    regime.get('action', 'avoid') != 'avoid'
+                    regime_allows
                 )
                 
                 # Determine if TradFi

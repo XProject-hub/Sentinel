@@ -525,10 +525,10 @@ class RegimeDetector:
             'news_event': 'avoid',
             'accumulation': 'normal',
             'distribution': 'reduced',
-            'unknown': 'avoid'
+            'unknown': 'hold'  # Allow trading for unknown regime (new symbols)
         }
         
-        base_action = actions.get(regime, 'avoid')
+        base_action = actions.get(regime, 'hold')  # Default to hold, not avoid
         
         # Adjust based on confidence
         if confidence < 60:
@@ -605,7 +605,7 @@ class RegimeDetector:
             trend_strength=0,
             trend_direction='neutral',
             volume_profile='stable',
-            recommended_action='avoid',
+            recommended_action='hold',  # Allow trading when no regime data yet
             timestamp=datetime.utcnow().isoformat()
         )
         
