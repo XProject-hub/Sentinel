@@ -69,14 +69,14 @@ class PositionSizer:
     """
     
     # === DEFAULT LIMITS (can be overridden by settings) ===
-    MAX_RISK_PER_TRADE = 0.005  # 0.5% of wallet
-    MAX_DAILY_DRAWDOWN = 0.03  # 3% daily loss limit (default)
-    MAX_WEEKLY_DRAWDOWN = 0.05  # 5% weekly loss limit
-    MAX_TOTAL_EXPOSURE = 0.50  # 50% of wallet max deployed (default)
-    MAX_SINGLE_POSITION = 0.10  # 10% max in one position
-    MAX_CORRELATED_EXPOSURE = 0.15  # 15% max in correlated assets
-    MIN_POSITION_VALUE = 5.0  # $5 minimum trade
-    MAX_LEVERAGE = 5  # Max leverage allowed
+    MAX_RISK_PER_TRADE = 0.15  # 15% of wallet (user configurable)
+    MAX_DAILY_DRAWDOWN = 0.055  # 5.5% daily loss limit (default)
+    MAX_WEEKLY_DRAWDOWN = 0.10  # 10% weekly loss limit
+    MAX_TOTAL_EXPOSURE = 1.0  # 100% of wallet max deployed (default)
+    MAX_SINGLE_POSITION = 0.15  # 15% max in one position (user configurable)
+    MAX_CORRELATED_EXPOSURE = 0.30  # 30% max in correlated assets
+    MIN_POSITION_VALUE = 5.5  # $5.5 minimum trade (Bybit minimum)
+    MAX_LEVERAGE = 10  # Max leverage allowed
     MAX_OPEN_POSITIONS = 0  # 0 = unlimited
     
     def __init__(self):
@@ -128,9 +128,10 @@ class PositionSizer:
                 }
                 
                 # Apply settings
-                self.MAX_DAILY_DRAWDOWN = float(parsed.get('maxDailyDrawdown', 3)) / 100
-                self.MAX_TOTAL_EXPOSURE = float(parsed.get('maxTotalExposure', 50)) / 100
-                self.MAX_SINGLE_POSITION = float(parsed.get('maxPositionPercent', 10)) / 100
+                self.MAX_DAILY_DRAWDOWN = float(parsed.get('maxDailyDrawdown', 5.5)) / 100
+                self.MAX_TOTAL_EXPOSURE = float(parsed.get('maxTotalExposure', 100)) / 100
+                self.MAX_SINGLE_POSITION = float(parsed.get('maxPositionPercent', 15)) / 100
+                self.MAX_RISK_PER_TRADE = float(parsed.get('maxPositionPercent', 15)) / 100  # Same as position %
                 self.MAX_OPEN_POSITIONS = int(float(parsed.get('maxOpenPositions', 0)))
                 
                 logger.info(f"Loaded position sizer settings: MaxDD={self.MAX_DAILY_DRAWDOWN*100:.1f}%, "
@@ -231,13 +232,13 @@ class PositionSizer:
         
         # Start with Kelly-based size
         if kelly_fraction > 0:
-            base_fraction = kelly_fraction
+            base_fraction = min(kelly_fraction, self.MAX_RISK_PER_TRADE)
             sizing_method = 'kelly'
         else:
-            # Fallback to fixed fractional
-            base_fraction = 0.01  # 1% of wallet
+            # Fallback to user-configured position size
+            base_fraction = self.MAX_RISK_PER_TRADE * 0.5  # 50% of max when no Kelly
             sizing_method = 'fixed'
-            adjustments.append("No Kelly edge, using fixed 1%")
+            adjustments.append(f"No Kelly edge, using {base_fraction*100:.1f}%")
             
         # === Apply Adjustments ===
         
