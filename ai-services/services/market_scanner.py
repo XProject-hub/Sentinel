@@ -62,6 +62,10 @@ class TradingOpportunity:
     reasons: List[str] = field(default_factory=list)
     warnings: List[str] = field(default_factory=list)
     
+    # Asset type
+    is_tradfi: bool = False  # True for stocks, forex, commodities, metals
+    asset_category: str = 'crypto'  # 'crypto', 'stocks', 'forex', 'metals', 'commodities', 'indices'
+    
     # Timing
     timestamp: str = ""
 
@@ -90,7 +94,9 @@ class MarketScanner:
         
         # Cached symbol list
         self.all_symbols: List[str] = []
+        self.tradfi_symbols: List[str] = []  # TradFi symbols (stocks, forex, metals, commodities)
         self.symbol_info: Dict[str, Dict] = {}
+        self.symbol_category: Dict[str, str] = {}  # Maps symbol to category
         
         # Scan results cache
         self.last_scan_time: datetime = None
@@ -119,8 +125,11 @@ class MarketScanner:
         self.regime_detector = regime_detector
         self.edge_estimator = edge_estimator
         
-        # Load symbols
+        # Load crypto symbols
         await self._load_all_symbols()
+        
+        # Load TradFi symbols (stocks, forex, metals, commodities)
+        await self._load_tradfi_symbols()
         
         # Load blacklist
         await self._load_blacklist()
@@ -218,6 +227,10 @@ class MarketScanner:
                     regime.get('action', 'avoid') != 'avoid'
                 )
                 
+                # Determine if TradFi
+                is_tradfi = symbol in self.tradfi_symbols
+                asset_category = self.symbol_category.get(symbol, 'crypto')
+                
                 opportunity = TradingOpportunity(
                     symbol=symbol,
                     direction=direction,
@@ -236,6 +249,8 @@ class MarketScanner:
                     should_trade=should_trade,
                     reasons=edge_data.reasons,
                     warnings=edge_data.warnings,
+                    is_tradfi=is_tradfi,
+                    asset_category=asset_category,
                     timestamp=datetime.utcnow().isoformat()
                 )
                 
@@ -344,13 +359,17 @@ class MarketScanner:
             if symbol in self.blacklist:
                 continue
                 
-            # Skip non-USDT pairs
-            if not symbol.endswith('USDT'):
+            # Check if it's a known symbol (crypto or tradfi)
+            is_crypto = symbol.endswith('USDT')
+            is_tradfi = symbol in self.tradfi_symbols or symbol in self.symbol_category
+            
+            if not is_crypto and not is_tradfi:
                 continue
                 
-            # Check volume
+            # Check volume (lower threshold for TradFi)
             volume = float(ticker.get('volume24h', 0))
-            if volume < self.min_volume_24h:
+            min_vol = self.min_volume_24h if is_crypto else 1000  # Lower for TradFi
+            if volume < min_vol:
                 continue
                 
             # Check price exists
@@ -363,6 +382,11 @@ class MarketScanner:
                 continue
                 
             viable.append(symbol)
+            
+        # Also add TradFi symbols that might not be in tickers
+        for symbol in self.tradfi_symbols:
+            if symbol not in viable and symbol not in self.blacklist:
+                viable.append(symbol)
             
         return viable
         
@@ -435,7 +459,11 @@ class MarketScanner:
                         'min_notional': float(inst.get('lotSizeFilter', {}).get('minNotionalValue', 5))
                     }
                     
-            logger.info(f"Loaded {len(self.all_symbols)} trading pairs")
+            logger.info(f"Loaded {len(self.all_symbols)} crypto trading pairs")
+            
+            # Mark all as crypto
+            for symbol in self.all_symbols:
+                self.symbol_category[symbol] = 'crypto'
             
             # Store in Redis
             await self.redis_client.set(
@@ -444,12 +472,144 @@ class MarketScanner:
             )
             
         except Exception as e:
-            logger.error(f"Error loading symbols: {e}")
+            logger.error(f"Error loading crypto symbols: {e}")
             # Fallback to major pairs
             self.all_symbols = [
                 'BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT', 'XRPUSDT',
                 'ADAUSDT', 'DOGEUSDT', 'MATICUSDT', 'DOTUSDT', 'LINKUSDT'
             ]
+            for symbol in self.all_symbols:
+                self.symbol_category[symbol] = 'crypto'
+    
+    async def _load_tradfi_symbols(self):
+        """Load TradFi symbols from Bybit (stocks, forex, metals, commodities)"""
+        try:
+            # Bybit TradFi uses MT5 - try to fetch from their API
+            # Note: This might use a different endpoint
+            
+            # Try the linear category first with different suffixes
+            url = "https://api.bybit.com/v5/market/instruments-info"
+            
+            # TradFi symbols typically have suffixes like:
+            # Metals: XAUUSD, XAGUSD
+            # Stocks: suffix varies
+            # Forex: EURUSD, etc.
+            
+            # First, try to get all tickers and filter for TradFi-like symbols
+            tickers_url = "https://api.bybit.com/v5/market/tickers"
+            
+            # Try different categories for TradFi
+            tradfi_categories = ['linear', 'spot']
+            
+            for category in tradfi_categories:
+                try:
+                    response = await self.http_client.get(url, params={'category': category, 'limit': 1000})
+                    
+                    if response.status_code == 200:
+                        data = response.json()
+                        instruments = data.get('result', {}).get('list', [])
+                        
+                        for inst in instruments:
+                            symbol = inst.get('symbol', '')
+                            
+                            # Identify TradFi symbols by their patterns
+                            # Metals: XAU (gold), XAG (silver), XPT (platinum)
+                            # Forex: EUR, GBP, JPY, AUD pairs without USDT
+                            # Stocks: Usually 3-4 letter codes
+                            
+                            is_tradfi = False
+                            asset_category = 'crypto'
+                            
+                            # Check for metals
+                            if any(metal in symbol.upper() for metal in ['XAU', 'XAG', 'XPT', 'XPD']):
+                                is_tradfi = True
+                                asset_category = 'metals'
+                            # Check for forex
+                            elif any(fx in symbol.upper() for fx in ['EURUSD', 'GBPUSD', 'USDJPY', 'AUDUSD', 'USDCAD', 'USDCHF', 'NZDUSD']):
+                                is_tradfi = True
+                                asset_category = 'forex'
+                            # Check for commodities
+                            elif any(comm in symbol.upper() for comm in ['OIL', 'GAS', 'COCOA', 'COFFEE', 'COTTON', 'COPPER', 'SUGAR']):
+                                is_tradfi = True
+                                asset_category = 'commodities'
+                            # Check for indices
+                            elif any(idx in symbol.upper() for idx in ['SPX', 'NDX', 'DJI', 'QQQ']):
+                                is_tradfi = True
+                                asset_category = 'indices'
+                            # Check for stocks (common stock symbols on Bybit)
+                            elif symbol.upper() in ['TSLA', 'AAPL', 'GOOG', 'GOOGL', 'META', 'AMZN', 'MSFT', 'NVDA', 
+                                                     'MSTR', 'RIOT', 'MARA', 'COIN', 'AMD', 'INTC', 'NFLX',
+                                                     'DIS', 'BA', 'JPM', 'GS', 'V', 'MA', 'PYPL']:
+                                is_tradfi = True
+                                asset_category = 'stocks'
+                            
+                            if is_tradfi and symbol not in self.tradfi_symbols:
+                                self.tradfi_symbols.append(symbol)
+                                self.symbol_category[symbol] = asset_category
+                                self.symbol_info[symbol] = {
+                                    'min_qty': float(inst.get('lotSizeFilter', {}).get('minOrderQty', 0.01)),
+                                    'qty_step': float(inst.get('lotSizeFilter', {}).get('qtyStep', 0.01)),
+                                    'tick_size': float(inst.get('priceFilter', {}).get('tickSize', 0.01)),
+                                    'min_notional': float(inst.get('lotSizeFilter', {}).get('minNotionalValue', 5)),
+                                    'is_tradfi': True
+                                }
+                                
+                except Exception as e:
+                    logger.debug(f"Error fetching {category} category for TradFi: {e}")
+                    
+            # Also add known TradFi symbols from Bybit MT5
+            # These are the symbols shown in the user's screenshots
+            known_tradfi = {
+                # Metals
+                'XAUUSD+': 'metals', 'XAGUSD': 'metals', 'XPTUSD': 'metals',
+                'XAUAUD': 'metals', 'XAUEUR': 'metals', 'XAUJPY': 'metals',
+                # Forex
+                'EURUSD+': 'forex', 'USOUSD': 'forex', 'GBPUSD': 'forex',
+                'USDJPY': 'forex', 'AUDUSD': 'forex',
+                # Stocks
+                'TSLA': 'stocks', 'AAPL': 'stocks', 'GOOG': 'stocks', 
+                'META': 'stocks', 'NVDA': 'stocks', 'MSTR': 'stocks',
+                'CRCL': 'stocks', 'RIOT': 'stocks', 'HUT': 'stocks',
+                'DFDV': 'stocks', 'APP': 'stocks', 'QQQ': 'indices',
+                'TQQQ': 'indices',
+                # Commodities  
+                'COCOA-C': 'commodities', 'COFFEE-C': 'commodities',
+                'COPPER-C': 'commodities', 'COTTON-C': 'commodities',
+                'GAS-C': 'commodities', 'GASOIL-C': 'commodities',
+            }
+            
+            for symbol, category in known_tradfi.items():
+                if symbol not in self.tradfi_symbols:
+                    self.tradfi_symbols.append(symbol)
+                    self.symbol_category[symbol] = category
+                    if symbol not in self.symbol_info:
+                        self.symbol_info[symbol] = {
+                            'min_qty': 0.01,
+                            'qty_step': 0.01,
+                            'tick_size': 0.01,
+                            'min_notional': 5,
+                            'is_tradfi': True
+                        }
+            
+            logger.info(f"Loaded {len(self.tradfi_symbols)} TradFi symbols (metals, stocks, forex, commodities)")
+            
+            # Store in Redis
+            await self.redis_client.set(
+                'trading:tradfi_symbols',
+                ','.join(self.tradfi_symbols)
+            )
+            
+            # Store combined list
+            all_combined = self.all_symbols + self.tradfi_symbols
+            await self.redis_client.set(
+                'trading:all_symbols',
+                ','.join(all_combined)
+            )
+            await self.redis_client.set('trading:total_pairs', str(len(all_combined)))
+            
+        except Exception as e:
+            logger.error(f"Error loading TradFi symbols: {e}")
+            # TradFi is optional, continue without it
             
     async def _get_all_tickers(self) -> Dict[str, Dict]:
         """Get tickers for all symbols"""
@@ -570,13 +730,23 @@ class MarketScanner:
         
     async def get_stats(self) -> Dict:
         """Get scanner statistics"""
+        # Count by category
+        category_counts = {}
+        for symbol, category in self.symbol_category.items():
+            category_counts[category] = category_counts.get(category, 0) + 1
+            
         return {
-            'total_pairs_loaded': len(self.all_symbols),
+            'total_pairs_loaded': len(self.all_symbols) + len(self.tradfi_symbols),
+            'crypto_pairs': len(self.all_symbols),
+            'tradfi_pairs': len(self.tradfi_symbols),
             'pairs_with_info': len(self.symbol_info),
             'blacklisted': len(self.blacklist),
             'min_volume_24h': self.min_volume_24h,
             'scan_interval': self.scan_interval,
-            'all_symbols': self.all_symbols,  # Return ALL symbols
+            'category_breakdown': category_counts,
+            'all_symbols': self.all_symbols + self.tradfi_symbols,  # Return ALL symbols
+            'crypto_symbols': self.all_symbols,
+            'tradfi_symbols': self.tradfi_symbols,
             'last_scan': (await self.redis_client.get('scanner:results')) if self.redis_client else None
         }
         
