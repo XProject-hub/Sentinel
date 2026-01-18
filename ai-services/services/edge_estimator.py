@@ -554,12 +554,20 @@ class EdgeEstimator:
         reasons = []
         
         try:
-            # Fear & Greed Index
-            fg_data = await self.redis_client.get('data:fear_greed')
-            if fg_data:
-                fg = json.loads(fg_data)
-                fg_value = int(fg.get('value', 50))
-                
+            # Fear & Greed Index - handle different Redis key types
+            try:
+                key_type = await self.redis_client.type('data:fear_greed')
+                if key_type == 'string':
+                    fg_data = await self.redis_client.get('data:fear_greed')
+                    if fg_data:
+                        fg = json.loads(fg_data)
+                        fg_value = int(fg.get('value', 50))
+                elif key_type == 'hash':
+                    fg = await self.redis_client.hgetall('data:fear_greed')
+                    fg_value = int(fg.get('value', 50)) if fg else 50
+                else:
+                    fg_value = 50
+                    
                 # Contrarian indicator
                 if fg_value < 25:
                     edge += 0.2
@@ -573,10 +581,21 @@ class EdgeEstimator:
                 elif fg_value > 65:
                     edge -= 0.1
                     reasons.append(f"Greed ({fg_value}) - potentially bearish")
+            except Exception:
+                pass  # Skip fear/greed if not available
                     
-            # Symbol-specific sentiment
+            # Symbol-specific sentiment - handle different key types
             asset = symbol.replace('USDT', '').replace('PERP', '')
-            sentiment_data = await self.redis_client.get(f'sentiment:{asset}')
+            try:
+                key_type = await self.redis_client.type(f'sentiment:{asset}')
+                if key_type == 'string':
+                    sentiment_data = await self.redis_client.get(f'sentiment:{asset}')
+                elif key_type == 'hash':
+                    sentiment_data = json.dumps(await self.redis_client.hgetall(f'sentiment:{asset}'))
+                else:
+                    sentiment_data = None
+            except Exception:
+                sentiment_data = None
             
             if sentiment_data:
                 sentiment = json.loads(sentiment_data)
@@ -650,18 +669,22 @@ class EdgeEstimator:
         """Estimate expected return based on volatility and edge"""
         closes = data.get('closes', [])
         
-        if len(closes) < 20:
+        if len(closes) < 21:
             return edge * 1.0  # Default 1% at full edge
             
-        # Recent volatility
-        returns = np.diff(closes[-20:]) / closes[-21:-1]
-        volatility = np.std(returns) * 100
-        
-        # Expected return = edge * volatility * factor
-        expected = edge * volatility * 0.5
-        
-        # Cap at reasonable values
-        return max(-3, min(5, expected))
+        try:
+            # Recent volatility - FIX: ensure arrays have matching shapes
+            close_slice = np.array(closes[-21:])  # 21 elements
+            returns = np.diff(close_slice) / close_slice[:-1]  # 20 / 20 = matching shapes
+            volatility = np.std(returns) * 100
+            
+            # Expected return = edge * volatility * factor
+            expected = edge * volatility * 0.5
+            
+            # Cap at reasonable values
+            return max(-3, min(5, expected))
+        except Exception as e:
+            return edge * 1.0  # Fallback
         
     def _calculate_risk_reward(self, data: Dict, direction: str) -> float:
         """Calculate risk/reward ratio based on chart structure"""
