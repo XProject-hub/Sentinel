@@ -21,22 +21,49 @@ class BybitV5Client:
     - Supports spot, linear, inverse perpetuals
     - Real-time market data
     - Order execution
+    
+    Documentation: https://bybit-exchange.github.io/docs/v5/guide
     """
     
+    # Main endpoints
     BASE_URL = "https://api.bybit.com"
+    BACKUP_URL = "https://api.bytick.com"  # Backup endpoint
     TESTNET_URL = "https://api-testnet.bybit.com"
+    
+    # Regional endpoints for better latency
+    REGIONAL_ENDPOINTS = {
+        "NL": "https://api.bybit.nl",          # Netherlands
+        "TR": "https://api.bybit-tr.com",       # Turkey
+        "KZ": "https://api.bybit.kz",           # Kazakhstan
+        "GE": "https://api.bybitgeorgia.ge",    # Georgia
+        "AE": "https://api.bybit.ae",           # UAE
+        "EU": "https://api.bybit.eu",           # EEA (European Economic Area)
+        "HK": "https://api.byhkbit.com",        # Hong Kong (P2P only)
+    }
     
     def __init__(
         self, 
         api_key: str, 
         api_secret: str, 
-        testnet: bool = False
+        testnet: bool = False,
+        region: str = None  # Optional: "NL", "TR", "KZ", "GE", "AE", "EU"
     ):
         self.api_key = api_key
         self.api_secret = api_secret
-        self.base_url = self.TESTNET_URL if testnet else self.BASE_URL
+        
+        # Select endpoint based on region or use default
+        if testnet:
+            self.base_url = self.TESTNET_URL
+        elif region and region.upper() in self.REGIONAL_ENDPOINTS:
+            self.base_url = self.REGIONAL_ENDPOINTS[region.upper()]
+            logger.info(f"Using regional Bybit endpoint: {self.base_url}")
+        else:
+            self.base_url = self.BASE_URL
+            
+        self.backup_url = self.BACKUP_URL
         self.recv_window = 5000
         self.http_client = httpx.AsyncClient(timeout=30.0)
+        self.request_counter = 0  # For unique request IDs
         
     def _generate_signature(self, timestamp: str, params: str) -> str:
         """Generate HMAC SHA256 signature for V5 API"""
@@ -61,9 +88,16 @@ class BybitV5Client:
         return int(time.time() * 1000)
     
     def _get_headers(self, params: str = "", server_time: Optional[int] = None) -> Dict[str, str]:
-        """Get authenticated headers"""
+        """
+        Get authenticated headers as per Bybit V5 API documentation.
+        https://bybit-exchange.github.io/docs/v5/guide
+        """
         timestamp = str(server_time or int(time.time() * 1000))
         signature = self._generate_signature(timestamp, params)
+        
+        # Increment request counter for unique request ID
+        self.request_counter += 1
+        request_id = f"sentinel-{timestamp}-{self.request_counter}"
         
         return {
             "X-BAPI-API-KEY": self.api_key,
@@ -71,7 +105,8 @@ class BybitV5Client:
             "X-BAPI-SIGN-TYPE": "2",
             "X-BAPI-TIMESTAMP": timestamp,
             "X-BAPI-RECV-WINDOW": str(self.recv_window),
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
+            "cdn-request-id": request_id,  # For network diagnostics (per Bybit docs)
         }
         
     async def _request(
@@ -117,23 +152,52 @@ class BybitV5Client:
                 error_code = data.get('retCode')
                 logger.error(f"Bybit API error [{error_code}]: {error_msg}")
                 
-                # Translate common errors
-                if error_code == 10003:
-                    return {"success": False, "error": "Invalid API key"}
-                elif error_code == 10004:
-                    return {"success": False, "error": "Invalid signature - check API secret"}
-                elif error_code == 10005:
-                    return {"success": False, "error": "Permission denied - check API permissions"}
-                elif error_code == 10006:
-                    return {"success": False, "error": "IP not whitelisted on Bybit"}
-                elif error_code == 10010:
-                    return {"success": False, "error": "IP not in whitelist - add 109.104.154.183 to Bybit API"}
-                elif "ip" in error_msg.lower():
-                    return {"success": False, "error": f"IP issue: {error_msg}. Whitelist: 109.104.154.183"}
-                    
-                return {"success": False, "error": error_msg}
+                # Comprehensive error code handling (from Bybit docs)
+                ERROR_MESSAGES = {
+                    10001: "Request parameter error - check parameters",
+                    10002: "Request timestamp expired - sync server time",
+                    10003: "Invalid API key",
+                    10004: "Invalid signature - check API secret",
+                    10005: "Permission denied - check API permissions",
+                    10006: "IP not whitelisted on Bybit",
+                    10007: "Access denied - API key not valid for this endpoint",
+                    10008: "Invalid sign type",
+                    10009: "Invalid Timestamp",
+                    10010: "IP not in whitelist - add server IP to Bybit API settings",
+                    10014: "Invalid API key format",
+                    10016: "Server error - try again",
+                    10017: "API not available for this path",
+                    10018: "Unsupported request",
+                    10024: "KYC required",
+                    10025: "Cross margin not enabled",
+                    10027: "Banned API key",
+                    10028: "API key expired",
+                    10029: "Duplicate request",
+                    33004: "API key not enabled for trading",
+                    110001: "Order does not exist",
+                    110003: "Order already filled",
+                    110004: "Insufficient balance",
+                    110007: "Order already cancelled",
+                    110012: "Insufficient available balance",
+                    110013: "Cannot cancel order - already filled or cancelled",
+                    110017: "Reduce only order rejected",
+                    110018: "User ID invalid",
+                    110043: "Set leverage not allowed - has open position",
+                    110044: "Insufficient available margin",
+                    110071: "Order price/qty precision error",
+                    140003: "Order cost not available",
+                    140004: "Position is in cross margin mode",
+                    140013: "Due to risk limit, cannot set leverage so high",
+                }
                 
-            return {"success": True, "data": data.get("result", {})}
+                if error_code in ERROR_MESSAGES:
+                    return {"success": False, "error": ERROR_MESSAGES[error_code], "code": error_code}
+                elif "ip" in error_msg.lower():
+                    return {"success": False, "error": f"IP issue: {error_msg}. Whitelist your server IP on Bybit.", "code": error_code}
+                    
+                return {"success": False, "error": error_msg, "code": error_code}
+                
+            return {"success": True, "data": data.get("result", {}), "time": data.get("time")}
             
         except Exception as e:
             logger.error(f"Bybit request error: {e}")
