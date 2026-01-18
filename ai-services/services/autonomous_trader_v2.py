@@ -504,9 +504,9 @@ class AutonomousTraderV2:
             self.stats['opportunities_scanned'] += len(opportunities)
             
             for opp in opportunities:
-                # Skip if we have max positions
+                # Skip if we have max positions (0 = unlimited)
                 num_positions = len(self.active_positions.get(user_id, {}))
-                if num_positions >= self.max_open_positions:
+                if self.max_open_positions > 0 and num_positions >= self.max_open_positions:
                     break
                     
                 # Skip if already in position

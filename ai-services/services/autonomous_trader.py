@@ -192,10 +192,10 @@ class AutonomousTrader:
         self.analysis_interval_seconds = 30  # Analyze every 30s (patience)
         self.min_confidence = 70.0           # Only HIGH confidence trades!
         
-        # Position sizing - Conservative for safety
+        # Position sizing - Dynamic based on settings
         self.min_position_percent = 4.0      # 4% per trade (~€5.6)
         self.max_position_percent = 8.0      # Max 8% per trade (~€11.2)
-        self.max_open_positions = 8          # Max 8 positions (focus)
+        self.max_open_positions = 0          # 0 = UNLIMITED positions!
         
         # === PROFITABLE EXIT STRATEGY ===
         # The KEY to profitability: Let winners run, cut losers fast
@@ -535,7 +535,9 @@ class AutonomousTrader:
             await self._check_smart_exit(user_id, client, position)
             
         # 4. Analyze for new opportunities (if we have room)
-        if len(current_positions) < self.max_open_positions:
+        # max_open_positions = 0 means UNLIMITED
+        can_open_more = self.max_open_positions == 0 or len(current_positions) < self.max_open_positions
+        if can_open_more:
             await self._find_smart_trades(user_id, client, current_positions, 
                                           available_usdt, total_equity, market_sentiment)
                     
