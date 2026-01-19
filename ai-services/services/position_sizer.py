@@ -205,16 +205,22 @@ class PositionSizer:
         max_allowed = self.MAX_TOTAL_EXPOSURE * wallet_balance
         if current_exposure >= max_allowed:
             logger.warning(f"🚫 Exposure check failed for {symbol}: current=${current_exposure:.2f} >= max=${max_allowed:.2f} (wallet=${wallet_balance:.2f}, limit={self.MAX_TOTAL_EXPOSURE*100:.0f}%)")
-            logger.warning(f"   Open positions: {self.open_positions}")
+            logger.warning(f"   Open positions ({len(self.open_positions)}): {list(self.open_positions.keys())[:10]}...")
             return self._blocked_position(
                 symbol, f"Maximum total exposure reached (${current_exposure:.0f}/${max_allowed:.0f})", wallet_balance
             )
         
         # 3.5 Check max open positions (0 = unlimited)
-        if self.MAX_OPEN_POSITIONS > 0 and len(self.open_positions) >= self.MAX_OPEN_POSITIONS:
+        num_positions = len(self.open_positions)
+        if self.MAX_OPEN_POSITIONS > 0 and num_positions >= self.MAX_OPEN_POSITIONS:
+            logger.warning(f"🚫 Max positions check failed: {num_positions} >= {self.MAX_OPEN_POSITIONS}")
             return self._blocked_position(
                 symbol, f"Maximum {self.MAX_OPEN_POSITIONS} positions reached", wallet_balance
             )
+        
+        # Log current state for debugging (only occasionally)
+        if num_positions > 0 and num_positions % 5 == 0:
+            logger.info(f"📊 Position check: {num_positions} open, exposure=${current_exposure:.2f}/${max_allowed:.2f}, limit={'∞' if self.MAX_OPEN_POSITIONS == 0 else self.MAX_OPEN_POSITIONS}")
             
         # 4. Check if symbol already has position
         if symbol in self.open_positions:
@@ -487,28 +493,34 @@ class PositionSizer:
     async def sync_with_exchange(self, exchange_symbols: set, positions_data: dict):
         """
         Sync position sizer with actual exchange positions.
-        Removes stale positions and updates values.
+        AGGRESSIVELY replaces entire open_positions dict with exchange reality.
         
         Args:
             exchange_symbols: Set of symbols currently on exchange
             positions_data: Dict of symbol -> position_value_usdt
         """
         old_count = len(self.open_positions)
-        stale_symbols = set(self.open_positions.keys()) - exchange_symbols
+        old_symbols = set(self.open_positions.keys())
         
-        # Remove stale positions (no longer on exchange)
-        for symbol in stale_symbols:
-            del self.open_positions[symbol]
-            
-        # Update with current exchange positions
+        # AGGRESSIVE SYNC: Completely replace open_positions with exchange data
+        # This fixes the "stuck at 20 positions" bug from stale Redis data
+        self.open_positions = {}
+        
+        # Only add positions that are ACTUALLY on the exchange
         for symbol, value in positions_data.items():
-            self.open_positions[symbol] = value
-            
+            if symbol in exchange_symbols and value > 0:
+                self.open_positions[symbol] = value
+        
         new_count = len(self.open_positions)
         new_exposure = sum(self.open_positions.values())
         
-        if stale_symbols:
-            logger.info(f"🔄 Position sizer synced: removed {len(stale_symbols)} stale positions ({list(stale_symbols)[:5]}...), now {new_count} positions, exposure=${new_exposure:.2f}")
+        removed_symbols = old_symbols - exchange_symbols
+        added_symbols = exchange_symbols - old_symbols
+        
+        if removed_symbols or old_count != new_count:
+            logger.info(f"🔄 Position sizer SYNCED: {old_count} → {new_count} positions, exposure=${new_exposure:.2f}")
+            if removed_symbols:
+                logger.info(f"   Removed stale: {list(removed_symbols)[:5]}{'...' if len(removed_symbols) > 5 else ''}")
         
         await self._save_state()
         
