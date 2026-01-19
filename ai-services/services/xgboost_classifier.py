@@ -415,26 +415,48 @@ class XGBoostClassifier:
             X_test_scaled = self.scaler.transform(X_test)
             
             # Train model with sample weights
-            self.model = xgb.XGBClassifier(
-                n_estimators=100,
-                max_depth=6,
-                learning_rate=0.1,
-                objective='multi:softprob',
-                num_class=3,
-                use_label_encoder=False,
-                eval_metric='mlogloss',
-                n_jobs=4,  # Use 4 cores for training
-                random_state=42
-            )
-            
-            # Fit with sample weights if available
-            self.model.fit(
-                X_train_scaled, y_train,
-                sample_weight=w_train,  # Quality-based weighting
-                eval_set=[(X_test_scaled, y_test)],
-                early_stopping_rounds=10,
-                verbose=False
-            )
+            # XGBoost 1.6+ moved early_stopping_rounds to constructor
+            # Try new API first, fallback to old if needed
+            try:
+                self.model = xgb.XGBClassifier(
+                    n_estimators=100,
+                    max_depth=6,
+                    learning_rate=0.1,
+                    objective='multi:softprob',
+                    num_class=3,
+                    use_label_encoder=False,
+                    eval_metric='mlogloss',
+                    early_stopping_rounds=10,  # XGBoost 1.6+ API
+                    n_jobs=4,
+                    random_state=42
+                )
+                self.model.fit(
+                    X_train_scaled, y_train,
+                    sample_weight=w_train,
+                    eval_set=[(X_test_scaled, y_test)],
+                    verbose=False
+                )
+            except TypeError:
+                # Fallback for older XGBoost versions
+                logger.info("Using legacy XGBoost API")
+                self.model = xgb.XGBClassifier(
+                    n_estimators=100,
+                    max_depth=6,
+                    learning_rate=0.1,
+                    objective='multi:softprob',
+                    num_class=3,
+                    use_label_encoder=False,
+                    eval_metric='mlogloss',
+                    n_jobs=4,
+                    random_state=42
+                )
+                self.model.fit(
+                    X_train_scaled, y_train,
+                    sample_weight=w_train,
+                    eval_set=[(X_test_scaled, y_test)],
+                    early_stopping_rounds=10,  # Old API
+                    verbose=False
+                )
             
             # Evaluate
             y_pred = self.model.predict(X_test_scaled)
