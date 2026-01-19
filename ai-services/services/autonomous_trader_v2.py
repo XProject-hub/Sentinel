@@ -297,34 +297,57 @@ class AutonomousTraderV2:
                 
     async def _process_user(self, user_id: str, client: BybitV5Client):
         """Process trading for one user"""
-        
-        # 1. Get wallet balance
-        wallet = await self._get_wallet(client)
-        if wallet['total_equity'] < 20:  # Min $20
-            return
+        try:
+            # 1. Get wallet balance
+            logger.debug(f"[STEP 1] Getting wallet for {user_id}")
+            wallet = await self._get_wallet(client)
+            if wallet['total_equity'] < 20:  # Min $20
+                logger.debug(f"[STEP 1] Wallet too low: ${wallet['total_equity']}")
+                return
+            logger.debug(f"[STEP 1] Wallet OK: ${wallet['total_equity']:.2f}")
+                
+            # 2. Sync positions from exchange
+            logger.debug(f"[STEP 2] Syncing positions for {user_id}")
+            await self._sync_positions(user_id, client)
+            logger.debug(f"[STEP 2] Sync complete")
             
-        # 2. Sync positions from exchange
-        await self._sync_positions(user_id, client)
-        
-        # 3. Check existing positions for exit - BATCH fetch all tickers first for SPEED
-        positions_list = list(self.active_positions.get(user_id, {}).items())
-        if positions_list:
-            logger.info(f"⚡ Fast-checking {len(positions_list)} positions (TP={self.take_profit}%, SL={self.emergency_stop_loss}%)")
+            # 3. Check existing positions for exit - BATCH fetch all tickers first for SPEED
+            positions_list = list(self.active_positions.get(user_id, {}).items())
+            if positions_list:
+                logger.info(f"⚡ Fast-checking {len(positions_list)} positions (TP={self.take_profit}%, SL={self.emergency_stop_loss}%)")
+                
+                # BATCH: Get all tickers in ONE API call
+                logger.debug(f"[STEP 3a] Fetching all tickers...")
+                all_tickers = await self._get_all_tickers(client)
+                logger.debug(f"[STEP 3a] Got {len(all_tickers)} tickers")
+                
+                # Check each position with pre-fetched prices
+                for symbol, position in positions_list:
+                    try:
+                        await self._check_position_exit_fast(user_id, client, position, wallet, all_tickers)
+                    except Exception as pos_error:
+                        logger.error(f"[STEP 3b] Error checking {symbol}: {pos_error}")
+                
+                logger.debug(f"[STEP 3] Position checks complete")
+                
+            # 4. Look for new opportunities (if room)
+            # max_open_positions = 0 means unlimited
+            num_positions = len(self.active_positions.get(user_id, {}))
+            can_open_more = self.max_open_positions == 0 or num_positions < self.max_open_positions
             
-            # BATCH: Get all tickers in ONE API call
-            all_tickers = await self._get_all_tickers(client)
+            if can_open_more:
+                logger.debug(f"[STEP 4] Looking for opportunities (have {num_positions}, max={self.max_open_positions})")
+                await self._find_opportunities(user_id, client, wallet)
+                logger.debug(f"[STEP 4] Opportunities search complete")
+            else:
+                logger.debug(f"[STEP 4] Max positions reached: {num_positions}/{self.max_open_positions}")
+                
+            logger.debug(f"[PROCESS USER] Complete for {user_id}")
             
-            # Check each position with pre-fetched prices
-            for symbol, position in positions_list:
-                await self._check_position_exit_fast(user_id, client, position, wallet, all_tickers)
-            
-        # 4. Look for new opportunities (if room)
-        # max_open_positions = 0 means unlimited
-        num_positions = len(self.active_positions.get(user_id, {}))
-        can_open_more = self.max_open_positions == 0 or num_positions < self.max_open_positions
-        
-        if can_open_more:
-            await self._find_opportunities(user_id, client, wallet)
+        except Exception as e:
+            logger.error(f"[PROCESS USER] CRITICAL ERROR for {user_id}: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
             
     async def _get_wallet(self, client: BybitV5Client) -> Dict:
         """Get wallet balance"""
