@@ -825,6 +825,12 @@ async def get_settings():
         "useRegimeDetection": True,
         "useEdgeEstimation": True,
         "useDynamicSizing": True,
+        # Smart exit (MICRO PROFIT)
+        "breakevenTrigger": 0.3,
+        "partialExitTrigger": 0.4,
+        "partialExitPercent": 50,
+        "useSmartExit": False,
+        "momentumThreshold": 0.05,
     }
     
     try:
@@ -861,6 +867,12 @@ async def get_settings():
                     "useRegimeDetection": parsed.get('useRegimeDetection', 'true') == 'true',
                     "useEdgeEstimation": parsed.get('useEdgeEstimation', 'true') == 'true',
                     "useDynamicSizing": parsed.get('useDynamicSizing', 'true') == 'true',
+                    # Smart exit (MICRO PROFIT)
+                    "breakevenTrigger": float(parsed.get('breakevenTrigger', defaults['breakevenTrigger'])),
+                    "partialExitTrigger": float(parsed.get('partialExitTrigger', defaults['partialExitTrigger'])),
+                    "partialExitPercent": float(parsed.get('partialExitPercent', defaults['partialExitPercent'])),
+                    "useSmartExit": parsed.get('useSmartExit', 'false') == 'true',
+                    "momentumThreshold": float(parsed.get('momentumThreshold', defaults['momentumThreshold'])),
                 }
             }
         else:
@@ -913,6 +925,13 @@ async def save_settings(request: Request):
             'useRegimeDetection': str(body.get('useRegimeDetection', True)).lower(),
             'useEdgeEstimation': str(body.get('useEdgeEstimation', True)).lower(),
             'useDynamicSizing': str(body.get('useDynamicSizing', True)).lower(),
+            
+            # Smart exit (MICRO PROFIT)
+            'breakevenTrigger': str(body.get('breakevenTrigger', 0.3)),
+            'partialExitTrigger': str(body.get('partialExitTrigger', 0.4)),
+            'partialExitPercent': str(body.get('partialExitPercent', 50)),
+            'useSmartExit': str(body.get('useSmartExit', False)).lower(),
+            'momentumThreshold': str(body.get('momentumThreshold', 0.05)),
         }
         
         await r.hset('bot:settings', mapping=settings_to_save)
