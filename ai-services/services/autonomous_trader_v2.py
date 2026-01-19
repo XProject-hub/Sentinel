@@ -246,6 +246,10 @@ class AutonomousTraderV2:
                     except Exception as e:
                         logger.error(f"Error processing user {user_id}: {e}")
                         
+                # Reload settings periodically (every ~30 seconds)
+                if cycle % 10 == 0:
+                    await self._load_settings()
+                
                 # Log status periodically
                 if cycle % 100 == 0:
                     await self._log_status()
@@ -924,9 +928,13 @@ class AutonomousTraderV2:
                 self.max_exposure_percent = float(parsed.get('maxTotalExposure', self.max_exposure_percent))
                 self.max_daily_drawdown = float(parsed.get('maxDailyDrawdown', self.max_daily_drawdown))
                 
-                logger.info(f"Loaded settings: SL={self.emergency_stop_loss}%, TP={self.take_profit}%, "
-                           f"Trail={self.trail_from_peak}%, MinConf={self.min_confidence}%, "
-                           f"MinEdge={self.min_edge}, MaxPos={'Unlimited' if self.max_open_positions == 0 else self.max_open_positions}")
+                # Only log on first load or when settings actually change
+                new_settings_str = f"SL={self.emergency_stop_loss}%,TP={self.take_profit}%,Trail={self.trail_from_peak}%"
+                if not hasattr(self, '_last_settings_str') or self._last_settings_str != new_settings_str:
+                    logger.info(f"⚙️ Settings: SL={self.emergency_stop_loss}%, TP={self.take_profit}%, "
+                               f"Trail={self.trail_from_peak}%, MinConf={self.min_confidence}%, "
+                               f"MinEdge={self.min_edge}, MaxPos={'Unlimited' if self.max_open_positions == 0 else self.max_open_positions}")
+                    self._last_settings_str = new_settings_str
         except Exception as e:
             logger.debug(f"Load settings error: {e}")
             
