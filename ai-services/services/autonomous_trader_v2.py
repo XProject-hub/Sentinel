@@ -331,11 +331,14 @@ class AutonomousTraderV2:
         result = await client.get_positions()
         
         if not result.get('success'):
+            logger.warning(f"Failed to get positions: {result}")
             return
             
         exchange_positions = set()
+        positions_list = result.get('data', {}).get('list', [])
+        logger.debug(f"📋 Exchange returned {len(positions_list)} positions")
         
-        for pos in result.get('data', {}).get('list', []):
+        for pos in positions_list:
             size = safe_float(pos.get('size'))
             if size > 0:
                 symbol = pos.get('symbol')
@@ -431,11 +434,13 @@ class AutonomousTraderV2:
             should_exit = False
             exit_reason = ""
             
-            # Log current state for debugging - ALWAYS log when above TP threshold
+            # Log current state for debugging - ALWAYS log when checking
+            logger.debug(f"🔎 {position.symbol}: Side={position.side}, Current=${current_price:.6f}, Entry=${position.entry_price:.6f}, P&L={pnl_percent:.2f}%, TP={self.take_profit}%, SL={self.emergency_stop_loss}%")
+            
             if pnl_percent >= self.take_profit:
                 logger.info(f"📊 {position.symbol}: P&L={pnl_percent:.2f}% >= TP={self.take_profit}% - SHOULD SELL!")
             elif pnl_percent >= self.take_profit * 0.8:
-                logger.debug(f"{position.symbol}: P&L={pnl_percent:.2f}% | TP={self.take_profit}% | Peak={position.peak_pnl_percent:.2f}%")
+                logger.info(f"⏳ {position.symbol}: P&L={pnl_percent:.2f}% approaching TP={self.take_profit}%")
             
             # 1. STOP LOSS
             if pnl_percent <= -self.emergency_stop_loss:
