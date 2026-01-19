@@ -531,17 +531,21 @@ class AutonomousTraderV2:
                 
                 # Record in learning engine
                 if self.learning_engine:
+                    exit_price = position.entry_price * (1 + pnl_percent/100)
                     outcome = TradeOutcome(
                         symbol=position.symbol,
                         strategy='edge_based',
-                        regime=position.entry_regime,
                         entry_price=position.entry_price,
-                        exit_price=position.entry_price * (1 + pnl_percent/100),
+                        exit_price=exit_price,
+                        quantity=position.size,
+                        side='long' if position.side == 'Buy' else 'short',
+                        pnl=pnl_value,
                         pnl_percent=pnl_percent,
-                        win=won,
-                        duration_seconds=(datetime.utcnow() - position.entry_time).total_seconds(),
-                        entry_confidence=position.entry_confidence,
-                        exit_reason=reason
+                        hold_time_seconds=int((datetime.utcnow() - position.entry_time).total_seconds()),
+                        market_regime=position.entry_regime,
+                        volatility_at_entry=0.0,  # Not tracked
+                        sentiment_at_entry=0.0,   # Not tracked
+                        timestamp=datetime.utcnow().isoformat()
                     )
                     await self.learning_engine.record_trade_outcome(outcome)
                     
