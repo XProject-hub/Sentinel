@@ -901,8 +901,14 @@ export default function DashboardPage() {
             <div className="mt-4 pt-4 border-t border-sentinel-border">
               <div className="flex items-center gap-6 text-sm text-sentinel-text-secondary">
                 <span>Max positions: <strong className="text-sentinel-text-primary">{tradingStatus?.max_positions === 0 ? '∞' : (tradingStatus?.max_positions || '∞')}</strong></span>
-                <span>Strategy: <strong className={`uppercase ${tradingStatus?.risk_mode === 'lock_profit' ? 'text-cyan-400' : 'text-sentinel-text-primary'}`}>
-                  {tradingStatus?.risk_mode === 'lock_profit' ? '🔒 LOCK PROFIT' : (tradingStatus?.risk_mode?.replace('_', ' ') || 'Normal')}
+                <span>Strategy: <strong className={`uppercase ${
+                  tradingStatus?.risk_mode === 'lock_profit' ? 'text-cyan-400' : 
+                  tradingStatus?.risk_mode === 'micro_profit' ? 'text-purple-400' : 
+                  'text-sentinel-text-primary'
+                }`}>
+                  {tradingStatus?.risk_mode === 'lock_profit' ? '🔒 LOCK PROFIT' : 
+                   tradingStatus?.risk_mode === 'micro_profit' ? '💎 MICRO PROFIT' :
+                   (tradingStatus?.risk_mode?.replace('_', ' ') || 'Normal')}
                 </strong></span>
                 <span>Regime: <strong className="text-sentinel-text-primary capitalize">{aiInsight?.regime?.replace('_', ' ') || 'Analyzing'}</strong></span>
               </div>

@@ -278,14 +278,14 @@ export default function SettingsPage() {
       if (data.success && data.data) {
         // Validate riskMode - map 'neutral' or any invalid value to 'normal'
         let riskMode = data.data.riskMode || 'normal'
-        if (!['safe', 'normal', 'aggressive', 'lock_profit'].includes(riskMode)) {
+        if (!['safe', 'normal', 'aggressive', 'lock_profit', 'micro_profit'].includes(riskMode)) {
           riskMode = 'normal' // Default to normal if invalid value
         }
         
         setSettings(prev => ({ 
           ...prev, 
           ...data.data,
-          riskMode: riskMode as 'safe' | 'normal' | 'aggressive' | 'lock_profit',
+          riskMode: riskMode as 'safe' | 'normal' | 'aggressive' | 'lock_profit' | 'micro_profit',
           // Map backend field names to frontend
           useCryptoBert: data.data.enableFinbertSentiment ?? data.data.useCryptoBert ?? true,
           useXgboostClassifier: data.data.enableXgboostClassifier ?? data.data.useXgboostClassifier ?? true,
@@ -483,7 +483,7 @@ export default function SettingsPage() {
 
   // Get the current preset safely (fallback to 'normal' if riskMode is invalid)
   const getCurrentPreset = () => {
-    const validModes = ['safe', 'normal', 'aggressive', 'lock_profit'] as const
+    const validModes = ['safe', 'normal', 'aggressive', 'lock_profit', 'micro_profit'] as const
     const mode = validModes.includes(settings.riskMode as any) ? settings.riskMode : 'normal'
     return { mode, preset: riskPresets[mode] }
   }
