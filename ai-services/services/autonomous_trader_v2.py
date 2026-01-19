@@ -334,6 +334,8 @@ class AutonomousTraderV2:
                 if symbol not in self.active_positions[user_id]:
                     # New position detected (maybe from manual trade)
                     entry_price = safe_float(pos.get('avgPrice'))
+                    position_value = size * entry_price
+                    
                     self.active_positions[user_id][symbol] = ActivePosition(
                         symbol=symbol,
                         side=pos.get('side', 'Buy'),
@@ -351,7 +353,9 @@ class AutonomousTraderV2:
                         trailing_active=False,
                         position_value=size * entry_price
                     )
-                    logger.info(f"Synced existing position: {symbol}")
+                    # Also register in position_sizer so it knows about this position
+                    await self.position_sizer.register_position(symbol, position_value)
+                    logger.info(f"Synced existing position: {symbol} (${position_value:.2f})")
                 else:
                     # Update size if changed
                     self.active_positions[user_id][symbol].size = size
@@ -361,6 +365,9 @@ class AutonomousTraderV2:
             for symbol in list(self.active_positions[user_id].keys()):
                 if symbol not in exchange_positions:
                     del self.active_positions[user_id][symbol]
+                    # Also remove from position_sizer
+                    await self.position_sizer.close_position(symbol, 0)
+                    logger.info(f"Position {symbol} closed externally, removed from tracker")
                     
     async def _check_position_exit(self, user_id: str, client: BybitV5Client,
                                     position: ActivePosition, wallet: Dict):
