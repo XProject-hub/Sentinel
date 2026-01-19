@@ -823,15 +823,20 @@ class AutonomousTraderV2:
             self.stats['trades_rejected_low_edge'] += 1
             return False, f"Confidence too low ({opp.confidence:.1f} < {self.min_confidence})"
         
-        # 3. MOMENTUM FILTER - Only for LOCK PROFIT strategy!
-        # MOMENTUM CHECK for lock_profit and micro_profit modes
+        # 3. MOMENTUM FILTER - For LOCK PROFIT and MICRO PROFIT strategies
         # This increases win rate by only buying when price is already rising
         if self.risk_mode in ["lock_profit", "micro_profit"] and client:
             has_momentum, momentum_score = await self._check_momentum(opp.symbol, client)
             
             if not has_momentum:
                 self.stats['trades_rejected_no_momentum'] += 1
-                return False, f"⚡ No momentum for LOCK PROFIT ({opp.symbol} not rising)"
+                mode_name = "MICRO PROFIT" if self.risk_mode == "micro_profit" else "LOCK PROFIT"
+                return False, f"⚡ No momentum for {mode_name} ({opp.symbol} not rising)"
+            
+            # MICRO PROFIT needs STRONGER momentum (at least 0.1% up in last 5 mins)
+            if self.risk_mode == "micro_profit" and momentum_score < 0.05:
+                self.stats['trades_rejected_no_momentum'] += 1
+                return False, f"💎 MICRO PROFIT needs stronger momentum ({momentum_score:.3f}% < 0.05%)"
             
             # Log positive momentum
             logger.debug(f"✅ Momentum OK for {opp.symbol}: score={momentum_score:.4f}%")
@@ -916,6 +921,18 @@ class AutonomousTraderV2:
         if opp.regime_action == 'avoid':
             self.stats['trades_rejected_regime'] += 1
             return False, f"Regime recommends avoid"
+        
+        # 7.5 MICRO PROFIT EXTRA VALIDATION - Must have strong agreement
+        if self.risk_mode == "micro_profit":
+            # For MICRO PROFIT, edge must be higher to ensure quality trades
+            if opp.edge_score < 0.10:  # At least 10% edge
+                return False, f"💎 MICRO PROFIT needs stronger edge ({opp.edge_score:.2f} < 0.10)"
+            
+            # Check confidence is high enough
+            if opp.confidence < 65:  # Slightly stricter
+                return False, f"💎 MICRO PROFIT needs higher confidence ({opp.confidence:.0f}% < 65%)"
+            
+            logger.info(f"💎 MICRO PROFIT approved: {opp.symbol} edge={opp.edge_score:.2f} conf={opp.confidence:.0f}%")
             
         # 8. Risk check via position sizer
         if not opp.edge_data:

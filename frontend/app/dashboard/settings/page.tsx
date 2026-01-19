@@ -216,31 +216,31 @@ const riskPresets = {
   },
   micro_profit: {
     name: 'MICRO PROFIT',
-    description: 'Scalping strategy - many small guaranteed profits. Only trades when 90%+ sure of profit!',
+    description: 'Smart scalping - AI finds SURE profits, quick exits lock gains. High win rate!',
     color: 'purple',
     icon: Coins,
     params: {
-      takeProfitPercent: 0.5,   // Take profit at just 0.5%
-      stopLossPercent: 0.3,     // Very tight stop - exit fast if wrong
-      trailingStopPercent: 0.1, // 0.1% trail - lock profits immediately
-      minProfitToTrail: 0.1,    // Start trailing at 0.1% profit
-      minConfidence: 75,        // High confidence required - ONLY sure trades
-      minEdge: 0.15,            // 15% edge - only strong signals
-      maxPositionPercent: 2,    // Small positions - 2% each
-      maxOpenPositions: 10,     // Max 10 positions at once
-      maxDailyDrawdown: 2,      // Stop if losing 2% daily
-      maxTotalExposure: 30,     // Max 30% exposure - conservative
+      takeProfitPercent: 1.0,   // Take profit at 1% - quick but decent
+      stopLossPercent: 0.5,     // Tight stop - exit fast if wrong (2:1 ratio)
+      trailingStopPercent: 0.15, // 0.15% trail - lock profits fast
+      minProfitToTrail: 0.2,    // Start trailing at 0.2% profit
+      minConfidence: 70,        // High confidence - SURE trades only
+      minEdge: 0.12,            // 12% edge - strong signals
+      maxPositionPercent: 5,    // Normal positions - 5% each
+      maxOpenPositions: 15,     // Up to 15 positions
+      maxDailyDrawdown: 3,      // Stop if losing 3% daily
+      maxTotalExposure: 80,     // Use 80% of budget
       useCryptoBert: true,      // ✅ Sentiment must be positive
       useXgboostClassifier: true, // ✅ ML must predict profit
       usePricePredictor: true,  // ✅ Price must be going up
     },
     features: [
-      '💎 Only HIGH confidence trades (75%+)',
-      '⚡ Quick profit: +0.5% take profit',
-      '🛡️ Minimal loss: -0.3% stop loss',
-      '📊 Small positions: 2% each',
-      '🎯 100 trades × 0.3% = +30%/month',
-      '🧠 All AI models must agree'
+      '🧠 AI finds GUARANTEED profit trades',
+      '⚡ Quick +1% take profit',
+      '🛡️ Tight -0.5% stop loss (2:1 R/R)',
+      '📈 Momentum filter: only rising prices',
+      '💰 15 positions × 5% = 75% active',
+      '🎯 High win rate > big wins'
     ]
   }
 }
