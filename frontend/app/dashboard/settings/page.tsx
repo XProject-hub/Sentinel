@@ -420,7 +420,7 @@ export default function SettingsPage() {
         partialExitTrigger: settings.partialExitTrigger || 0.4,
         partialExitPercent: settings.partialExitPercent || 50,
         useSmartExit: settings.useSmartExit || false,
-        momentumThreshold: settings.momentumThreshold || 0.05,
+        momentumThreshold: settings.momentumThreshold ?? 0.02,  // Allow 0 (disabled)
       }
 
       const res = await fetch('/ai/exchange/settings', {
@@ -1006,20 +1006,20 @@ export default function SettingsPage() {
                       type="range"
                       min="0"
                       max="0.20"
-                      step="0.01"
-                      value={settings.momentumThreshold || 0.05}
+                      step="0.005"
+                      value={settings.momentumThreshold ?? 0.02}
                       onChange={(e) => setSettings(prev => ({ 
                         ...prev, 
                         momentumThreshold: parseFloat(e.target.value)
                       }))}
                       className="flex-1 accent-purple-500"
                     />
-                    <span className="w-16 text-right font-mono text-purple-400">
-                      {(settings.momentumThreshold || 0.05).toFixed(2)}%
+                    <span className="w-20 text-right font-mono text-purple-400">
+                      {settings.momentumThreshold === 0 ? 'OFF' : `${(settings.momentumThreshold ?? 0.02).toFixed(3)}%`}
                     </span>
                   </div>
                   <p className="text-xs text-sentinel-text-muted mt-1">
-                    Min price rise in 5min to buy (0 = disabled)
+                    Min price rise to buy (0 = OFF, disabled)
                   </p>
                 </div>
               </div>
