@@ -282,12 +282,17 @@ class AutonomousTraderV2:
         # 2. Sync positions from exchange
         await self._sync_positions(user_id, client)
         
-        # 3. Check existing positions for exit
+        # 3. Check existing positions for exit - BATCH fetch all tickers first for SPEED
         positions_list = list(self.active_positions.get(user_id, {}).items())
         if positions_list:
-            logger.debug(f"🔍 Checking {len(positions_list)} positions for exits (TP={self.take_profit}%, SL={self.emergency_stop_loss}%)")
-        for symbol, position in positions_list:
-            await self._check_position_exit(user_id, client, position, wallet)
+            logger.info(f"⚡ Fast-checking {len(positions_list)} positions (TP={self.take_profit}%, SL={self.emergency_stop_loss}%)")
+            
+            # BATCH: Get all tickers in ONE API call
+            all_tickers = await self._get_all_tickers(client)
+            
+            # Check each position with pre-fetched prices
+            for symbol, position in positions_list:
+                await self._check_position_exit_fast(user_id, client, position, wallet, all_tickers)
             
         # 4. Look for new opportunities (if room)
         # max_open_positions = 0 means unlimited
@@ -850,6 +855,84 @@ class AutonomousTraderV2:
         except Exception as e:
             logger.debug(f"Ticker exception for {symbol}: {e}")
         return None
+        
+    async def _get_all_tickers(self, client: BybitV5Client) -> Dict[str, float]:
+        """Get ALL tickers in ONE API call - much faster than individual calls"""
+        try:
+            result = await client.get_tickers(category="linear")
+            if result.get('success'):
+                tickers = {}
+                for item in result.get('data', {}).get('list', []):
+                    symbol = item.get('symbol')
+                    price = safe_float(item.get('lastPrice'))
+                    if symbol and price > 0:
+                        tickers[symbol] = price
+                logger.debug(f"⚡ Bulk fetched {len(tickers)} tickers in 1 API call")
+                return tickers
+        except Exception as e:
+            logger.error(f"Bulk ticker fetch error: {e}")
+        return {}
+        
+    async def _check_position_exit_fast(self, user_id: str, client: BybitV5Client,
+                                         position: ActivePosition, wallet: Dict,
+                                         all_tickers: Dict[str, float]):
+        """FAST position exit check using pre-fetched ticker prices"""
+        try:
+            # Get price from pre-fetched tickers
+            current_price = all_tickers.get(position.symbol)
+            if not current_price or current_price <= 0:
+                logger.warning(f"⚠️ No price for {position.symbol}")
+                return
+            
+            # Calculate P&L
+            if position.side == 'Buy':
+                pnl_percent = ((current_price - position.entry_price) / position.entry_price) * 100
+                if current_price > position.peak_price:
+                    position.peak_price = current_price
+                    position.peak_pnl_percent = pnl_percent
+            else:  # Short
+                pnl_percent = ((position.entry_price - current_price) / position.entry_price) * 100
+                if current_price < position.trough_price:
+                    position.trough_price = current_price
+                    position.peak_pnl_percent = pnl_percent
+                    
+            # === FAST EXIT LOGIC ===
+            should_exit = False
+            exit_reason = ""
+            
+            # Only log positions near thresholds to reduce spam
+            if pnl_percent >= self.take_profit:
+                logger.info(f"✅ {position.symbol}: P&L={pnl_percent:+.2f}% >= TP={self.take_profit}% - SELLING!")
+                should_exit = True
+                exit_reason = f"Take profit ({pnl_percent:.2f}%)"
+            elif pnl_percent <= -self.emergency_stop_loss:
+                logger.info(f"❌ {position.symbol}: P&L={pnl_percent:+.2f}% <= SL=-{self.emergency_stop_loss}% - SELLING!")
+                should_exit = True
+                exit_reason = f"Stop loss ({pnl_percent:.2f}%)"
+            elif pnl_percent >= self.take_profit * 0.8:
+                logger.info(f"⏳ {position.symbol}: {pnl_percent:+.2f}% near TP")
+            elif pnl_percent <= -self.emergency_stop_loss * 0.8:
+                logger.info(f"⚠️ {position.symbol}: {pnl_percent:+.2f}% near SL")
+                
+            # Trailing stop logic (simplified)
+            if not should_exit and pnl_percent >= self.min_profit_to_trail:
+                position.trailing_active = True
+                if position.side == 'Buy':
+                    drop = ((position.peak_price - current_price) / position.peak_price) * 100
+                else:
+                    drop = ((current_price - position.trough_price) / position.trough_price) * 100
+                    
+                if drop >= self.trail_from_peak and position.peak_pnl_percent >= self.take_profit:
+                    should_exit = True
+                    exit_reason = f"Trailing stop (peak: {position.peak_pnl_percent:.2f}%)"
+                    logger.info(f"📉 {position.symbol}: Trailing exit at {pnl_percent:+.2f}%")
+                    
+            # === EXECUTE EXIT ===
+            if should_exit:
+                await self._close_position(user_id, client, position, pnl_percent, exit_reason)
+                
+        except Exception as e:
+            logger.error(f"Fast exit check error for {position.symbol}: {e}")
         
     async def _store_trade_event(self, symbol: str, action: str, pnl: float, reason: str,
                                   position: Optional[ActivePosition] = None):
