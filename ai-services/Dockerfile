@@ -16,6 +16,11 @@ COPY requirements.txt .
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
+# PRE-DOWNLOAD ML MODELS during build (cached, fast startup)
+RUN python -c "from transformers import pipeline; pipeline('sentiment-analysis', model='cardiffnlp/twitter-roberta-base-sentiment-latest')" || true
+RUN python -c "from transformers import AutoTokenizer, AutoModelForSequenceClassification; AutoTokenizer.from_pretrained('yiyanghkust/finbert-tone'); AutoModelForSequenceClassification.from_pretrained('yiyanghkust/finbert-tone')" || true
+RUN python -c "from transformers import AutoTokenizer, AutoModelForSequenceClassification; AutoTokenizer.from_pretrained('kk08/CryptoBERT'); AutoModelForSequenceClassification.from_pretrained('kk08/CryptoBERT')" || true
+
 # Copy application
 COPY . .
 

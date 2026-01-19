@@ -143,10 +143,9 @@ class FinBERTSentiment:
         self.redis_client = await redis.from_url(settings.REDIS_URL)
         self.http_client = httpx.AsyncClient(timeout=30.0)
         
-        if FINBERT_AVAILABLE:
-            await self._load_model()
-        else:
-            logger.warning("FinBERT not available - using rule-based fallback")
+        # Skip model loading - use rule-based fallback for fast startup
+        # Model loading blocks startup for minutes
+        logger.info("FinBERT using rule-based fallback (fast mode)")
             
         self.is_running = True
         
@@ -156,7 +155,7 @@ class FinBERTSentiment:
         # Start news collection loop
         asyncio.create_task(self._news_collection_loop())
         
-        logger.info("FinBERT Sentiment Analyzer initialized")
+        logger.info("FinBERT Sentiment Analyzer initialized (fast mode)")
         
     async def shutdown(self):
         """Cleanup"""
