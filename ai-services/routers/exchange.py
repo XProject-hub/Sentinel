@@ -217,7 +217,12 @@ async def get_positions():
                 "liquidationPrice": float(pos.get("liqPrice", 0)) if pos.get("liqPrice") else None,
                 "takeProfit": pos.get("takeProfit"),
                 "stopLoss": pos.get("stopLoss"),
+                "createdTime": pos.get("createdTime"),  # When position was opened
+                "updatedTime": pos.get("updatedTime"),  # Last update time
             })
+    
+    # Sort by createdTime (oldest first) for stable display order
+    positions.sort(key=lambda x: x.get("createdTime") or "0")
             
     return {
         "success": True,

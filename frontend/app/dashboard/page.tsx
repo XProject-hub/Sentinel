@@ -78,6 +78,8 @@ interface Position {
   markPrice: number
   unrealizedPnl: number
   leverage: string
+  createdTime?: string  // When position was opened
+  updatedTime?: string  // Last update
 }
 
 interface PnlData {
@@ -929,11 +931,28 @@ export default function DashboardPage() {
             </div>
 
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
-              {/* Sort positions by P&L: highest profit to highest loss */}
-              {[...positions].sort((a, b) => b.unrealizedPnl - a.unrealizedPnl).map((position, idx) => {
+              {/* Sort positions by createdTime: oldest first (stable order) */}
+              {[...positions].sort((a, b) => {
+                const timeA = a.createdTime || '0'
+                const timeB = b.createdTime || '0'
+                return timeA.localeCompare(timeB)  // Oldest first
+              }).map((position, idx) => {
                 const investedAmount = position.size * position.entryPrice
                 const pnlPercent = investedAmount > 0 ? (position.unrealizedPnl / investedAmount) * 100 : 0
                 const coinName = position.symbol.replace('USDT', '')
+                
+                // Calculate time since position opened
+                const getTimeAgo = (timestamp?: string) => {
+                  if (!timestamp) return null
+                  const ms = Date.now() - parseInt(timestamp)
+                  const mins = Math.floor(ms / 60000)
+                  const hours = Math.floor(mins / 60)
+                  const days = Math.floor(hours / 24)
+                  if (days > 0) return `${days}d`
+                  if (hours > 0) return `${hours}h`
+                  return `${mins}m`
+                }
+                const timeAgo = getTimeAgo(position.createdTime)
                 
                 const handleClosePosition = async (symbol: string) => {
                   if (!confirm(`Close ${symbol} position? Current P&L: €${formatNum(position.unrealizedPnl)}`)) {
@@ -960,13 +979,20 @@ export default function DashboardPage() {
                 
                 return (
                   <div 
-                    key={idx} 
+                    key={position.symbol} 
                     className={`p-4 rounded-xl border-2 transition-all ${
                       position.unrealizedPnl >= 0 
                         ? 'bg-sentinel-accent-emerald/5 border-sentinel-accent-emerald/30' 
                         : 'bg-sentinel-accent-crimson/5 border-sentinel-accent-crimson/30'
                     }`}
                   >
+                    {/* Position number and time indicator */}
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs text-sentinel-text-muted font-mono">#{idx + 1}</span>
+                      {timeAgo && (
+                        <span className="text-xs text-sentinel-text-muted font-mono">⏱ {timeAgo}</span>
+                      )}
+                    </div>
                     <div className="flex items-center justify-between mb-2">
                       <span className="font-bold text-lg">{coinName}</span>
                       <button
@@ -1341,6 +1367,7 @@ export default function DashboardPage() {
                   <table className="w-full">
                     <thead>
                       <tr className="text-left text-sm text-sentinel-text-muted border-b border-sentinel-border">
+                        <th className="pb-4 font-medium">#</th>
                         <th className="pb-4 font-medium">Symbol</th>
                         <th className="pb-4 font-medium">Side</th>
                         <th className="pb-4 font-medium text-right">Size</th>
@@ -1348,14 +1375,33 @@ export default function DashboardPage() {
                         <th className="pb-4 font-medium text-right">Entry</th>
                         <th className="pb-4 font-medium text-right">Mark</th>
                         <th className="pb-4 font-medium text-right">P&L</th>
+                        <th className="pb-4 font-medium text-right">Age</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {/* Sort positions by P&L: highest profit to highest loss */}
-                      {[...positions].sort((a, b) => b.unrealizedPnl - a.unrealizedPnl).map((position, idx) => {
+                      {/* Sort positions by createdTime: oldest first (stable order) */}
+                      {[...positions].sort((a, b) => {
+                        const timeA = a.createdTime || '0'
+                        const timeB = b.createdTime || '0'
+                        return timeA.localeCompare(timeB)
+                      }).map((position, idx) => {
                         const investedAmount = position.size * position.entryPrice
+                        // Calculate time since position opened
+                        const getTimeAgo = (timestamp?: string) => {
+                          if (!timestamp) return '-'
+                          const ms = Date.now() - parseInt(timestamp)
+                          const mins = Math.floor(ms / 60000)
+                          const hours = Math.floor(mins / 60)
+                          const days = Math.floor(hours / 24)
+                          if (days > 0) return `${days}d ${hours % 24}h`
+                          if (hours > 0) return `${hours}h ${mins % 60}m`
+                          return `${mins}m`
+                        }
                         return (
-                          <tr key={idx} className="border-b border-sentinel-border/50 last:border-0">
+                          <tr key={position.symbol} className="border-b border-sentinel-border/50 last:border-0">
+                            <td className="py-4 text-sentinel-text-muted font-mono text-sm">
+                              #{idx + 1}
+                            </td>
                             <td className="py-4">
                               <span className="font-mono font-medium">{position.symbol}</span>
                             </td>
@@ -1385,6 +1431,9 @@ export default function DashboardPage() {
                               }`}>
                                 {safeNum(position.unrealizedPnl) >= 0 ? '+' : ''}€{formatNum(position.unrealizedPnl)}
                               </div>
+                            </td>
+                            <td className="py-4 text-right font-mono text-sm text-sentinel-text-muted">
+                              {getTimeAgo(position.createdTime)}
                             </td>
                           </tr>
                         )
