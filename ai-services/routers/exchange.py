@@ -508,6 +508,8 @@ async def get_trading_status(user_id: str = "default"):
     trading_pairs = getattr(trader, 'trading_pairs', [])
     max_positions = getattr(trader, 'max_open_positions', 0)  # 0 = unlimited
     min_conf = getattr(trader, 'min_confidence', 55)
+    risk_mode = getattr(trader, 'risk_mode', 'normal')
+    trail_percent = getattr(trader, 'trail_from_peak', 1.0)
     
     # Get total pairs from market scanner
     total_pairs = 0
@@ -531,6 +533,8 @@ async def get_trading_status(user_id: str = "default"):
             "total_pairs": total_pairs,
             "max_positions": max_positions,
             "min_confidence": min_conf,
+            "risk_mode": risk_mode,
+            "trailing_stop_percent": trail_percent,
             "recent_trades": trades,
             "version": "v2" if USE_V2_TRADER else "v1"
         }
