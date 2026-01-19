@@ -78,6 +78,10 @@ interface BotSettings {
   partialExitPercent?: number   // How much to close (50%)
   useSmartExit?: boolean        // Enable breakeven + partial exits
   momentumThreshold?: number    // Minimum momentum % to buy (0.05 = 0.05%)
+  
+  // Time Stop (MICRO PROFIT)
+  timeStopMinutes?: number      // Close trade after X minutes
+  timeStopMinPnl?: number       // Only if PnL below this %
 }
 
 const defaultSettings: BotSettings = {
@@ -224,37 +228,40 @@ const riskPresets = {
   },
   micro_profit: {
     name: 'MICRO PROFIT',
-    description: 'Smart scalping with SCALE-OUT exits - takes 50% at +0.4%, breakeven protection, optimized for range markets!',
+    description: 'PRO scalping: Scale-out at +0.30%/+0.60%, breakeven at +0.25%, time-stop at 4min. Optimized for range markets!',
     color: 'purple',
     icon: Coins,
     params: {
-      takeProfitPercent: 1.2,   // Final TP at 1.2% (remaining 50%)
-      stopLossPercent: 0.8,     // SL at -0.8% (good R/R)
-      trailingStopPercent: 0.2, // 0.2% trail from peak
-      minProfitToTrail: 0.3,    // Start trailing at 0.3% profit
-      minConfidence: 70,        // High confidence - SURE trades only
-      minEdge: 0.15,            // 15% edge - strong signals
-      maxPositionPercent: 5,    // Normal positions - 5% each
-      maxOpenPositions: 15,     // Up to 15 positions
-      maxDailyDrawdown: 3,      // Stop if losing 3% daily
-      maxTotalExposure: 80,     // Use 80% of budget
+      takeProfitPercent: 0.6,   // Final TP at +0.60% (TP2)
+      stopLossPercent: 0.4,     // SL at -0.40% (tight!)
+      trailingStopPercent: 0,   // Trailing OFF for MICRO
+      minProfitToTrail: 0.6,    // Only if trailing enabled
+      minConfidence: 55,        // 55% confidence
+      minEdge: 0.20,            // 20% edge - strong signals
+      maxPositionPercent: 12,   // 10-12% per position
+      maxOpenPositions: 5,      // Max 5 positions
+      maxDailyDrawdown: 2.5,    // Stop if losing 2.5% daily
+      maxTotalExposure: 75,     // Use 75% of budget
       useCryptoBert: true,
       useXgboostClassifier: true,
       usePricePredictor: true,
-      // Smart exit settings
-      breakevenTrigger: 0.3,    // Move SL to 0% at +0.3%
-      partialExitTrigger: 0.4,  // Take 50% profit at +0.4%
+      // Smart exit settings - SCALE OUT
+      breakevenTrigger: 0.25,   // Move SL to entry at +0.25%
+      partialExitTrigger: 0.30, // TP1: Take 50% at +0.30%
       partialExitPercent: 50,   // Close 50% of position
       useSmartExit: true,       // Enable breakeven + partial exits
-      momentumThreshold: 0.02,  // Low threshold - buy even in slow markets
+      momentumThreshold: 0.02,  // Momentum filter
+      // Time stop settings
+      timeStopMinutes: 4,       // Close after 4 minutes
+      timeStopMinPnl: 0.15,     // Only if PnL < +0.15%
     },
     features: [
-      'AI finds HIGH PROBABILITY trades',
-      'SCALE-OUT: 50% at +0.4%, rest trails',
-      'BREAKEVEN at +0.3% (worst = 0%)',
-      'Smart -0.8% stop loss',
-      'Momentum filter: only rising prices',
-      'Optimized for range markets'
+      'SCALE-OUT: 50% at +0.30%, rest at +0.60%',
+      'BREAKEVEN at +0.25% (worst = 0%)',
+      'TIME-STOP: Close at 4min if PnL < 0.15%',
+      'Tight -0.40% stop loss',
+      'Max 5 positions, 75% budget',
+      'Momentum + ADX filter'
     ]
   }
 }

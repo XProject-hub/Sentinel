@@ -138,12 +138,17 @@ class AutonomousTraderV2:
         self.take_profit = 3.0  # Take profit at +3%
         
         # Smart exit (MICRO PROFIT mode)
-        self.breakeven_trigger = 0.3  # Move SL to 0% when profit reaches this
-        self.partial_exit_trigger = 0.4  # Take 50% profit at this level
+        self.breakeven_trigger = 0.25  # Move SL to entry at +0.25%
+        self.partial_exit_trigger = 0.30  # TP1: Take 50% at +0.30%
         self.partial_exit_percent = 50  # How much to close (50%)
         self.use_smart_exit = False  # Enable breakeven + partial exits
-        self.momentum_threshold = 0.05  # Minimum momentum % required (0.05 = 0.05%)
+        self.momentum_threshold = 0.02  # Minimum momentum % required
         self._ticker_momentum = {}  # Cache for fast momentum checks
+        
+        # Time stop (MICRO PROFIT mode)
+        self.time_stop_minutes = 4  # Close after 4 minutes
+        self.time_stop_min_pnl = 0.15  # Only if PnL < +0.15%
+        self.use_time_stop = False  # Enable time stop
         
         # Risk limits (0 = unlimited positions)
         self.max_open_positions = 0  # Unlimited by default
@@ -1298,6 +1303,17 @@ class AutonomousTraderV2:
                         logger.info(f"✅ PARTIAL EXIT COMPLETE: {position.symbol} at +{pnl_percent:.2f}%")
                     # Continue with remaining position - don't return
             
+            # === TIME STOP LOGIC (MICRO PROFIT) ===
+            # Close "dead" trades before they go negative
+            if self.use_time_stop and self.risk_mode == 'micro_profit':
+                trade_duration = (datetime.utcnow() - position.entry_time).total_seconds() / 60  # minutes
+                
+                if trade_duration >= self.time_stop_minutes and pnl_percent < self.time_stop_min_pnl:
+                    logger.info(f"⏱️ TIME STOP: {position.symbol} after {trade_duration:.1f}min, P&L={pnl_percent:+.2f}% < +{self.time_stop_min_pnl}%")
+                    await self._close_position(user_id, client, position, pnl_percent, 
+                        f"⏱️ TIME STOP ({trade_duration:.1f}min, +{pnl_percent:.2f}%)")
+                    return  # Exit early
+            
             # === FAST EXIT LOGIC ===
             should_exit = False
             exit_reason = ""
@@ -1515,6 +1531,11 @@ class AutonomousTraderV2:
                 
                 # Enable smart exit for MICRO PROFIT mode automatically
                 self.use_smart_exit = self.risk_mode == 'micro_profit' or parsed.get('useSmartExit', 'false').lower() == 'true'
+                
+                # Time stop settings (MICRO PROFIT)
+                self.time_stop_minutes = float(parsed.get('timeStopMinutes', 4))
+                self.time_stop_min_pnl = float(parsed.get('timeStopMinPnl', 0.15))
+                self.use_time_stop = self.risk_mode == 'micro_profit'  # Auto-enable for MICRO PROFIT
                 
                 # Mode display names
                 mode_names = {
