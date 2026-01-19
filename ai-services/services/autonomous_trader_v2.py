@@ -118,9 +118,9 @@ class AutonomousTraderV2:
         
         # === CONFIGURATION ===
         
-        # Trading frequency
+        # Trading frequency - FAST for responsive exits
         self.scan_interval = 30  # Seconds between full scans
-        self.position_check_interval = 5  # Seconds between position checks
+        self.position_check_interval = 1  # Check positions EVERY SECOND for fast exits
         
         # Entry filters (defaults, will be overridden by settings)
         self.min_edge = 0.15  # Minimum edge to consider trade
@@ -246,9 +246,11 @@ class AutonomousTraderV2:
                 connected_users = len(self.user_clients)
                 total_positions = sum(len(p) for p in self.active_positions.values())
                 
-                # Log every 5 cycles (~15 seconds) with clear visibility
-                if cycle % 5 == 0 or cycle <= 3:
-                    logger.info(f"🔄 Cycle {cycle} | Users: {connected_users} | Positions: {total_positions} | TP={self.take_profit}% SL={self.emergency_stop_loss}%")
+                # Log every 10 cycles (~10 seconds) with clear visibility
+                if cycle % 10 == 0 or cycle <= 5:
+                    logger.info(f"🔄 Cycle {cycle} | Users: {connected_users} | Pos: {total_positions} | TP={self.take_profit}% SL={self.emergency_stop_loss}%")
+                    # Also write to Redis for dashboard console
+                    await self._log_to_console(f"Cycle {cycle}: Checking {total_positions} positions (TP={self.take_profit}%, SL={self.emergency_stop_loss}%)")
                 
                 # Process each connected user
                 if not self.user_clients:
@@ -911,10 +913,12 @@ class AutonomousTraderV2:
             # Only log positions near thresholds to reduce spam
             if pnl_percent >= self.take_profit:
                 logger.info(f"✅ {position.symbol}: P&L={pnl_percent:+.2f}% >= TP={self.take_profit}% - SELLING!")
+                await self._log_to_console(f"✅ SELLING {position.symbol}: +{pnl_percent:.2f}% (Take Profit)")
                 should_exit = True
                 exit_reason = f"Take profit ({pnl_percent:.2f}%)"
             elif pnl_percent <= -self.emergency_stop_loss:
                 logger.info(f"❌ {position.symbol}: P&L={pnl_percent:+.2f}% <= SL=-{self.emergency_stop_loss}% - SELLING!")
+                await self._log_to_console(f"❌ SELLING {position.symbol}: {pnl_percent:.2f}% (Stop Loss)")
                 should_exit = True
                 exit_reason = f"Stop loss ({pnl_percent:.2f}%)"
             elif pnl_percent >= self.take_profit * 0.8:
@@ -941,6 +945,19 @@ class AutonomousTraderV2:
                 
         except Exception as e:
             logger.error(f"Fast exit check error for {position.symbol}: {e}")
+            
+    async def _log_to_console(self, message: str):
+        """Log message to Redis for dashboard real-time console"""
+        try:
+            if self.redis_client:
+                log_entry = {
+                    "timestamp": datetime.utcnow().isoformat(),
+                    "message": message
+                }
+                await self.redis_client.lpush('bot:console:logs', json.dumps(log_entry))
+                await self.redis_client.ltrim('bot:console:logs', 0, 99)  # Keep last 100
+        except Exception:
+            pass  # Don't break trading for console logging
         
     async def _store_trade_event(self, symbol: str, action: str, pnl: float, reason: str,
                                   position: Optional[ActivePosition] = None):
