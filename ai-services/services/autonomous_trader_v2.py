@@ -230,8 +230,10 @@ class AutonomousTraderV2:
             
     async def run_trading_loop(self):
         """Main trading loop"""
-        logger.info("🚀 Starting Ultimate Autonomous Trading Loop...")
-        logger.info(f"📊 Initial settings: TP={self.take_profit}%, SL={self.emergency_stop_loss}%, Trail={self.trail_from_peak}%")
+        logger.info("=" * 60)
+        logger.info("🚀 TRADING LOOP STARTING!")
+        logger.info(f"📊 Settings: TP={self.take_profit}%, SL={self.emergency_stop_loss}%")
+        logger.info("=" * 60)
         
         cycle = 0
         
@@ -240,13 +242,19 @@ class AutonomousTraderV2:
                 cycle += 1
                 cycle_start = datetime.utcnow()
                 
-                # Log loop activity every 20 cycles (~1 minute)
-                if cycle % 20 == 0:
-                    connected_users = len(self.user_clients)
-                    total_positions = sum(len(p) for p in self.active_positions.values())
-                    logger.info(f"🔄 Trading loop cycle {cycle} | Users: {connected_users} | Positions: {total_positions} | TP={self.take_profit}%")
+                # Log EVERY cycle for debugging
+                connected_users = len(self.user_clients)
+                total_positions = sum(len(p) for p in self.active_positions.values())
+                
+                # Log every 5 cycles (~15 seconds) with clear visibility
+                if cycle % 5 == 0 or cycle <= 3:
+                    logger.info(f"🔄 Cycle {cycle} | Users: {connected_users} | Positions: {total_positions} | TP={self.take_profit}% SL={self.emergency_stop_loss}%")
                 
                 # Process each connected user
+                if not self.user_clients:
+                    if cycle % 10 == 0:
+                        logger.warning("⚠️ NO USERS CONNECTED - waiting for user to connect via dashboard...")
+                        
                 for user_id, client in list(self.user_clients.items()):
                     try:
                         await self._process_user(user_id, client)
