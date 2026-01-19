@@ -288,20 +288,29 @@ class MarketScanner:
         return opportunities
         
     async def get_top_opportunities(self, limit: int = 20) -> List[TradingOpportunity]:
-        """Get top N opportunities from last scan"""
-        # Use cached results if recent
-        if (self.last_scan_time and 
-            datetime.utcnow() - self.last_scan_time < timedelta(seconds=self.scan_interval)):
+        """
+        Get top N opportunities from last scan.
+        NEVER blocks - always returns cached results immediately.
+        The background loop handles scanning.
+        """
+        # Always return cached results - never trigger blocking scan
+        # The background _continuous_scan_loop handles fresh scanning
+        if self.last_opportunities:
             return self.last_opportunities[:limit]
-            
-        # Otherwise trigger new scan
-        opportunities = await self.scan_market()
-        return opportunities[:limit]
+        return []
         
     async def get_tradeable_opportunities(self) -> List[TradingOpportunity]:
-        """Get only opportunities that should be traded"""
-        opps = await self.get_top_opportunities(limit=100)
-        return [o for o in opps if o.should_trade]
+        """
+        Get only opportunities that should be traded.
+        NEVER blocks - returns cached results immediately.
+        """
+        # Return cached tradeable opportunities immediately
+        opps = self.last_opportunities[:100] if self.last_opportunities else []
+        tradeable = [o for o in opps if o.should_trade]
+        
+        if tradeable:
+            logger.debug(f"📊 Found {len(tradeable)} tradeable opportunities from cache")
+        return tradeable
         
     def _calculate_opportunity_score(self, edge: EdgeScore, 
                                       regime: Dict, ticker: Dict) -> float:
