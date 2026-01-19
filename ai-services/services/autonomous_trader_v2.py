@@ -334,28 +334,43 @@ class AutonomousTraderV2:
                 if symbol not in self.active_positions[user_id]:
                     # New position detected (maybe from manual trade)
                     entry_price = safe_float(pos.get('avgPrice'))
+                    mark_price = safe_float(pos.get('markPrice', entry_price))
                     position_value = size * entry_price
+                    side = pos.get('side', 'Buy')
+                    
+                    # Calculate current P&L to set proper peak tracking
+                    if side == 'Buy':
+                        current_pnl = ((mark_price - entry_price) / entry_price) * 100 if entry_price > 0 else 0
+                        peak_price = max(entry_price, mark_price)
+                        trough_price = min(entry_price, mark_price)
+                    else:
+                        current_pnl = ((entry_price - mark_price) / entry_price) * 100 if entry_price > 0 else 0
+                        peak_price = min(entry_price, mark_price)  # For shorts, lower is better
+                        trough_price = max(entry_price, mark_price)
+                    
+                    # Peak P&L is max of 0 and current (we don't know historical peak)
+                    peak_pnl = max(0, current_pnl)
                     
                     self.active_positions[user_id][symbol] = ActivePosition(
                         symbol=symbol,
-                        side=pos.get('side', 'Buy'),
+                        side=side,
                         size=size,
                         entry_price=entry_price,
                         entry_time=datetime.utcnow(),
                         entry_edge=0.0,
                         entry_confidence=0.0,
                         entry_regime='unknown',
-                        peak_price=entry_price,
-                        trough_price=entry_price,
-                        peak_pnl_percent=0.0,
-                        stop_loss_price=entry_price * (1 - self.emergency_stop_loss / 100),
-                        take_profit_price=entry_price * (1 + self.take_profit / 100),
-                        trailing_active=False,
+                        peak_price=peak_price,
+                        trough_price=trough_price,
+                        peak_pnl_percent=peak_pnl,
+                        stop_loss_price=entry_price * (1 - self.emergency_stop_loss / 100) if side == 'Buy' else entry_price * (1 + self.emergency_stop_loss / 100),
+                        take_profit_price=entry_price * (1 + self.take_profit / 100) if side == 'Buy' else entry_price * (1 - self.take_profit / 100),
+                        trailing_active=current_pnl >= self.min_profit_to_trail,  # Already in profit?
                         position_value=size * entry_price
                     )
                     # Also register in position_sizer so it knows about this position
                     await self.position_sizer.register_position(symbol, position_value)
-                    logger.info(f"Synced existing position: {symbol} (${position_value:.2f})")
+                    logger.info(f"Synced position: {symbol} | Entry: ${entry_price:.4f} | Mark: ${mark_price:.4f} | P&L: {current_pnl:.2f}%")
                 else:
                     # Update size if changed
                     self.active_positions[user_id][symbol].size = size
@@ -398,17 +413,24 @@ class AutonomousTraderV2:
             should_exit = False
             exit_reason = ""
             
+            # Log current state for debugging (every 10th check or when close to TP)
+            if pnl_percent >= self.take_profit * 0.8:
+                logger.debug(f"{position.symbol}: P&L={pnl_percent:.2f}% | TP={self.take_profit}% | Peak={position.peak_pnl_percent:.2f}%")
+            
             # 1. STOP LOSS
             if pnl_percent <= -self.emergency_stop_loss:
                 should_exit = True
                 exit_reason = f"Stop loss hit ({pnl_percent:.2f}%)"
                 
-            # 2. TAKE PROFIT
+            # 2. TAKE PROFIT - Exit when profit reaches target
             elif pnl_percent >= self.take_profit:
                 should_exit = True
-                exit_reason = f"Take profit reached ({pnl_percent:.2f}%)"
+                exit_reason = f"Take profit reached ({pnl_percent:.2f}% >= {self.take_profit}%)"
+                logger.info(f"🎯 TAKE PROFIT: {position.symbol} at {pnl_percent:.2f}%")
                 
             # 3. TRAILING STOP
+            # Activates when profit >= min_profit_to_trail (e.g., 0.8%)
+            # But only EXITS if we've been above take_profit OR profit stays acceptable
             elif pnl_percent >= self.min_profit_to_trail:
                 position.trailing_active = True
                 
@@ -418,9 +440,18 @@ class AutonomousTraderV2:
                 else:
                     drop_from_peak = ((current_price - position.trough_price) / position.trough_price) * 100
                     
+                # Only exit via trailing if drop is significant AND either:
+                # 1. Peak profit was at/above take profit (we hit TP, now trailing down)
+                # 2. Current profit is still at least min_profit_to_trail (lock in some profit)
                 if drop_from_peak >= self.trail_from_peak:
-                    should_exit = True
-                    exit_reason = f"Trailing stop (peak: {position.peak_pnl_percent:.2f}%, now: {pnl_percent:.2f}%)"
+                    if position.peak_pnl_percent >= self.take_profit:
+                        # We reached TP at peak, now trailing to lock profits
+                        should_exit = True
+                        exit_reason = f"Trailing from TP (peak: {position.peak_pnl_percent:.2f}%, now: {pnl_percent:.2f}%)"
+                    elif pnl_percent >= self.min_profit_to_trail:
+                        # Didn't reach TP but still in profit - lock it in
+                        should_exit = True
+                        exit_reason = f"Trailing stop (peak: {position.peak_pnl_percent:.2f}%, now: {pnl_percent:.2f}%)"
                     
             # 4. REGIME CHANGED TO AVOID
             if not should_exit:
