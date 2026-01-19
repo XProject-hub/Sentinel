@@ -916,18 +916,25 @@ class AutonomousTraderV2:
         if self.risk_mode in ["lock_profit", "micro_profit"] and client:
             has_momentum, momentum_score = await self._check_momentum(opp.symbol, client)
             
-            if not has_momentum:
-                self.stats['trades_rejected_no_momentum'] += 1
-                mode_name = "MICRO PROFIT" if self.risk_mode == "micro_profit" else "LOCK PROFIT"
-                return False, f"⚡ No momentum for {mode_name} ({opp.symbol} not rising)"
-            
-            # MICRO PROFIT needs STRONGER momentum (configurable threshold)
-            if self.risk_mode == "micro_profit" and momentum_score < self.momentum_threshold:
-                self.stats['trades_rejected_no_momentum'] += 1
-                return False, f"💎 MICRO PROFIT needs stronger momentum ({momentum_score:.3f}% < {self.momentum_threshold}%)"
-            
-            # Log positive momentum
-            logger.debug(f"✅ Momentum OK for {opp.symbol}: score={momentum_score:.4f}%")
+            # MICRO PROFIT with threshold=0 disables momentum filter entirely
+            if self.risk_mode == "micro_profit" and self.momentum_threshold <= 0:
+                # Momentum filter disabled - skip all checks
+                logger.debug(f"📊 Momentum filter DISABLED for {opp.symbol} (threshold=0)")
+            else:
+                # Standard momentum check: need 3/5 green candles or positive total change
+                if not has_momentum:
+                    self.stats['trades_rejected_no_momentum'] += 1
+                    mode_name = "MICRO PROFIT" if self.risk_mode == "micro_profit" else "LOCK PROFIT"
+                    return False, f"No momentum for {mode_name} ({opp.symbol} not rising)"
+                
+                # MICRO PROFIT with threshold>0 needs momentum_score above threshold
+                if self.risk_mode == "micro_profit" and self.momentum_threshold > 0:
+                    if momentum_score < self.momentum_threshold:
+                        self.stats['trades_rejected_no_momentum'] += 1
+                        return False, f"MICRO PROFIT needs stronger momentum ({momentum_score:.3f}% < {self.momentum_threshold}%)"
+                
+                # Log positive momentum
+                logger.debug(f"Momentum OK for {opp.symbol}: score={momentum_score:.4f}%")
             
         # 4. XGBoost ML Classification
         try:
