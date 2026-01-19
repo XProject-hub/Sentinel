@@ -137,6 +137,9 @@ class AutonomousTraderV2:
         self.max_exposure_percent = 100  # 100% = can use entire budget
         self.max_daily_drawdown = 3.0
         
+        # Risk mode tracking
+        self.risk_mode = "normal"
+        
         # Statistics
         self.stats = {
             'total_trades': 0,
@@ -146,7 +149,8 @@ class AutonomousTraderV2:
             'opportunities_scanned': 0,
             'trades_rejected_low_edge': 0,
             'trades_rejected_regime': 0,
-            'trades_rejected_risk': 0
+            'trades_rejected_risk': 0,
+            'trades_rejected_no_momentum': 0
         }
         
     async def initialize(
@@ -727,7 +731,7 @@ class AutonomousTraderV2:
                     continue
                     
                 # Validate the opportunity
-                should_trade, reason = await self._validate_opportunity(opp, wallet)
+                should_trade, reason = await self._validate_opportunity(opp, wallet, client)
                 
                 if should_trade:
                     logger.info(f"✅ OPENING TRADE: {opp.symbol} | Edge={opp.edge_score:.2f} | Conf={opp.confidence:.0f}%")
@@ -740,19 +744,73 @@ class AutonomousTraderV2:
                     
         except Exception as e:
             logger.error(f"Find opportunities error: {e}")
+    
+    async def _check_momentum(self, symbol: str, client: BybitV5Client) -> Tuple[bool, float]:
+        """
+        MOMENTUM FILTER for LOCK PROFIT strategy
+        
+        Checks if price has positive momentum over last 5 minutes.
+        Only buys when price is ALREADY rising - higher win rate!
+        
+        Returns: (has_momentum, momentum_score)
+        """
+        try:
+            # Get last 6 1-minute candles (5 complete + 1 current)
+            kline_data = await client.get_kline(symbol, interval="1", category="linear", limit=6)
             
-    async def _validate_opportunity(self, opp: TradingOpportunity, wallet: Dict) -> Tuple[bool, str]:
+            if not kline_data.get('result', {}).get('list'):
+                return True, 0  # If no data, allow trade
+                
+            candles = kline_data['result']['list']
+            
+            if len(candles) < 5:
+                return True, 0  # Not enough data
+            
+            # Candles are [timestamp, open, high, low, close, volume, turnover]
+            # Most recent first!
+            green_candles = 0
+            total_change = 0
+            
+            for i in range(min(5, len(candles))):
+                candle = candles[i]
+                open_price = float(candle[1])
+                close_price = float(candle[4])
+                
+                # Check if green candle
+                if close_price > open_price:
+                    green_candles += 1
+                    
+                # Calculate percentage change
+                change = (close_price - open_price) / open_price * 100
+                total_change += change
+            
+            # Momentum is positive if:
+            # - At least 3 out of 5 candles are green, OR
+            # - Total change is positive
+            momentum_score = total_change / 5  # Average change per candle
+            has_momentum = green_candles >= 3 or total_change > 0.05
+            
+            logger.debug(f"📊 Momentum {symbol}: {green_candles}/5 green, avg change: {momentum_score:.4f}%, has_momentum: {has_momentum}")
+            
+            return has_momentum, momentum_score
+            
+        except Exception as e:
+            logger.debug(f"Momentum check failed for {symbol}: {e}")
+            return True, 0  # On error, allow trade
+            
+    async def _validate_opportunity(self, opp: TradingOpportunity, wallet: Dict, client: BybitV5Client = None) -> Tuple[bool, str]:
         """
         SUPERIOR validation using ALL AI models
         
         Checks:
         1. Basic edge/confidence
-        2. XGBoost ML classification
-        3. CryptoBERT sentiment (crypto-specific)
-        4. Price predictor (multi-timeframe)
-        5. Capital allocator (unified budget)
-        6. Regime detection
-        7. Position sizing
+        2. MOMENTUM FILTER (LOCK PROFIT only!)
+        3. XGBoost ML classification
+        4. CryptoBERT sentiment (crypto-specific)
+        5. Price predictor (multi-timeframe)
+        6. Capital allocator (unified budget)
+        7. Regime detection
+        8. Position sizing
         """
         
         # 1. Edge check
@@ -764,8 +822,20 @@ class AutonomousTraderV2:
         if opp.confidence < self.min_confidence:
             self.stats['trades_rejected_low_edge'] += 1
             return False, f"Confidence too low ({opp.confidence:.1f} < {self.min_confidence})"
+        
+        # 3. MOMENTUM FILTER - Only for LOCK PROFIT strategy!
+        # This increases win rate by only buying when price is already rising
+        if self.risk_mode == "lock_profit" and client:
+            has_momentum, momentum_score = await self._check_momentum(opp.symbol, client)
             
-        # 3. XGBoost ML Classification
+            if not has_momentum:
+                self.stats['trades_rejected_no_momentum'] += 1
+                return False, f"⚡ No momentum for LOCK PROFIT ({opp.symbol} not rising)"
+            
+            # Log positive momentum
+            logger.debug(f"✅ Momentum OK for {opp.symbol}: score={momentum_score:.4f}%")
+            
+        # 4. XGBoost ML Classification
         try:
             feature_data = await self.redis_client.get(f"features:{opp.symbol}")
             if feature_data:
