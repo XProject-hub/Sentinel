@@ -927,10 +927,22 @@ async def save_settings(request: Request):
         if hasattr(trader, 'max_exposure_percent'):
             trader.max_exposure_percent = float(body.get('maxTotalExposure', 50))
         
-        logger.info(f"Bot settings updated: {body.get('riskMode')} mode, "
-                   f"TP={body.get('takeProfitPercent')}%, SL={body.get('stopLossPercent')}%")
+        # Also update position sizer settings
+        if hasattr(trader, 'position_sizer') and trader.position_sizer:
+            trader.position_sizer.max_position_percent = float(body.get('maxPositionPercent', 5))
+            trader.position_sizer.max_exposure_percent = float(body.get('maxTotalExposure', 100))
+            trader.position_sizer.max_daily_drawdown = float(body.get('maxDailyDrawdown', 3))
+            trader.position_sizer.max_open_positions = int(body.get('maxOpenPositions', 0))
         
-        return {"success": True, "message": "Settings saved and applied"}
+        logger.info("=" * 50)
+        logger.info(f"⚙️ SETTINGS UPDATED INSTANTLY!")
+        logger.info(f"   Mode: {body.get('riskMode')}")
+        logger.info(f"   TP: {body.get('takeProfitPercent')}% | SL: {body.get('stopLossPercent')}%")
+        logger.info(f"   Min Edge: {body.get('minEdge')} | Min Conf: {body.get('minConfidence')}%")
+        logger.info(f"   Max Positions: {body.get('maxOpenPositions')} | Max Exposure: {body.get('maxTotalExposure')}%")
+        logger.info("=" * 50)
+        
+        return {"success": True, "message": "Settings saved and applied instantly"}
         
     except Exception as e:
         logger.error(f"Failed to save settings: {e}")

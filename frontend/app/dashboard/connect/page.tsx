@@ -9,8 +9,8 @@ import {
 } from 'lucide-react'
 import Link from 'next/link'
 
-// Server IP for API whitelisting
-const SERVER_IP = '109.104.154.183'
+// Server IP for API whitelisting - Dedicated Server
+const SERVER_IP = '217.147.172.2'
 
 export default function ConnectExchangePage() {
   const [step, setStep] = useState(1)
