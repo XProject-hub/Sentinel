@@ -925,7 +925,8 @@ export default function DashboardPage() {
             </div>
 
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
-              {positions.map((position, idx) => {
+              {/* Sort positions by P&L: highest profit to highest loss */}
+              {[...positions].sort((a, b) => b.unrealizedPnl - a.unrealizedPnl).map((position, idx) => {
                 const investedAmount = position.size * position.entryPrice
                 const pnlPercent = investedAmount > 0 ? (position.unrealizedPnl / investedAmount) * 100 : 0
                 const coinName = position.symbol.replace('USDT', '')
@@ -1346,7 +1347,8 @@ export default function DashboardPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {positions.map((position, idx) => {
+                      {/* Sort positions by P&L: highest profit to highest loss */}
+                      {[...positions].sort((a, b) => b.unrealizedPnl - a.unrealizedPnl).map((position, idx) => {
                         const investedAmount = position.size * position.entryPrice
                         return (
                           <tr key={idx} className="border-b border-sentinel-border/50 last:border-0">

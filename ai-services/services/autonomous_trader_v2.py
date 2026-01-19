@@ -134,7 +134,7 @@ class AutonomousTraderV2:
         
         # Risk limits (0 = unlimited positions)
         self.max_open_positions = 0  # Unlimited by default
-        self.max_exposure_percent = 50
+        self.max_exposure_percent = 100  # 100% = can use entire budget
         self.max_daily_drawdown = 3.0
         
         # Statistics

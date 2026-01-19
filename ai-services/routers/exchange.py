@@ -800,7 +800,7 @@ async def get_settings():
         "maxPositionPercent": 5,
         "maxOpenPositions": 0,  # 0 = unlimited
         "maxDailyDrawdown": 3,
-        "maxTotalExposure": 50,
+        "maxTotalExposure": 100,  # 100% = can use entire budget
         "cryptoBudget": 100,
         "tradFiBudget": 0,
         "enableCrypto": True,
@@ -884,7 +884,7 @@ async def save_settings(request: Request):
             'maxPositionPercent': str(body.get('maxPositionPercent', 5)),
             'maxOpenPositions': str(body.get('maxOpenPositions', 0)),  # 0 = unlimited
             'maxDailyDrawdown': str(body.get('maxDailyDrawdown', 3)),
-            'maxTotalExposure': str(body.get('maxTotalExposure', 50)),
+            'maxTotalExposure': str(body.get('maxTotalExposure', 100)),  # 100% = can use entire budget
             
             # Budget allocation
             'cryptoBudget': str(body.get('cryptoBudget', 100)),
