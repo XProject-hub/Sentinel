@@ -41,7 +41,7 @@ import Image from 'next/image'
 
 interface BotSettings {
   // Risk Mode
-  riskMode: 'safe' | 'normal' | 'aggressive'
+  riskMode: 'safe' | 'normal' | 'aggressive' | 'lock_profit'
   
   // Trading Parameters
   takeProfitPercent: number
@@ -184,6 +184,35 @@ const riskPresets = {
       'Unlimited positions',
       'Maximum market exposure'
     ]
+  },
+  lock_profit: {
+    name: 'LOCK PROFIT',
+    description: 'Ultra-tight trailing stop. Sells immediately when price drops 0.05% from peak. Locks in ANY profit!',
+    color: 'cyan',
+    icon: TrendingDown,
+    params: {
+      takeProfitPercent: 50.0,  // High TP - let trailing do the work
+      stopLossPercent: 1.0,     // Tight stop loss
+      trailingStopPercent: 0.05, // 0.05% drop from peak = SELL
+      minProfitToTrail: 0.01,   // Trail activates almost immediately (0.01% profit)
+      minConfidence: 50,
+      minEdge: 0.10,
+      maxPositionPercent: 5,
+      maxOpenPositions: 0, // Unlimited
+      maxDailyDrawdown: 3,
+      maxTotalExposure: 50,
+      useCryptoBert: true,
+      useXgboostClassifier: true,
+      usePricePredictor: true,
+    },
+    features: [
+      '🔒 Locks ANY profit immediately',
+      '📉 Sells on 0.05% drop from peak',
+      '⚡ Ultra-fast profit taking',
+      '🛡️ Tight 1% stop loss',
+      '♾️ Unlimited positions',
+      'Best for volatile markets'
+    ]
   }
 }
 
@@ -220,14 +249,14 @@ export default function SettingsPage() {
       if (data.success && data.data) {
         // Validate riskMode - map 'neutral' or any invalid value to 'normal'
         let riskMode = data.data.riskMode || 'normal'
-        if (!['safe', 'normal', 'aggressive'].includes(riskMode)) {
+        if (!['safe', 'normal', 'aggressive', 'lock_profit'].includes(riskMode)) {
           riskMode = 'normal' // Default to normal if invalid value
         }
         
         setSettings(prev => ({ 
           ...prev, 
           ...data.data,
-          riskMode: riskMode as 'safe' | 'normal' | 'aggressive',
+          riskMode: riskMode as 'safe' | 'normal' | 'aggressive' | 'lock_profit',
           // Map backend field names to frontend
           useCryptoBert: data.data.enableFinbertSentiment ?? data.data.useCryptoBert ?? true,
           useXgboostClassifier: data.data.enableXgboostClassifier ?? data.data.useXgboostClassifier ?? true,
@@ -388,7 +417,7 @@ export default function SettingsPage() {
     }
   }
 
-  const applyRiskPreset = (mode: 'safe' | 'normal' | 'aggressive') => {
+  const applyRiskPreset = (mode: 'safe' | 'normal' | 'aggressive' | 'lock_profit') => {
     const preset = riskPresets[mode]
     setSettings(prev => ({
       ...prev,
@@ -413,6 +442,11 @@ export default function SettingsPage() {
         text: 'text-sentinel-accent-crimson',
         bg: 'bg-sentinel-accent-crimson',
         border: 'border-sentinel-accent-crimson'
+      },
+      cyan: {
+        text: 'text-sentinel-accent-cyan',
+        bg: 'bg-sentinel-accent-cyan',
+        border: 'border-sentinel-accent-cyan'
       }
     }
     return colors[color]?.[type] || ''
@@ -420,7 +454,7 @@ export default function SettingsPage() {
 
   // Get the current preset safely (fallback to 'normal' if riskMode is invalid)
   const getCurrentPreset = () => {
-    const validModes = ['safe', 'normal', 'aggressive'] as const
+    const validModes = ['safe', 'normal', 'aggressive', 'lock_profit'] as const
     const mode = validModes.includes(settings.riskMode as any) ? settings.riskMode : 'normal'
     return { mode, preset: riskPresets[mode] }
   }
@@ -622,7 +656,7 @@ export default function SettingsPage() {
             Select a preset to automatically configure all parameters
           </p>
           
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-4 gap-4">
             {(Object.keys(riskPresets) as Array<keyof typeof riskPresets>).map((mode) => {
               const preset = riskPresets[mode]
               const Icon = preset.icon
@@ -818,9 +852,9 @@ export default function SettingsPage() {
                   <div className="flex items-center gap-3">
                     <input
                       type="range"
-                      min="0.3"
+                      min="0.01"
                       max="5"
-                      step="0.1"
+                      step="0.01"
                       value={settings.trailingStopPercent}
                       onChange={(e) => setSettings(prev => ({ 
                         ...prev, 
@@ -842,9 +876,9 @@ export default function SettingsPage() {
                   <div className="flex items-center gap-3">
                     <input
                       type="range"
-                      min="0.2"
+                      min="0.01"
                       max="5"
-                      step="0.1"
+                      step="0.01"
                       value={settings.minProfitToTrail}
                       onChange={(e) => setSettings(prev => ({ 
                         ...prev, 

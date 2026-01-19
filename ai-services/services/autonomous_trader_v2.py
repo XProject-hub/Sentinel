@@ -484,29 +484,36 @@ class AutonomousTraderV2:
                 logger.info(f"🎯 TAKE PROFIT: {position.symbol} at {pnl_percent:+.2f}% >= TP {self.take_profit}% - SELLING NOW!")
                 
             # 3. TRAILING STOP
-            # Activates when profit >= min_profit_to_trail (e.g., 0.8%)
-            # But only EXITS if we've been above take_profit OR profit stays acceptable
+            # Activates when profit >= min_profit_to_trail (e.g., 0.8% normal, 0.01% for lock_profit)
+            # LOCK_PROFIT mode: trail_from_peak=0.05%, min_profit_to_trail=0.01%
             elif pnl_percent >= self.min_profit_to_trail:
                 position.trailing_active = True
                 
-                # Calculate drop from peak
+                # Calculate drop from peak price (percentage)
                 if position.side == 'Buy':
                     drop_from_peak = ((position.peak_price - current_price) / position.peak_price) * 100
                 else:
                     drop_from_peak = ((current_price - position.trough_price) / position.trough_price) * 100
+                
+                # Log trailing status (especially important for lock_profit mode)
+                is_lock_profit_mode = self.trail_from_peak <= 0.1  # Ultra-tight trailing
+                if is_lock_profit_mode or drop_from_peak >= self.trail_from_peak * 0.5:
+                    logger.info(f"📈 TRAILING {position.symbol}: Peak={position.peak_pnl_percent:+.3f}%, Now={pnl_percent:+.3f}%, Drop={drop_from_peak:.3f}%, Trigger={self.trail_from_peak:.3f}%")
                     
-                # Only exit via trailing if drop is significant AND either:
+                # Exit conditions:
                 # 1. Peak profit was at/above take profit (we hit TP, now trailing down)
-                # 2. Current profit is still at least min_profit_to_trail (lock in some profit)
+                # 2. Current profit is still positive (lock in any profit for lock_profit mode)
                 if drop_from_peak >= self.trail_from_peak:
                     if position.peak_pnl_percent >= self.take_profit:
                         # We reached TP at peak, now trailing to lock profits
                         should_exit = True
                         exit_reason = f"Trailing from TP (peak: {position.peak_pnl_percent:.2f}%, now: {pnl_percent:.2f}%)"
+                        logger.info(f"🔒 LOCK PROFIT EXIT: {position.symbol} - Peak was TP, drop {drop_from_peak:.3f}% >= {self.trail_from_peak:.3f}%")
                     elif pnl_percent >= self.min_profit_to_trail:
-                        # Didn't reach TP but still in profit - lock it in
+                        # Lock in profit - key for LOCK_PROFIT mode!
                         should_exit = True
-                        exit_reason = f"Trailing stop (peak: {position.peak_pnl_percent:.2f}%, now: {pnl_percent:.2f}%)"
+                        exit_reason = f"Trailing stop (peak: {position.peak_pnl_percent:.2f}%, now: {pnl_percent:.2f}%, drop: {drop_from_peak:.3f}%)"
+                        logger.info(f"🔒 LOCK PROFIT EXIT: {position.symbol} - Locking {pnl_percent:+.2f}% profit! Drop {drop_from_peak:.3f}% >= {self.trail_from_peak:.3f}%")
                     
             # 4. REGIME CHANGED TO AVOID
             if not should_exit:
@@ -1090,12 +1097,19 @@ class AutonomousTraderV2:
                 self.max_exposure_percent = float(parsed.get('maxTotalExposure', self.max_exposure_percent))
                 self.max_daily_drawdown = float(parsed.get('maxDailyDrawdown', self.max_daily_drawdown))
                 
+                # Detect trading mode based on trailing settings
+                is_lock_profit = self.trail_from_peak <= 0.1 and self.min_profit_to_trail <= 0.05
+                mode_name = "🔒 LOCK PROFIT" if is_lock_profit else "📊 NORMAL"
+                
                 # Only log on first load or when settings actually change
-                new_settings_str = f"SL={self.emergency_stop_loss}%,TP={self.take_profit}%,Trail={self.trail_from_peak}%"
+                new_settings_str = f"SL={self.emergency_stop_loss}%,TP={self.take_profit}%,Trail={self.trail_from_peak}%,MinTrail={self.min_profit_to_trail}%"
                 if not hasattr(self, '_last_settings_str') or self._last_settings_str != new_settings_str:
-                    logger.info(f"⚙️ Settings: SL={self.emergency_stop_loss}%, TP={self.take_profit}%, "
-                               f"Trail={self.trail_from_peak}%, MinConf={self.min_confidence}%, "
-                               f"MinEdge={self.min_edge}, MaxPos={'Unlimited' if self.max_open_positions == 0 else self.max_open_positions}")
+                    logger.info(f"⚙️ Settings [{mode_name}]: SL={self.emergency_stop_loss}%, TP={self.take_profit}%, "
+                               f"Trail={self.trail_from_peak}%, MinProfitToTrail={self.min_profit_to_trail}%, "
+                               f"MinConf={self.min_confidence}%, MinEdge={self.min_edge}, "
+                               f"MaxPos={'Unlimited' if self.max_open_positions == 0 else self.max_open_positions}")
+                    if is_lock_profit:
+                        logger.info(f"🔒 LOCK PROFIT MODE ACTIVE: Sells on {self.trail_from_peak}% drop from peak, activates at {self.min_profit_to_trail}% profit")
                     self._last_settings_str = new_settings_str
         except Exception as e:
             logger.debug(f"Load settings error: {e}")
