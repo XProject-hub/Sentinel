@@ -214,12 +214,12 @@ const riskPresets = {
       usePricePredictor: true,  // ✅ AI price forecast
     },
     features: [
-      '🧠 AI predicts profitable entries',
-      '🔒 Locks ANY profit immediately',
-      '📉 Sells on 0.05% drop from peak',
-      '🛡️ Tight 1% stop loss',
-      '♾️ Unlimited positions',
-      '💰 100% budget utilization'
+      'AI predicts profitable entries',
+      'Locks ANY profit immediately',
+      'Sells on 0.05% drop from peak',
+      'Tight 1% stop loss',
+      'Unlimited positions',
+      '100% budget utilization'
     ]
   },
   micro_profit: {
@@ -238,9 +238,9 @@ const riskPresets = {
       maxOpenPositions: 15,     // Up to 15 positions
       maxDailyDrawdown: 3,      // Stop if losing 3% daily
       maxTotalExposure: 80,     // Use 80% of budget
-      useCryptoBert: true,      // ✅ Sentiment must be positive
-      useXgboostClassifier: true, // ✅ ML must predict profit
-      usePricePredictor: true,  // ✅ Price must be going up
+      useCryptoBert: true,
+      useXgboostClassifier: true,
+      usePricePredictor: true,
       // Smart exit settings
       breakevenTrigger: 0.3,    // Move SL to 0% at +0.3%
       partialExitTrigger: 0.4,  // Take 50% profit at +0.4%
@@ -249,12 +249,12 @@ const riskPresets = {
       momentumThreshold: 0.02,  // Low threshold - buy even in slow markets
     },
     features: [
-      '🧠 AI finds HIGH PROBABILITY trades',
-      '💰 SCALE-OUT: 50% at +0.4%, rest trails',
-      '🔒 BREAKEVEN at +0.3% (worst = 0%)',
-      '🛡️ Smart -0.8% stop loss',
-      '📈 Momentum filter: only rising prices',
-      '🎯 Optimized for range markets'
+      'AI finds HIGH PROBABILITY trades',
+      'SCALE-OUT: 50% at +0.4%, rest trails',
+      'BREAKEVEN at +0.3% (worst = 0%)',
+      'Smart -0.8% stop loss',
+      'Momentum filter: only rising prices',
+      'Optimized for range markets'
     ]
   }
 }
