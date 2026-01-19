@@ -76,16 +76,23 @@ class SentimentAnalyzer:
         # Initialize HTTP client
         self.http_client = httpx.AsyncClient(timeout=30.0)
         
-        # Initialize VADER (rule-based, fast) - PRIMARY for speed
+        # Initialize VADER (rule-based, fast)
         self.vader_analyzer = SentimentIntensityAnalyzer()
-        logger.info("VADER sentiment analyzer loaded (fast mode)")
         
-        # Skip transformer model - VADER is sufficient and faster
-        # Transformer loading can block startup for minutes
-        self.sentiment_pipeline = None
+        # Initialize transformer model (more accurate but slower)
+        try:
+            self.sentiment_pipeline = pipeline(
+                "sentiment-analysis",
+                model=settings.SENTIMENT_MODEL,
+                tokenizer=settings.SENTIMENT_MODEL,
+                device=-1  # CPU
+            )
+            logger.info("Transformer sentiment model loaded")
+        except Exception as e:
+            logger.warning(f"Could not load transformer model: {e}. Using VADER only.")
             
         self.is_running = True
-        logger.info("Sentiment Analyzer initialized (VADER mode)")
+        logger.info("Sentiment Analyzer initialized")
         
     async def shutdown(self):
         """Cleanup resources"""
