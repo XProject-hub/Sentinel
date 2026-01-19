@@ -1066,11 +1066,18 @@ class AutonomousTraderV2:
                         # Log EVERY check for debugging
                         logger.info(f"🔒 LOCK_PROFIT {position.symbol}: Peak={position.peak_pnl_percent:+.3f}%, Now={pnl_percent:+.3f}%, Drop={drop_from_peak:.3f}%, Trigger={self.trail_from_peak:.3f}%")
                         
-                        # EXIT if dropped from peak by threshold - EVEN IF CURRENTLY NEGATIVE!
-                        if drop_from_peak >= self.trail_from_peak:
-                            should_exit = True
-                            exit_reason = f"🔒 LOCK PROFIT (peak: {position.peak_pnl_percent:.2f}%, drop: {drop_from_peak:.3f}%)"
-                            logger.info(f"🔒 LOCK PROFIT SELL: {position.symbol} | Peak was {position.peak_pnl_percent:+.2f}%, dropped {drop_from_peak:.3f}% >= {self.trail_from_peak:.3f}%")
+                        # EXIT if dropped from peak by threshold
+                        # BUT ONLY IF current P&L is still positive (or break-even)!
+                        # This ensures we ALWAYS lock profit, never lock loss
+                        if drop_from_peak >= self.trail_from_peak and pnl_percent >= -0.02:
+                            # Only sell if we're still in profit or at worst break-even (-0.02% for fees)
+                            if pnl_percent >= 0:
+                                should_exit = True
+                                exit_reason = f"🔒 LOCK PROFIT (peak: {position.peak_pnl_percent:.2f}%, now: {pnl_percent:+.2f}%)"
+                                logger.info(f"🔒 LOCK PROFIT SELL: {position.symbol} | Peak={position.peak_pnl_percent:+.2f}%, Now={pnl_percent:+.2f}% ✅ PROFIT!")
+                            else:
+                                # Price dropped too fast, don't sell at loss - wait for recovery
+                                logger.debug(f"⏸️ {position.symbol}: Dropped but P&L negative ({pnl_percent:+.2f}%), waiting for recovery")
                 else:
                     # === NORMAL TRAILING MODE ===
                     if pnl_percent >= self.min_profit_to_trail:
