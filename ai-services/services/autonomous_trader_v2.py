@@ -434,24 +434,27 @@ class AutonomousTraderV2:
             should_exit = False
             exit_reason = ""
             
-            # Log current state for debugging - ALWAYS log when checking
-            logger.debug(f"🔎 {position.symbol}: Side={position.side}, Current=${current_price:.6f}, Entry=${position.entry_price:.6f}, P&L={pnl_percent:.2f}%, TP={self.take_profit}%, SL={self.emergency_stop_loss}%")
+            # Log current state for EVERY position check - CRITICAL FOR DEBUGGING
+            logger.info(f"🔎 CHECK {position.symbol}: Side={position.side}, Price=${current_price:.6f}, Entry=${position.entry_price:.6f}, P&L={pnl_percent:+.2f}%, TP={self.take_profit}%, SL=-{self.emergency_stop_loss}%")
             
             if pnl_percent >= self.take_profit:
-                logger.info(f"📊 {position.symbol}: P&L={pnl_percent:.2f}% >= TP={self.take_profit}% - SHOULD SELL!")
-            elif pnl_percent >= self.take_profit * 0.8:
-                logger.info(f"⏳ {position.symbol}: P&L={pnl_percent:.2f}% approaching TP={self.take_profit}%")
+                logger.info(f"✅ {position.symbol}: P&L={pnl_percent:+.2f}% >= TP={self.take_profit}% - TRIGGERING TAKE PROFIT!")
+            elif pnl_percent <= -self.emergency_stop_loss:
+                logger.info(f"❌ {position.symbol}: P&L={pnl_percent:+.2f}% <= SL=-{self.emergency_stop_loss}% - TRIGGERING STOP LOSS!")
+            elif pnl_percent >= self.take_profit * 0.7:
+                logger.info(f"⏳ {position.symbol}: P&L={pnl_percent:+.2f}% approaching TP={self.take_profit}%")
             
             # 1. STOP LOSS
             if pnl_percent <= -self.emergency_stop_loss:
                 should_exit = True
                 exit_reason = f"Stop loss hit ({pnl_percent:.2f}%)"
+                logger.info(f"🛑 STOP LOSS: {position.symbol} at {pnl_percent:+.2f}%")
                 
             # 2. TAKE PROFIT - Exit when profit reaches target
             elif pnl_percent >= self.take_profit:
                 should_exit = True
                 exit_reason = f"Take profit reached ({pnl_percent:.2f}% >= {self.take_profit}%)"
-                logger.info(f"🎯 TAKE PROFIT TRIGGERED: {position.symbol} at {pnl_percent:.2f}% (TP={self.take_profit}%) - CLOSING NOW!")
+                logger.info(f"🎯 TAKE PROFIT: {position.symbol} at {pnl_percent:+.2f}% >= TP {self.take_profit}% - SELLING NOW!")
                 
             # 3. TRAILING STOP
             # Activates when profit >= min_profit_to_trail (e.g., 0.8%)
@@ -487,7 +490,12 @@ class AutonomousTraderV2:
                     
             # === EXECUTE EXIT ===
             if should_exit:
+                logger.info(f"💰 CLOSING {position.symbol}: {exit_reason}")
                 await self._close_position(user_id, client, position, pnl_percent, exit_reason)
+            else:
+                # Log why we're NOT exiting if position has significant P&L
+                if abs(pnl_percent) > 1.0:
+                    logger.info(f"⏸️ HOLD {position.symbol}: P&L={pnl_percent:+.2f}% (TP={self.take_profit}%, SL=-{self.emergency_stop_loss}%) - No exit trigger")
                 
         except Exception as e:
             logger.error(f"Exit check error for {position.symbol}: {e}")
