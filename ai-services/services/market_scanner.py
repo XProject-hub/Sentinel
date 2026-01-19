@@ -192,15 +192,31 @@ class MarketScanner:
         ]
         logger.info(f"Tradeable after regime filter: {len(tradeable_symbols)}")
         
-        # Step 5: Calculate edge for tradeable symbols
+        # Step 5: LIMIT to top symbols by volume to make scan fast
+        # Sort by 24h volume and take top 100 for edge calculation
+        symbol_volumes = {s: float(tickers.get(s, {}).get('volume24h', 0)) for s in tradeable_symbols}
+        tradeable_symbols = sorted(tradeable_symbols, key=lambda s: symbol_volumes.get(s, 0), reverse=True)[:100]
+        logger.info(f"Calculating edge for top {len(tradeable_symbols)} symbols by volume")
+        
+        # Step 6: Calculate edge for tradeable symbols (with timeout per symbol)
         for symbol in tradeable_symbols:
             try:
                 ticker = tickers.get(symbol, {})
                 regime = regimes.get(symbol, {})
                 
-                # Calculate edge for both directions
-                long_edge = await self.edge_estimator.calculate_edge(symbol, 'long')
-                short_edge = await self.edge_estimator.calculate_edge(symbol, 'short')
+                # Calculate edge for both directions (with timeout to keep scan fast)
+                try:
+                    long_edge = await asyncio.wait_for(
+                        self.edge_estimator.calculate_edge(symbol, 'long'),
+                        timeout=2.0
+                    )
+                    short_edge = await asyncio.wait_for(
+                        self.edge_estimator.calculate_edge(symbol, 'short'),
+                        timeout=2.0
+                    )
+                except asyncio.TimeoutError:
+                    logger.debug(f"Edge calculation timeout for {symbol}")
+                    continue
                 
                 # Pick better direction
                 if long_edge.edge > short_edge.edge:
@@ -228,9 +244,10 @@ class MarketScanner:
                 if regime.get('regime') == 'unknown' and edge_data.edge > 0.20:
                     regime_allows = True
                 
+                # Lower threshold for LOCK_PROFIT mode - we rely on tight trailing stop
                 should_trade = (
-                    edge_data.edge > 0.15 and
-                    edge_data.confidence > 50 and
+                    edge_data.edge > 0.05 and  # 5% edge minimum (was 15%)
+                    edge_data.confidence > 40 and  # 40% confidence (was 50%)
                     edge_data.recommended_size != 'skip' and
                     regime_allows
                 )
