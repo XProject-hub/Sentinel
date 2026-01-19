@@ -230,7 +230,8 @@ class AutonomousTraderV2:
             
     async def run_trading_loop(self):
         """Main trading loop"""
-        logger.info("Starting Ultimate Autonomous Trading Loop...")
+        logger.info("🚀 Starting Ultimate Autonomous Trading Loop...")
+        logger.info(f"📊 Initial settings: TP={self.take_profit}%, SL={self.emergency_stop_loss}%, Trail={self.trail_from_peak}%")
         
         cycle = 0
         
@@ -238,6 +239,12 @@ class AutonomousTraderV2:
             try:
                 cycle += 1
                 cycle_start = datetime.utcnow()
+                
+                # Log loop activity every 20 cycles (~1 minute)
+                if cycle % 20 == 0:
+                    connected_users = len(self.user_clients)
+                    total_positions = sum(len(p) for p in self.active_positions.values())
+                    logger.info(f"🔄 Trading loop cycle {cycle} | Users: {connected_users} | Positions: {total_positions} | TP={self.take_profit}%")
                 
                 # Process each connected user
                 for user_id, client in list(self.user_clients.items()):
@@ -276,7 +283,10 @@ class AutonomousTraderV2:
         await self._sync_positions(user_id, client)
         
         # 3. Check existing positions for exit
-        for symbol, position in list(self.active_positions.get(user_id, {}).items()):
+        positions_list = list(self.active_positions.get(user_id, {}).items())
+        if positions_list:
+            logger.debug(f"🔍 Checking {len(positions_list)} positions for exits (TP={self.take_profit}%, SL={self.emergency_stop_loss}%)")
+        for symbol, position in positions_list:
             await self._check_position_exit(user_id, client, position, wallet)
             
         # 4. Look for new opportunities (if room)
@@ -395,9 +405,13 @@ class AutonomousTraderV2:
             # Get current price
             ticker = await self._get_ticker(client, position.symbol)
             if not ticker:
+                logger.warning(f"⚠️ No ticker for {position.symbol} - cannot check exit")
                 return
                 
             current_price = ticker['last_price']
+            if current_price <= 0:
+                logger.warning(f"⚠️ Invalid price {current_price} for {position.symbol}")
+                return
             
             # Calculate P&L
             if position.side == 'Buy':
@@ -417,8 +431,10 @@ class AutonomousTraderV2:
             should_exit = False
             exit_reason = ""
             
-            # Log current state for debugging (every 10th check or when close to TP)
-            if pnl_percent >= self.take_profit * 0.8:
+            # Log current state for debugging - ALWAYS log when above TP threshold
+            if pnl_percent >= self.take_profit:
+                logger.info(f"📊 {position.symbol}: P&L={pnl_percent:.2f}% >= TP={self.take_profit}% - SHOULD SELL!")
+            elif pnl_percent >= self.take_profit * 0.8:
                 logger.debug(f"{position.symbol}: P&L={pnl_percent:.2f}% | TP={self.take_profit}% | Peak={position.peak_pnl_percent:.2f}%")
             
             # 1. STOP LOSS
@@ -430,7 +446,7 @@ class AutonomousTraderV2:
             elif pnl_percent >= self.take_profit:
                 should_exit = True
                 exit_reason = f"Take profit reached ({pnl_percent:.2f}% >= {self.take_profit}%)"
-                logger.info(f"🎯 TAKE PROFIT: {position.symbol} at {pnl_percent:.2f}%")
+                logger.info(f"🎯 TAKE PROFIT TRIGGERED: {position.symbol} at {pnl_percent:.2f}% (TP={self.take_profit}%) - CLOSING NOW!")
                 
             # 3. TRAILING STOP
             # Activates when profit >= min_profit_to_trail (e.g., 0.8%)
@@ -475,6 +491,8 @@ class AutonomousTraderV2:
                               position: ActivePosition, pnl_percent: float, reason: str):
         """Close a position"""
         try:
+            logger.info(f"💰 EXECUTING CLOSE: {position.symbol} | Side: {position.side} | Size: {position.size} | Reason: {reason}")
+            
             # Determine close side (opposite of position)
             close_side = 'Sell' if position.side == 'Buy' else 'Buy'
             
@@ -485,6 +503,8 @@ class AutonomousTraderV2:
                 qty=position.size,
                 reduce_only=True
             )
+            
+            logger.info(f"📤 Order result for {position.symbol}: {result}")
             
             if result.get('success'):
                 won = pnl_percent > 0
