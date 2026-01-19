@@ -618,6 +618,13 @@ class AutonomousTraderV2:
             
             self.stats['opportunities_scanned'] += len(opportunities)
             
+            # Log opportunity search status and reset reject counter
+            self._reject_count = 0
+            if opportunities:
+                logger.info(f"🔍 Found {len(opportunities)} potential opportunities")
+            else:
+                logger.debug("🔍 No opportunities found in this scan")
+            
             for opp in opportunities:
                 # Skip if we have max positions (0 = unlimited)
                 num_positions = len(self.active_positions.get(user_id, {}))
@@ -632,9 +639,13 @@ class AutonomousTraderV2:
                 should_trade, reason = await self._validate_opportunity(opp, wallet)
                 
                 if should_trade:
+                    logger.info(f"✅ OPENING TRADE: {opp.symbol} | Edge={opp.edge_score:.2f} | Conf={opp.confidence:.0f}%")
                     await self._execute_trade(user_id, client, opp, wallet)
                 else:
-                    logger.debug(f"Skipped {opp.symbol}: {reason}")
+                    # Log first 3 rejections per cycle to avoid spam
+                    if not hasattr(self, '_reject_count') or self._reject_count < 3:
+                        logger.info(f"🚫 Rejected {opp.symbol}: {reason}")
+                        self._reject_count = getattr(self, '_reject_count', 0) + 1
                     
         except Exception as e:
             logger.error(f"Find opportunities error: {e}")

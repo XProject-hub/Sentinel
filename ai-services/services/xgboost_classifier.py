@@ -418,7 +418,22 @@ class XGBoostClassifier:
             # Ensure labels are in valid range [0, 2]
             y = np.clip(y, 0, 2)
             
-            logger.info(f"Training data: X shape={X.shape}, y unique values={np.unique(y)}")
+            # Check number of unique classes
+            unique_classes = np.unique(y)
+            n_classes = len(unique_classes)
+            logger.info(f"Training data: X shape={X.shape}, y unique values={unique_classes}, n_classes={n_classes}")
+            
+            # Handle binary vs multiclass
+            if n_classes < 2:
+                logger.warning("Not enough classes for training (need at least 2)")
+                return
+            elif n_classes == 2:
+                # Binary classification - adjust objective
+                logger.info("Using binary classification (2 classes)")
+                self._use_binary = True
+            else:
+                # Multiclass (3 classes: sell=0, hold=1, buy=2)
+                self._use_binary = False
                 
             # Split data (with stratification if possible)
             try:
@@ -451,22 +466,35 @@ class XGBoostClassifier:
             X_train_scaled = self.scaler.fit_transform(X_train)
             X_test_scaled = self.scaler.transform(X_test)
             
-            # Train model with sample weights
+            # Train model - handle binary vs multiclass
             # XGBoost 1.6+ moved early_stopping_rounds to constructor
-            # Try new API first, fallback to old if needed
+            if getattr(self, '_use_binary', False):
+                # Binary classification
+                model_params = {
+                    'n_estimators': 100,
+                    'max_depth': 6,
+                    'learning_rate': 0.1,
+                    'objective': 'binary:logistic',
+                    'eval_metric': 'logloss',
+                    'n_jobs': 4,
+                    'random_state': 42
+                }
+            else:
+                # Multiclass classification
+                model_params = {
+                    'n_estimators': 100,
+                    'max_depth': 6,
+                    'learning_rate': 0.1,
+                    'objective': 'multi:softprob',
+                    'num_class': 3,
+                    'eval_metric': 'mlogloss',
+                    'n_jobs': 4,
+                    'random_state': 42
+                }
+            
             try:
-                self.model = xgb.XGBClassifier(
-                    n_estimators=100,
-                    max_depth=6,
-                    learning_rate=0.1,
-                    objective='multi:softprob',
-                    num_class=3,
-                    use_label_encoder=False,
-                    eval_metric='mlogloss',
-                    early_stopping_rounds=10,  # XGBoost 1.6+ API
-                    n_jobs=4,
-                    random_state=42
-                )
+                # Try new XGBoost API (1.6+)
+                self.model = xgb.XGBClassifier(**model_params, early_stopping_rounds=10)
                 self.model.fit(
                     X_train_scaled, y_train,
                     sample_weight=w_train,
@@ -476,22 +504,12 @@ class XGBoostClassifier:
             except TypeError:
                 # Fallback for older XGBoost versions
                 logger.info("Using legacy XGBoost API")
-                self.model = xgb.XGBClassifier(
-                    n_estimators=100,
-                    max_depth=6,
-                    learning_rate=0.1,
-                    objective='multi:softprob',
-                    num_class=3,
-                    use_label_encoder=False,
-                    eval_metric='mlogloss',
-                    n_jobs=4,
-                    random_state=42
-                )
+                self.model = xgb.XGBClassifier(**model_params)
                 self.model.fit(
                     X_train_scaled, y_train,
                     sample_weight=w_train,
                     eval_set=[(X_test_scaled, y_test)],
-                    early_stopping_rounds=10,  # Old API
+                    early_stopping_rounds=10,
                     verbose=False
                 )
             
