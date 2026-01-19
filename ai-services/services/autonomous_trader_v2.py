@@ -418,6 +418,15 @@ class AutonomousTraderV2:
                     # Also remove from position_sizer
                     await self.position_sizer.close_position(symbol, 0)
                     logger.info(f"Position {symbol} closed externally, removed from tracker")
+        
+        # IMPORTANT: Sync position sizer with exchange to remove any stale positions
+        # This ensures position_sizer.open_positions matches actual exchange state
+        positions_data = {}
+        if user_id in self.active_positions:
+            for symbol, pos in self.active_positions[user_id].items():
+                positions_data[symbol] = pos.position_value
+        
+        await self.position_sizer.sync_with_exchange(exchange_positions, positions_data)
                     
     async def _check_position_exit(self, user_id: str, client: BybitV5Client,
                                     position: ActivePosition, wallet: Dict):

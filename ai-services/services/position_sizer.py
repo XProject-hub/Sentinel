@@ -483,6 +483,34 @@ class PositionSizer:
         self.weekly_pnl += pnl
         
         await self._save_state()
+    
+    async def sync_with_exchange(self, exchange_symbols: set, positions_data: dict):
+        """
+        Sync position sizer with actual exchange positions.
+        Removes stale positions and updates values.
+        
+        Args:
+            exchange_symbols: Set of symbols currently on exchange
+            positions_data: Dict of symbol -> position_value_usdt
+        """
+        old_count = len(self.open_positions)
+        stale_symbols = set(self.open_positions.keys()) - exchange_symbols
+        
+        # Remove stale positions (no longer on exchange)
+        for symbol in stale_symbols:
+            del self.open_positions[symbol]
+            
+        # Update with current exchange positions
+        for symbol, value in positions_data.items():
+            self.open_positions[symbol] = value
+            
+        new_count = len(self.open_positions)
+        new_exposure = sum(self.open_positions.values())
+        
+        if stale_symbols:
+            logger.info(f"🔄 Position sizer synced: removed {len(stale_symbols)} stale positions ({list(stale_symbols)[:5]}...), now {new_count} positions, exposure=${new_exposure:.2f}")
+        
+        await self._save_state()
         
     async def _record_daily_pnl(self, pnl: float):
         """Record daily P&L to history"""
