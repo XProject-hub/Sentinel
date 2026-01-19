@@ -233,6 +233,7 @@ class AutonomousTraderV2:
         logger.info("=" * 60)
         logger.info("🚀 TRADING LOOP STARTING!")
         logger.info(f"📊 Settings: TP={self.take_profit}%, SL={self.emergency_stop_loss}%")
+        logger.info(f"🔒 Trail from peak: {self.trail_from_peak}%, Min profit to trail: {self.min_profit_to_trail}%")
         logger.info("=" * 60)
         
         cycle = 0
@@ -246,40 +247,53 @@ class AutonomousTraderV2:
                 connected_users = len(self.user_clients)
                 total_positions = sum(len(p) for p in self.active_positions.values())
                 
-                # Log every 10 cycles (~10 seconds) with clear visibility
-                if cycle % 10 == 0 or cycle <= 5:
-                    logger.info(f"🔄 Cycle {cycle} | Users: {connected_users} | Pos: {total_positions} | TP={self.take_profit}% SL={self.emergency_stop_loss}%")
+                # Log every 5 cycles for better visibility (was 10)
+                if cycle % 5 == 0 or cycle <= 10:
+                    is_lock_profit = self.trail_from_peak <= 0.1
+                    mode_str = "🔒LOCK" if is_lock_profit else "📊NORM"
+                    logger.info(f"🔄 Cycle {cycle} | {mode_str} | Users: {connected_users} | Pos: {total_positions} | Trail={self.trail_from_peak}%")
                     # Also write to Redis for dashboard console
-                    await self._log_to_console(f"Cycle {cycle}: Checking {total_positions} positions (TP={self.take_profit}%, SL={self.emergency_stop_loss}%)")
+                    await self._log_to_console(f"Cycle {cycle}: Checking {total_positions} positions (Trail={self.trail_from_peak}%)")
                 
                 # Process each connected user
                 if not self.user_clients:
-                    if cycle % 10 == 0:
+                    if cycle % 5 == 0:
                         logger.warning("⚠️ NO USERS CONNECTED - waiting for user to connect via dashboard...")
+                else:
+                    logger.debug(f"Processing {connected_users} users...")
                         
                 for user_id, client in list(self.user_clients.items()):
                     try:
                         await self._process_user(user_id, client)
                     except Exception as e:
                         logger.error(f"Error processing user {user_id}: {e}")
+                        import traceback
+                        logger.error(traceback.format_exc())
                         
-                # Reload settings periodically (every ~30 seconds)
-                if cycle % 10 == 0:
+                # Reload settings periodically (every ~15 seconds instead of 30)
+                if cycle % 5 == 0:
                     await self._load_settings()
                 
                 # Log status periodically
                 if cycle % 100 == 0:
                     await self._log_status()
                     
-                # Calculate sleep time
+                # Calculate sleep time - faster checks in LOCK PROFIT mode!
                 elapsed = (datetime.utcnow() - cycle_start).total_seconds()
-                sleep_time = max(self.position_check_interval - elapsed, 1)
+                is_lock_profit = self.trail_from_peak <= 0.1
+                check_interval = 0.5 if is_lock_profit else self.position_check_interval  # 0.5s for lock profit!
+                sleep_time = max(check_interval - elapsed, 0.2)
                 
                 await asyncio.sleep(sleep_time)
                 
+            except asyncio.CancelledError:
+                logger.warning("⚠️ Trading loop CANCELLED!")
+                break
             except Exception as e:
                 logger.error(f"Trading loop error: {e}")
-                await asyncio.sleep(30)
+                import traceback
+                logger.error(traceback.format_exc())
+                await asyncio.sleep(5)  # Shorter sleep on error to retry faster
                 
     async def _process_user(self, user_id: str, client: BybitV5Client):
         """Process trading for one user"""
@@ -967,18 +981,39 @@ class AutonomousTraderV2:
             elif pnl_percent <= -self.emergency_stop_loss * 0.8:
                 logger.info(f"⚠️ {position.symbol}: {pnl_percent:+.2f}% near SL")
                 
-            # Trailing stop logic (simplified)
-            if not should_exit and pnl_percent >= self.min_profit_to_trail:
-                position.trailing_active = True
-                if position.side == 'Buy':
-                    drop = ((position.peak_price - current_price) / position.peak_price) * 100
+            # TRAILING STOP / LOCK PROFIT LOGIC
+            is_lock_profit_mode = self.trail_from_peak <= 0.1  # Ultra-tight = LOCK PROFIT
+            
+            # Calculate drop from peak
+            if position.side == 'Buy':
+                drop_from_peak = ((position.peak_price - current_price) / position.peak_price) * 100
+            else:
+                drop_from_peak = ((current_price - position.trough_price) / position.trough_price) * 100
+            
+            if not should_exit:
+                if is_lock_profit_mode:
+                    # === LOCK PROFIT MODE ===
+                    # Activate as soon as we've EVER been in profit (peak >= 0.01%)
+                    if position.peak_pnl_percent >= self.min_profit_to_trail:
+                        position.trailing_active = True
+                        
+                        # Log EVERY check for debugging
+                        logger.info(f"🔒 LOCK_PROFIT {position.symbol}: Peak={position.peak_pnl_percent:+.3f}%, Now={pnl_percent:+.3f}%, Drop={drop_from_peak:.3f}%, Trigger={self.trail_from_peak:.3f}%")
+                        
+                        # EXIT if dropped from peak by threshold - EVEN IF CURRENTLY NEGATIVE!
+                        if drop_from_peak >= self.trail_from_peak:
+                            should_exit = True
+                            exit_reason = f"🔒 LOCK PROFIT (peak: {position.peak_pnl_percent:.2f}%, drop: {drop_from_peak:.3f}%)"
+                            logger.info(f"🔒 LOCK PROFIT SELL: {position.symbol} | Peak was {position.peak_pnl_percent:+.2f}%, dropped {drop_from_peak:.3f}% >= {self.trail_from_peak:.3f}%")
                 else:
-                    drop = ((current_price - position.trough_price) / position.trough_price) * 100
-                    
-                if drop >= self.trail_from_peak and position.peak_pnl_percent >= self.take_profit:
-                    should_exit = True
-                    exit_reason = f"Trailing stop (peak: {position.peak_pnl_percent:.2f}%)"
-                    logger.info(f"📉 {position.symbol}: Trailing exit at {pnl_percent:+.2f}%")
+                    # === NORMAL TRAILING MODE ===
+                    if pnl_percent >= self.min_profit_to_trail:
+                        position.trailing_active = True
+                        
+                        if drop_from_peak >= self.trail_from_peak and position.peak_pnl_percent >= self.take_profit:
+                            should_exit = True
+                            exit_reason = f"Trailing stop (peak: {position.peak_pnl_percent:.2f}%)"
+                            logger.info(f"📉 {position.symbol}: Trailing exit at {pnl_percent:+.2f}%")
                     
             # === EXECUTE EXIT ===
             if should_exit:
