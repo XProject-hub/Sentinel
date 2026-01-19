@@ -229,123 +229,166 @@ class AutonomousTraderV2:
             logger.info(f"User {user_id} disconnected")
             
     async def run_trading_loop(self):
-        """Main trading loop"""
+        """
+        Main trading loop - BULLETPROOF VERSION
+        This loop MUST NEVER stop - it's the heart of the trading bot!
+        """
         logger.info("=" * 60)
-        logger.info("🚀 TRADING LOOP STARTING!")
+        logger.info("🚀 TRADING LOOP STARTING - BULLETPROOF MODE!")
         logger.info(f"📊 Settings: TP={self.take_profit}%, SL={self.emergency_stop_loss}%")
         logger.info(f"🔒 Trail from peak: {self.trail_from_peak}%, Min profit to trail: {self.min_profit_to_trail}%")
         logger.info("=" * 60)
         
         cycle = 0
+        consecutive_errors = 0
         
         while self.is_running:
+            cycle_start = datetime.utcnow()
+            
             try:
                 cycle += 1
-                cycle_start = datetime.utcnow()
                 
                 # Log EVERY cycle for debugging
                 connected_users = len(self.user_clients)
                 total_positions = sum(len(p) for p in self.active_positions.values())
                 
-                # Log every 5 cycles for better visibility (was 10)
+                # Log every 5 cycles or first 10
                 if cycle % 5 == 0 or cycle <= 10:
                     is_lock_profit = self.trail_from_peak <= 0.1
                     mode_str = "🔒LOCK" if is_lock_profit else "📊NORM"
                     logger.info(f"🔄 Cycle {cycle} | {mode_str} | Users: {connected_users} | Pos: {total_positions} | Trail={self.trail_from_peak}%")
-                    # Also write to Redis for dashboard console
-                    await self._log_to_console(f"Cycle {cycle}: Checking {total_positions} positions (Trail={self.trail_from_peak}%)")
+                    try:
+                        await self._log_to_console(f"Cycle {cycle}: {total_positions} positions")
+                    except:
+                        pass  # Never fail on console logging
                 
-                # Process each connected user
+                # Process users - with overall timeout
                 if not self.user_clients:
                     if cycle % 5 == 0:
-                        logger.warning("⚠️ NO USERS CONNECTED - waiting for user to connect via dashboard...")
+                        logger.warning("⚠️ NO USERS CONNECTED - waiting for dashboard connection...")
                 else:
-                    logger.debug(f"Processing {connected_users} users...")
+                    for user_id, client in list(self.user_clients.items()):
+                        try:
+                            # 30 second timeout for entire user processing
+                            await asyncio.wait_for(
+                                self._process_user(user_id, client),
+                                timeout=30.0
+                            )
+                            consecutive_errors = 0  # Reset on success
+                        except asyncio.TimeoutError:
+                            logger.warning(f"⚠️ Processing user {user_id} timed out after 30s - continuing")
+                        except Exception as e:
+                            consecutive_errors += 1
+                            logger.error(f"Error processing user {user_id}: {e}")
+                            if consecutive_errors >= 5:
+                                logger.error(f"🚨 {consecutive_errors} consecutive errors! Sleeping 10s...")
+                                await asyncio.sleep(10)
+                                consecutive_errors = 0
                         
-                for user_id, client in list(self.user_clients.items()):
-                    try:
-                        await self._process_user(user_id, client)
-                    except Exception as e:
-                        logger.error(f"Error processing user {user_id}: {e}")
-                        import traceback
-                        logger.error(traceback.format_exc())
-                        
-                # Reload settings periodically (every ~15 seconds instead of 30)
+                # Reload settings every 5 cycles
                 if cycle % 5 == 0:
-                    await self._load_settings()
+                    try:
+                        await asyncio.wait_for(self._load_settings(), timeout=5.0)
+                    except:
+                        pass  # Never fail on settings reload
                 
-                # Log status periodically
+                # Log status every 100 cycles
                 if cycle % 100 == 0:
-                    await self._log_status()
+                    try:
+                        await self._log_status()
+                    except:
+                        pass
                     
-                # Calculate sleep time - faster checks in LOCK PROFIT mode!
+                # Calculate sleep time - 0.5s for LOCK_PROFIT, 1s normal
                 elapsed = (datetime.utcnow() - cycle_start).total_seconds()
                 is_lock_profit = self.trail_from_peak <= 0.1
-                check_interval = 0.5 if is_lock_profit else self.position_check_interval  # 0.5s for lock profit!
-                sleep_time = max(check_interval - elapsed, 0.2)
+                check_interval = 0.5 if is_lock_profit else self.position_check_interval
+                sleep_time = max(check_interval - elapsed, 0.1)  # Min 0.1s sleep
                 
                 await asyncio.sleep(sleep_time)
                 
             except asyncio.CancelledError:
-                logger.warning("⚠️ Trading loop CANCELLED!")
+                logger.warning("⚠️ Trading loop CANCELLED - shutting down gracefully")
                 break
             except Exception as e:
-                logger.error(f"Trading loop error: {e}")
+                # This should NEVER happen - but if it does, log and continue!
+                logger.error(f"🚨 CRITICAL LOOP ERROR (cycle {cycle}): {e}")
                 import traceback
                 logger.error(traceback.format_exc())
-                await asyncio.sleep(5)  # Shorter sleep on error to retry faster
+                await asyncio.sleep(2)  # Brief sleep then continue
+                # NEVER break - keep the loop running!
                 
     async def _process_user(self, user_id: str, client: BybitV5Client):
-        """Process trading for one user"""
+        """
+        Process trading for one user - BULLETPROOF VERSION
+        This method MUST NEVER crash - all operations have timeouts and error handling
+        """
         try:
-            # 1. Get wallet balance
-            logger.debug(f"[STEP 1] Getting wallet for {user_id}")
-            wallet = await self._get_wallet(client)
-            if wallet['total_equity'] < 20:  # Min $20
-                logger.debug(f"[STEP 1] Wallet too low: ${wallet['total_equity']}")
+            # 1. Get wallet balance (5s timeout)
+            try:
+                wallet = await asyncio.wait_for(self._get_wallet(client), timeout=5.0)
+                if wallet['total_equity'] < 20:
+                    return
+            except asyncio.TimeoutError:
+                logger.warning(f"[STEP 1] Wallet fetch timed out for {user_id}")
                 return
-            logger.debug(f"[STEP 1] Wallet OK: ${wallet['total_equity']:.2f}")
+            except Exception as e:
+                logger.error(f"[STEP 1] Wallet error: {e}")
+                return
                 
-            # 2. Sync positions from exchange
-            logger.debug(f"[STEP 2] Syncing positions for {user_id}")
-            await self._sync_positions(user_id, client)
-            logger.debug(f"[STEP 2] Sync complete")
+            # 2. Sync positions from exchange (10s timeout)
+            try:
+                await asyncio.wait_for(self._sync_positions(user_id, client), timeout=10.0)
+            except asyncio.TimeoutError:
+                logger.warning(f"[STEP 2] Position sync timed out")
+            except Exception as e:
+                logger.error(f"[STEP 2] Sync error: {e}")
             
-            # 3. Check existing positions for exit - BATCH fetch all tickers first for SPEED
+            # 3. Check existing positions for exit - CRITICAL FOR LOCK_PROFIT!
             positions_list = list(self.active_positions.get(user_id, {}).items())
             if positions_list:
                 logger.info(f"⚡ Fast-checking {len(positions_list)} positions (TP={self.take_profit}%, SL={self.emergency_stop_loss}%)")
                 
-                # BATCH: Get all tickers in ONE API call
-                logger.debug(f"[STEP 3a] Fetching all tickers...")
-                all_tickers = await self._get_all_tickers(client)
-                logger.debug(f"[STEP 3a] Got {len(all_tickers)} tickers")
+                # BATCH: Get all tickers in ONE API call (5s timeout)
+                try:
+                    all_tickers = await asyncio.wait_for(self._get_all_tickers(client), timeout=5.0)
+                except asyncio.TimeoutError:
+                    logger.warning(f"[STEP 3a] Ticker fetch timed out - using individual fetches")
+                    all_tickers = {}
+                except Exception as e:
+                    logger.error(f"[STEP 3a] Ticker error: {e}")
+                    all_tickers = {}
                 
-                # Check each position with pre-fetched prices
+                # Check each position - each with its own error handling
                 for symbol, position in positions_list:
                     try:
-                        await self._check_position_exit_fast(user_id, client, position, wallet, all_tickers)
+                        await asyncio.wait_for(
+                            self._check_position_exit_fast(user_id, client, position, wallet, all_tickers),
+                            timeout=3.0
+                        )
+                    except asyncio.TimeoutError:
+                        logger.warning(f"[STEP 3b] Check timed out for {symbol}")
                     except Exception as pos_error:
                         logger.error(f"[STEP 3b] Error checking {symbol}: {pos_error}")
                 
-                logger.debug(f"[STEP 3] Position checks complete")
-                
-            # 4. Look for new opportunities (if room)
-            # max_open_positions = 0 means unlimited
+            # 4. Look for new opportunities (if room) - 10s timeout
             num_positions = len(self.active_positions.get(user_id, {}))
             can_open_more = self.max_open_positions == 0 or num_positions < self.max_open_positions
             
             if can_open_more:
-                logger.debug(f"[STEP 4] Looking for opportunities (have {num_positions}, max={self.max_open_positions})")
-                await self._find_opportunities(user_id, client, wallet)
-                logger.debug(f"[STEP 4] Opportunities search complete")
-            else:
-                logger.debug(f"[STEP 4] Max positions reached: {num_positions}/{self.max_open_positions}")
-                
-            logger.debug(f"[PROCESS USER] Complete for {user_id}")
-            
+                try:
+                    await asyncio.wait_for(
+                        self._find_opportunities(user_id, client, wallet),
+                        timeout=10.0
+                    )
+                except asyncio.TimeoutError:
+                    logger.warning(f"[STEP 4] Opportunity search timed out after 10s")
+                except Exception as opp_error:
+                    logger.error(f"[STEP 4] Opportunity error: {opp_error}")
+                    
         except Exception as e:
-            logger.error(f"[PROCESS USER] CRITICAL ERROR for {user_id}: {e}")
+            # This should NEVER happen but just in case
+            logger.error(f"[PROCESS USER] UNEXPECTED ERROR for {user_id}: {e}")
             import traceback
             logger.error(traceback.format_exc())
             
