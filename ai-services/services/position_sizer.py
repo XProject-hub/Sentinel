@@ -202,9 +202,12 @@ class PositionSizer:
             
         # 3. Check total exposure
         current_exposure = await self._get_current_exposure()
-        if current_exposure >= self.MAX_TOTAL_EXPOSURE * wallet_balance:
+        max_allowed = self.MAX_TOTAL_EXPOSURE * wallet_balance
+        if current_exposure >= max_allowed:
+            logger.warning(f"🚫 Exposure check failed for {symbol}: current=${current_exposure:.2f} >= max=${max_allowed:.2f} (wallet=${wallet_balance:.2f}, limit={self.MAX_TOTAL_EXPOSURE*100:.0f}%)")
+            logger.warning(f"   Open positions: {self.open_positions}")
             return self._blocked_position(
-                symbol, "Maximum total exposure reached", wallet_balance
+                symbol, f"Maximum total exposure reached (${current_exposure:.0f}/${max_allowed:.0f})", wallet_balance
             )
         
         # 3.5 Check max open positions (0 = unlimited)
@@ -537,9 +540,14 @@ class PositionSizer:
                 if last_date:
                     self.last_reset_date = date.fromisoformat(last_date)
                     
-            logger.info("Loaded position sizer state")
+            logger.info(f"Loaded position sizer state: {len(self.open_positions)} positions, exposure=${sum(self.open_positions.values()):.2f}")
         except Exception as e:
             logger.debug(f"Load state error: {e}")
+            # Reset to empty state if error
+            self.open_positions = {}
+            self.daily_pnl = 0
+            self.weekly_pnl = 0
+            logger.info("Position sizer state reset to empty")
             
     async def _save_state(self):
         """Save state to Redis"""

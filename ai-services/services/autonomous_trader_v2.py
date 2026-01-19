@@ -383,6 +383,9 @@ class AutonomousTraderV2:
                     # Peak P&L is max of 0 and current (we don't know historical peak)
                     peak_pnl = max(0, current_pnl)
                     
+                    # Calculate position value
+                    position_value = size * entry_price
+                    
                     self.active_positions[user_id][symbol] = ActivePosition(
                         symbol=symbol,
                         side=side,
@@ -398,7 +401,7 @@ class AutonomousTraderV2:
                         stop_loss_price=entry_price * (1 - self.emergency_stop_loss / 100) if side == 'Buy' else entry_price * (1 + self.emergency_stop_loss / 100),
                         take_profit_price=entry_price * (1 + self.take_profit / 100) if side == 'Buy' else entry_price * (1 - self.take_profit / 100),
                         trailing_active=current_pnl >= self.min_profit_to_trail,  # Already in profit?
-                        position_value=size * entry_price
+                        position_value=position_value
                     )
                     # Also register in position_sizer so it knows about this position
                     await self.position_sizer.register_position(symbol, position_value)
