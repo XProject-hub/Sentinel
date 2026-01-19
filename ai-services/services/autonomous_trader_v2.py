@@ -816,7 +816,8 @@ class AutonomousTraderV2:
     async def _get_ticker(self, client: BybitV5Client, symbol: str) -> Optional[Dict]:
         """Get current ticker for a symbol"""
         try:
-            result = await client.get_ticker(symbol)
+            # FIXED: Use get_tickers (plural) not get_ticker
+            result = await client.get_tickers(category="linear", symbol=symbol)
             if result.get('success'):
                 data = result.get('data', {}).get('list', [])
                 if data:
@@ -825,8 +826,10 @@ class AutonomousTraderV2:
                         'bid': safe_float(data[0].get('bid1Price')),
                         'ask': safe_float(data[0].get('ask1Price'))
                     }
-        except:
-            pass
+            else:
+                logger.debug(f"Ticker fetch failed for {symbol}: {result}")
+        except Exception as e:
+            logger.debug(f"Ticker exception for {symbol}: {e}")
         return None
         
     async def _store_trade_event(self, symbol: str, action: str, pnl: float, reason: str,
