@@ -121,11 +121,11 @@ class MarketScanner:
         """Set risk mode - affects number of symbols scanned"""
         self.risk_mode = mode
         if mode == 'lock_profit':
-            logger.info("📊 Scanner: LOCK PROFIT mode - scanning top 100 symbols (speed priority)")
+            logger.info("Scanner: LOCK PROFIT mode - scanning top 100 symbols")
         elif mode == 'micro_profit':
-            logger.info("📊 Scanner: MICRO PROFIT mode - scanning top 50 symbols (quality priority)")
+            logger.info("Scanner: MICRO PROFIT mode - scanning top 200 symbols")
         else:
-            logger.info(f"📊 Scanner: {mode.upper()} mode - scanning all symbols")
+            logger.info(f"Scanner: {mode.upper()} mode - scanning all symbols")
         
     async def initialize(self, regime_detector: RegimeDetector, 
                          edge_estimator: EdgeEstimator):
@@ -214,12 +214,11 @@ class MarketScanner:
         if self.risk_mode == 'lock_profit':
             # LOCK PROFIT: Speed is priority - only top 100 by volume
             tradeable_symbols = tradeable_symbols[:100]
-            logger.info(f"⚡ LOCK PROFIT: Scanning top {len(tradeable_symbols)} symbols (speed mode)")
+            logger.info(f"LOCK PROFIT: Scanning top {len(tradeable_symbols)} symbols (speed mode)")
         elif self.risk_mode == 'micro_profit':
-            # MICRO PROFIT: Quality is priority - only top 50 most liquid
-            tradeable_symbols = tradeable_symbols[:50]
-            logger.info(f"💎 MICRO PROFIT: Scanning top {len(tradeable_symbols)} symbols (quality mode)")
-            logger.info(f"⚡ LOCK PROFIT: Scanning top {len(tradeable_symbols)} symbols (speed mode)")
+            # MICRO PROFIT: More symbols for more opportunities - top 200
+            tradeable_symbols = tradeable_symbols[:200]
+            logger.info(f"MICRO PROFIT: Scanning top {len(tradeable_symbols)} symbols")
         else:
             # Other modes: Scan ALL tradeable symbols (thoroughness priority)
             # No limit - scan everything for best opportunities
