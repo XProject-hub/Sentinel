@@ -114,6 +114,17 @@ class MarketScanner:
         self.min_volume_24h = 10000  # $10k minimum volume (lowered to include more pairs)
         self.min_liquidity = 30  # Minimum liquidity score (lowered)
         
+        # Risk mode - affects scan behavior
+        self.risk_mode = 'normal'  # 'safe', 'normal', 'aggressive', 'lock_profit'
+        
+    def set_risk_mode(self, mode: str):
+        """Set risk mode - affects number of symbols scanned"""
+        self.risk_mode = mode
+        if mode == 'lock_profit':
+            logger.info("📊 Scanner: LOCK PROFIT mode - scanning top 100 symbols (speed priority)")
+        else:
+            logger.info(f"📊 Scanner: {mode.upper()} mode - scanning all symbols")
+        
     async def initialize(self, regime_detector: RegimeDetector, 
                          edge_estimator: EdgeEstimator):
         """Initialize scanner with required components"""
@@ -192,11 +203,21 @@ class MarketScanner:
         ]
         logger.info(f"Tradeable after regime filter: {len(tradeable_symbols)}")
         
-        # Step 5: LIMIT to top symbols by volume to make scan fast
-        # Sort by 24h volume and take top 100 for edge calculation
+        # Step 5: LIMIT symbols based on risk mode
+        # LOCK PROFIT = top 100 (speed priority)
+        # Other modes = all symbols (thoroughness priority)
         symbol_volumes = {s: float(tickers.get(s, {}).get('volume24h', 0)) for s in tradeable_symbols}
-        tradeable_symbols = sorted(tradeable_symbols, key=lambda s: symbol_volumes.get(s, 0), reverse=True)[:100]
-        logger.info(f"Calculating edge for top {len(tradeable_symbols)} symbols by volume")
+        tradeable_symbols = sorted(tradeable_symbols, key=lambda s: symbol_volumes.get(s, 0), reverse=True)
+        
+        if self.risk_mode == 'lock_profit':
+            # LOCK PROFIT: Speed is priority - only top 100 by volume
+            tradeable_symbols = tradeable_symbols[:100]
+            logger.info(f"⚡ LOCK PROFIT: Scanning top {len(tradeable_symbols)} symbols (speed mode)")
+        else:
+            # Other modes: Scan all tradeable symbols (more thorough)
+            max_symbols = 300  # Still cap at 300 for reasonable scan time
+            tradeable_symbols = tradeable_symbols[:max_symbols]
+            logger.info(f"📊 {self.risk_mode.upper()}: Scanning {len(tradeable_symbols)} symbols")
         
         # Step 6: Calculate edge for tradeable symbols (with timeout per symbol)
         for symbol in tradeable_symbols:

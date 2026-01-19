@@ -1230,6 +1230,11 @@ class AutonomousTraderV2:
                 # Detect trading mode based on trailing settings
                 is_lock_profit = self.trail_from_peak <= 0.1 and self.min_profit_to_trail <= 0.05
                 mode_name = "🔒 LOCK PROFIT" if is_lock_profit else "📊 NORMAL"
+                self.risk_mode = "lock_profit" if is_lock_profit else "normal"
+                
+                # Update market scanner's risk mode for optimized scanning
+                if self.market_scanner:
+                    self.market_scanner.set_risk_mode(self.risk_mode)
                 
                 # Only log on first load or when settings actually change
                 new_settings_str = f"SL={self.emergency_stop_loss}%,TP={self.take_profit}%,Trail={self.trail_from_peak}%,MinTrail={self.min_profit_to_trail}%"
