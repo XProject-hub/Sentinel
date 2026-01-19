@@ -71,6 +71,12 @@ interface BotSettings {
   useCryptoBert: boolean     // CryptoBERT sentiment
   useXgboostClassifier: boolean  // XGBoost signal classifier
   usePricePredictor: boolean // Chronos price predictor
+  
+  // Smart Exit (MICRO PROFIT)
+  breakevenTrigger?: number     // Move SL to 0% when profit reaches this
+  partialExitTrigger?: number   // Take partial profit at this level
+  partialExitPercent?: number   // How much to close (50%)
+  useSmartExit?: boolean        // Enable breakeven + partial exits
 }
 
 const defaultSettings: BotSettings = {
@@ -216,16 +222,16 @@ const riskPresets = {
   },
   micro_profit: {
     name: 'MICRO PROFIT',
-    description: 'Smart scalping - AI finds SURE profits, quick exits lock gains. High win rate!',
+    description: 'Smart scalping with SCALE-OUT exits - takes 50% at +0.4%, breakeven protection, optimized for range markets!',
     color: 'purple',
     icon: Coins,
     params: {
-      takeProfitPercent: 1.0,   // Take profit at 1% - quick but decent
-      stopLossPercent: 0.5,     // Tight stop - exit fast if wrong (2:1 ratio)
-      trailingStopPercent: 0.15, // 0.15% trail - lock profits fast
-      minProfitToTrail: 0.2,    // Start trailing at 0.2% profit
+      takeProfitPercent: 1.2,   // Final TP at 1.2% (remaining 50%)
+      stopLossPercent: 0.8,     // SL at -0.8% (good R/R)
+      trailingStopPercent: 0.2, // 0.2% trail from peak
+      minProfitToTrail: 0.3,    // Start trailing at 0.3% profit
       minConfidence: 70,        // High confidence - SURE trades only
-      minEdge: 0.12,            // 12% edge - strong signals
+      minEdge: 0.15,            // 15% edge - strong signals
       maxPositionPercent: 5,    // Normal positions - 5% each
       maxOpenPositions: 15,     // Up to 15 positions
       maxDailyDrawdown: 3,      // Stop if losing 3% daily
@@ -233,14 +239,19 @@ const riskPresets = {
       useCryptoBert: true,      // ✅ Sentiment must be positive
       useXgboostClassifier: true, // ✅ ML must predict profit
       usePricePredictor: true,  // ✅ Price must be going up
+      // Smart exit settings
+      breakevenTrigger: 0.3,    // Move SL to 0% at +0.3%
+      partialExitTrigger: 0.4,  // Take 50% profit at +0.4%
+      partialExitPercent: 50,   // Close 50% of position
+      useSmartExit: true,       // Enable breakeven + partial exits
     },
     features: [
-      '🧠 AI finds GUARANTEED profit trades',
-      '⚡ Quick +1% take profit',
-      '🛡️ Tight -0.5% stop loss (2:1 R/R)',
+      '🧠 AI finds HIGH PROBABILITY trades',
+      '💰 SCALE-OUT: 50% at +0.4%, rest trails',
+      '🔒 BREAKEVEN at +0.3% (worst = 0%)',
+      '🛡️ Smart -0.8% stop loss',
       '📈 Momentum filter: only rising prices',
-      '💰 15 positions × 5% = 75% active',
-      '🎯 High win rate > big wins'
+      '🎯 Optimized for range markets'
     ]
   }
 }
@@ -394,6 +405,11 @@ export default function SettingsPage() {
         enableFinbertSentiment: settings.useCryptoBert, // Backend uses this name
         enableXgboostClassifier: settings.useXgboostClassifier,
         enablePricePrediction: settings.usePricePredictor,
+        // Smart exit settings (MICRO PROFIT)
+        breakevenTrigger: settings.breakevenTrigger || 0.3,
+        partialExitTrigger: settings.partialExitTrigger || 0.4,
+        partialExitPercent: settings.partialExitPercent || 50,
+        useSmartExit: settings.useSmartExit || false,
       }
 
       const res = await fetch('/ai/exchange/settings', {

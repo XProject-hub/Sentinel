@@ -82,6 +82,11 @@ class ActivePosition:
     # Sizing
     position_value: float = 0.0
     kelly_fraction: float = 0.0
+    
+    # Smart exit features (MICRO PROFIT)
+    breakeven_active: bool = False  # SL moved to entry price
+    partial_exit_done: bool = False  # 50% already taken
+    original_size: float = 0.0  # Track original size for partial exits
 
 
 class AutonomousTraderV2:
@@ -131,6 +136,12 @@ class AutonomousTraderV2:
         self.trail_from_peak = 1.0  # Trail by 1% from peak
         self.emergency_stop_loss = 1.5  # Hard stop at -1.5%
         self.take_profit = 3.0  # Take profit at +3%
+        
+        # Smart exit (MICRO PROFIT mode)
+        self.breakeven_trigger = 0.3  # Move SL to 0% when profit reaches this
+        self.partial_exit_trigger = 0.4  # Take 50% profit at this level
+        self.partial_exit_percent = 50  # How much to close (50%)
+        self.use_smart_exit = False  # Enable breakeven + partial exits
         
         # Risk limits (0 = unlimited positions)
         self.max_open_positions = 0  # Unlimited by default
@@ -705,6 +716,82 @@ class AutonomousTraderV2:
         except Exception as e:
             logger.error(f"Close position error: {e}")
             
+    async def _partial_close_position(self, user_id: str, client: BybitV5Client,
+                                       position: ActivePosition, pnl_percent: float,
+                                       close_percent: float = 50.0):
+        """Partially close a position (scale-out exit)"""
+        try:
+            # Calculate how much to close
+            close_size = position.size * (close_percent / 100.0)
+            
+            # Get symbol info for minimum qty
+            symbol_info = await self._get_symbol_info(position.symbol, client)
+            min_qty = float(symbol_info.get('minOrderQty', 1)) if symbol_info else 1
+            qty_step = float(symbol_info.get('qtyStep', 0.01)) if symbol_info else 0.01
+            
+            # Round to qty step
+            close_size = round(close_size / qty_step) * qty_step
+            
+            if close_size < min_qty:
+                logger.warning(f"⚠️ Partial close size {close_size} < min {min_qty}, skipping partial exit")
+                return False
+                
+            remaining_size = position.size - close_size
+            
+            logger.info(f"💰 PARTIAL CLOSE: {position.symbol} | Closing: {close_size} ({close_percent}%) | Remaining: {remaining_size}")
+            
+            # Determine close side (opposite of position)
+            close_side = 'Sell' if position.side == 'Buy' else 'Buy'
+            
+            result = await client.place_order(
+                category="linear",
+                symbol=position.symbol,
+                side=close_side,
+                order_type='Market',
+                qty=str(close_size),
+                reduce_only=True
+            )
+            
+            if result.get('success'):
+                pnl_value = (position.position_value * close_percent / 100) * (pnl_percent / 100)
+                
+                logger.info(f"✅ PARTIAL CLOSED {position.symbol}: {close_percent}% at +{pnl_percent:.2f}% (${pnl_value:+.2f})")
+                
+                # Update position size (remaining)
+                position.size = remaining_size
+                position.position_value = position.position_value * (remaining_size / (remaining_size + close_size))
+                
+                # Update stats
+                self.stats['total_trades'] += 0.5  # Count as half trade
+                if pnl_percent > 0:
+                    self.stats['winning_trades'] += 0.5
+                self.stats['total_pnl'] += pnl_value
+                
+                # Log to console
+                await self._log_to_console(f"💰 PARTIAL: {position.symbol} +{pnl_percent:.2f}% (took {close_percent}%)")
+                
+                return True
+            else:
+                logger.error(f"❌ Partial close failed for {position.symbol}: {result}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Partial close error: {e}")
+            return False
+    
+    async def _get_symbol_info(self, symbol: str, client: BybitV5Client) -> Dict:
+        """Get symbol info from market scanner"""
+        try:
+            if self.market_scanner:
+                info = self.market_scanner.get_symbol_info(symbol)
+                return {
+                    'minOrderQty': info.get('min_qty', 1),
+                    'qtyStep': info.get('qty_step', 0.01)
+                }
+        except Exception:
+            pass
+        return {'minOrderQty': 1, 'qtyStep': 0.01}
+            
     async def _find_opportunities(self, user_id: str, client: BybitV5Client, wallet: Dict):
         """Find and execute new trading opportunities"""
         try:
@@ -1115,6 +1202,34 @@ class AutonomousTraderV2:
                     position.trough_price = current_price
                     position.peak_pnl_percent = pnl_percent
                     
+            # === SMART EXIT LOGIC (MICRO PROFIT) ===
+            should_partial_exit = False
+            
+            if self.use_smart_exit and self.risk_mode == 'micro_profit':
+                # 1. BREAKEVEN LOGIC: Move SL to 0% when profit reaches threshold
+                if not position.breakeven_active and pnl_percent >= self.breakeven_trigger:
+                    position.breakeven_active = True
+                    logger.info(f"🔒 BREAKEVEN ACTIVATED: {position.symbol} at +{pnl_percent:.2f}% (trigger: +{self.breakeven_trigger}%)")
+                
+                # 2. BREAKEVEN EXIT: If breakeven is active and price drops to 0%, exit
+                if position.breakeven_active and pnl_percent <= 0.05 and pnl_percent >= -0.05:
+                    # Price returned to entry - exit at breakeven
+                    logger.info(f"⚡ BREAKEVEN EXIT: {position.symbol} P&L={pnl_percent:+.2f}% (was up +{position.peak_pnl_percent:.2f}%)")
+                    await self._close_position(user_id, client, position, pnl_percent, 
+                        f"⚡ BREAKEVEN (was +{position.peak_pnl_percent:.2f}%, now {pnl_percent:+.2f}%)")
+                    return  # Exit early
+                
+                # 3. PARTIAL EXIT: Take 50% profit at trigger level
+                if not position.partial_exit_done and pnl_percent >= self.partial_exit_trigger:
+                    position.partial_exit_done = True
+                    # Execute partial close in background
+                    success = await self._partial_close_position(
+                        user_id, client, position, pnl_percent, self.partial_exit_percent
+                    )
+                    if success:
+                        logger.info(f"✅ PARTIAL EXIT COMPLETE: {position.symbol} at +{pnl_percent:.2f}%")
+                    # Continue with remaining position - don't return
+            
             # === FAST EXIT LOGIC ===
             should_exit = False
             exit_reason = ""
@@ -1323,6 +1438,14 @@ class AutonomousTraderV2:
                     # Backwards compatibility: detect from trailing settings
                     is_lock_profit = self.trail_from_peak <= 0.1 and self.min_profit_to_trail <= 0.05
                     self.risk_mode = "lock_profit" if is_lock_profit else "normal"
+                
+                # Smart exit settings (breakeven + partial exits)
+                self.breakeven_trigger = float(parsed.get('breakevenTrigger', 0.3))
+                self.partial_exit_trigger = float(parsed.get('partialExitTrigger', 0.4))
+                self.partial_exit_percent = float(parsed.get('partialExitPercent', 50))
+                
+                # Enable smart exit for MICRO PROFIT mode automatically
+                self.use_smart_exit = self.risk_mode == 'micro_profit' or parsed.get('useSmartExit', 'false').lower() == 'true'
                 
                 # Mode display names
                 mode_names = {
