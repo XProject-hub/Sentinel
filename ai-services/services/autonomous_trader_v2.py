@@ -142,6 +142,7 @@ class AutonomousTraderV2:
         self.partial_exit_trigger = 0.4  # Take 50% profit at this level
         self.partial_exit_percent = 50  # How much to close (50%)
         self.use_smart_exit = False  # Enable breakeven + partial exits
+        self.momentum_threshold = 0.05  # Minimum momentum % required (0.05 = 0.05%)
         
         # Risk limits (0 = unlimited positions)
         self.max_open_positions = 0  # Unlimited by default
@@ -920,10 +921,10 @@ class AutonomousTraderV2:
                 mode_name = "MICRO PROFIT" if self.risk_mode == "micro_profit" else "LOCK PROFIT"
                 return False, f"⚡ No momentum for {mode_name} ({opp.symbol} not rising)"
             
-            # MICRO PROFIT needs STRONGER momentum (at least 0.1% up in last 5 mins)
-            if self.risk_mode == "micro_profit" and momentum_score < 0.05:
+            # MICRO PROFIT needs STRONGER momentum (configurable threshold)
+            if self.risk_mode == "micro_profit" and momentum_score < self.momentum_threshold:
                 self.stats['trades_rejected_no_momentum'] += 1
-                return False, f"💎 MICRO PROFIT needs stronger momentum ({momentum_score:.3f}% < 0.05%)"
+                return False, f"💎 MICRO PROFIT needs stronger momentum ({momentum_score:.3f}% < {self.momentum_threshold}%)"
             
             # Log positive momentum
             logger.debug(f"✅ Momentum OK for {opp.symbol}: score={momentum_score:.4f}%")
@@ -1443,6 +1444,7 @@ class AutonomousTraderV2:
                 self.breakeven_trigger = float(parsed.get('breakevenTrigger', 0.3))
                 self.partial_exit_trigger = float(parsed.get('partialExitTrigger', 0.4))
                 self.partial_exit_percent = float(parsed.get('partialExitPercent', 50))
+                self.momentum_threshold = float(parsed.get('momentumThreshold', 0.05))
                 
                 # Enable smart exit for MICRO PROFIT mode automatically
                 self.use_smart_exit = self.risk_mode == 'micro_profit' or parsed.get('useSmartExit', 'false').lower() == 'true'

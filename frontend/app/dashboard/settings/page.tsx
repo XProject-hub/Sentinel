@@ -77,6 +77,7 @@ interface BotSettings {
   partialExitTrigger?: number   // Take partial profit at this level
   partialExitPercent?: number   // How much to close (50%)
   useSmartExit?: boolean        // Enable breakeven + partial exits
+  momentumThreshold?: number    // Minimum momentum % to buy (0.05 = 0.05%)
 }
 
 const defaultSettings: BotSettings = {
@@ -244,6 +245,7 @@ const riskPresets = {
       partialExitTrigger: 0.4,  // Take 50% profit at +0.4%
       partialExitPercent: 50,   // Close 50% of position
       useSmartExit: true,       // Enable breakeven + partial exits
+      momentumThreshold: 0.02,  // Low threshold - buy even in slow markets
     },
     features: [
       '🧠 AI finds HIGH PROBABILITY trades',
@@ -410,6 +412,7 @@ export default function SettingsPage() {
         partialExitTrigger: settings.partialExitTrigger || 0.4,
         partialExitPercent: settings.partialExitPercent || 50,
         useSmartExit: settings.useSmartExit || false,
+        momentumThreshold: settings.momentumThreshold || 0.05,
       }
 
       const res = await fetch('/ai/exchange/settings', {
