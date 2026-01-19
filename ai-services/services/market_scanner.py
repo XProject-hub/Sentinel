@@ -543,26 +543,14 @@ class MarketScanner:
                 self.symbol_category[symbol] = 'crypto'
     
     async def _load_tradfi_symbols(self):
-        """Load TradFi symbols from Bybit (stocks, forex, metals, commodities)"""
+        """Load TradFi symbols from Bybit V5 API (CFDs for metals, forex, indices)"""
         try:
-            # Bybit TradFi uses MT5 - try to fetch from their API
-            # Note: This might use a different endpoint
-            
-            # Try the linear category first with different suffixes
             url = "https://api.bybit.com/v5/market/instruments-info"
             
-            # TradFi symbols typically have suffixes like:
-            # Metals: XAUUSD, XAGUSD
-            # Stocks: suffix varies
-            # Forex: EURUSD, etc.
+            # Bybit V5 API categories that may contain TradFi-like assets
+            categories_to_check = ['linear', 'spot']
             
-            # First, try to get all tickers and filter for TradFi-like symbols
-            tickers_url = "https://api.bybit.com/v5/market/tickers"
-            
-            # Try different categories for TradFi
-            tradfi_categories = ['linear', 'spot']
-            
-            for category in tradfi_categories:
+            for category in categories_to_check:
                 try:
                     response = await self.http_client.get(url, params={'category': category, 'limit': 1000})
                     
@@ -572,35 +560,33 @@ class MarketScanner:
                         
                         for inst in instruments:
                             symbol = inst.get('symbol', '')
+                            symbol_upper = symbol.upper()
                             
-                            # Identify TradFi symbols by their patterns
-                            # Metals: XAU (gold), XAG (silver), XPT (platinum)
-                            # Forex: EUR, GBP, JPY, AUD pairs without USDT
-                            # Stocks: Usually 3-4 letter codes
-                            
+                            # Detect TradFi symbols by pattern
                             is_tradfi = False
                             asset_category = 'crypto'
                             
-                            # Check for metals
-                            if any(metal in symbol.upper() for metal in ['XAU', 'XAG', 'XPT', 'XPD']):
+                            # === GOLD & PRECIOUS METALS ===
+                            # Bybit uses patterns like: XAUUSDT (Gold), XAGUSDT (Silver)
+                            if any(metal in symbol_upper for metal in ['XAUUSDT', 'XAGUSDT', 'PAXGUSDT']):
                                 is_tradfi = True
                                 asset_category = 'metals'
-                            # Check for forex
-                            elif any(fx in symbol.upper() for fx in ['EURUSD', 'GBPUSD', 'USDJPY', 'AUDUSD', 'USDCAD', 'USDCHF', 'NZDUSD']):
+                            # Gold-backed tokens
+                            elif symbol_upper in ['PAXGUSDT', 'XAUTUSDT']:
                                 is_tradfi = True
-                                asset_category = 'forex'
-                            # Check for commodities
-                            elif any(comm in symbol.upper() for comm in ['OIL', 'GAS', 'COCOA', 'COFFEE', 'COTTON', 'COPPER', 'SUGAR']):
+                                asset_category = 'metals'
+                                
+                            # === OIL & COMMODITIES ===
+                            elif any(comm in symbol_upper for comm in ['OILUSDT', 'BRENTUSDT', 'WTIUSDT']):
                                 is_tradfi = True
                                 asset_category = 'commodities'
-                            # Check for indices
-                            elif any(idx in symbol.upper() for idx in ['SPX', 'NDX', 'DJI', 'QQQ']):
-                                is_tradfi = True
-                                asset_category = 'indices'
-                            # Check for stocks (common stock symbols on Bybit)
-                            elif symbol.upper() in ['TSLA', 'AAPL', 'GOOG', 'GOOGL', 'META', 'AMZN', 'MSFT', 'NVDA', 
-                                                     'MSTR', 'RIOT', 'MARA', 'COIN', 'AMD', 'INTC', 'NFLX',
-                                                     'DIS', 'BA', 'JPM', 'GS', 'V', 'MA', 'PYPL']:
+                                
+                            # === STOCK TOKENS (Crypto representations of stocks) ===
+                            # Some exchanges offer tokenized stocks
+                            stock_tokens = ['TSLAUSDT', 'AAPLUSDT', 'GOOGUSDT', 'MSFTUSDT', 
+                                          'NVDAUSDT', 'AMZNUSDT', 'METAUSDT', 'COINUSDT',
+                                          'MSTRUSDT', 'RIOTUSDT', 'MARAUSDT']
+                            if symbol_upper in stock_tokens:
                                 is_tradfi = True
                                 asset_category = 'stocks'
                             
@@ -608,60 +594,57 @@ class MarketScanner:
                                 self.tradfi_symbols.append(symbol)
                                 self.symbol_category[symbol] = asset_category
                                 self.symbol_info[symbol] = {
-                                    'min_qty': float(inst.get('lotSizeFilter', {}).get('minOrderQty', 0.01)),
-                                    'qty_step': float(inst.get('lotSizeFilter', {}).get('qtyStep', 0.01)),
+                                    'min_qty': float(inst.get('lotSizeFilter', {}).get('minOrderQty', 0.001)),
+                                    'qty_step': float(inst.get('lotSizeFilter', {}).get('qtyStep', 0.001)),
                                     'tick_size': float(inst.get('priceFilter', {}).get('tickSize', 0.01)),
-                                    'min_notional': float(inst.get('lotSizeFilter', {}).get('minNotionalValue', 5)),
-                                    'is_tradfi': True
+                                    'min_notional': float(inst.get('lotSizeFilter', {}).get('minNotionalValue', 1)),
+                                    'is_tradfi': True,
+                                    'category': category
                                 }
+                                logger.info(f"🏦 Found TradFi symbol: {symbol} ({asset_category}) in {category}")
                                 
                 except Exception as e:
                     logger.debug(f"Error fetching {category} category for TradFi: {e}")
-                    
-            # Also add known TradFi symbols from Bybit MT5
-            # These are the symbols shown in the user's screenshots
-            known_tradfi = {
-                # Metals
-                'XAUUSD+': 'metals', 'XAGUSD': 'metals', 'XPTUSD': 'metals',
-                'XAUAUD': 'metals', 'XAUEUR': 'metals', 'XAUJPY': 'metals',
-                # Forex
-                'EURUSD+': 'forex', 'USOUSD': 'forex', 'GBPUSD': 'forex',
-                'USDJPY': 'forex', 'AUDUSD': 'forex',
-                # Stocks
-                'TSLA': 'stocks', 'AAPL': 'stocks', 'GOOG': 'stocks', 
-                'META': 'stocks', 'NVDA': 'stocks', 'MSTR': 'stocks',
-                'CRCL': 'stocks', 'RIOT': 'stocks', 'HUT': 'stocks',
-                'DFDV': 'stocks', 'APP': 'stocks', 'QQQ': 'indices',
-                'TQQQ': 'indices',
-                # Commodities  
-                'COCOA-C': 'commodities', 'COFFEE-C': 'commodities',
-                'COPPER-C': 'commodities', 'COTTON-C': 'commodities',
-                'GAS-C': 'commodities', 'GASOIL-C': 'commodities',
+            
+            # Add known TradFi-equivalent symbols on Bybit
+            # These are crypto pairs that track traditional assets
+            known_tradfi_crypto = {
+                # Gold-backed tokens
+                'PAXGUSDT': 'metals',  # PAX Gold - 1 PAXG = 1 oz Gold
+                'XAUTUSDT': 'metals',  # Tether Gold
+                # Stock-related crypto
+                'COINUSDT': 'stocks',  # Coinbase stock proxy
+                'MSTRUSDT': 'stocks',  # MicroStrategy (BTC proxy)
             }
             
-            for symbol, category in known_tradfi.items():
-                if symbol not in self.tradfi_symbols:
+            for symbol, category in known_tradfi_crypto.items():
+                if symbol in self.all_symbols and symbol not in self.tradfi_symbols:
                     self.tradfi_symbols.append(symbol)
                     self.symbol_category[symbol] = category
                     if symbol not in self.symbol_info:
                         self.symbol_info[symbol] = {
-                            'min_qty': 0.01,
-                            'qty_step': 0.01,
+                            'min_qty': 0.001,
+                            'qty_step': 0.001,
                             'tick_size': 0.01,
-                            'min_notional': 5,
+                            'min_notional': 1,
                             'is_tradfi': True
                         }
+                    logger.info(f"🏦 Added known TradFi symbol: {symbol} ({category})")
             
-            logger.info(f"Loaded {len(self.tradfi_symbols)} TradFi symbols (metals, stocks, forex, commodities)")
+            if self.tradfi_symbols:
+                logger.info(f"🏦 Loaded {len(self.tradfi_symbols)} TradFi symbols: {self.tradfi_symbols}")
+            else:
+                logger.info("📊 No TradFi symbols found - using crypto pairs only")
             
             # Store in Redis
-            await self.redis_client.set(
-                'trading:tradfi_symbols',
-                ','.join(self.tradfi_symbols)
-            )
+            if self.tradfi_symbols:
+                await self.redis_client.set(
+                    'trading:tradfi_symbols',
+                    ','.join(self.tradfi_symbols)
+                )
             
             # Store combined list
-            all_combined = self.all_symbols + self.tradfi_symbols
+            all_combined = list(set(self.all_symbols + self.tradfi_symbols))
             await self.redis_client.set(
                 'trading:all_symbols',
                 ','.join(all_combined)
