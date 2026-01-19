@@ -214,10 +214,9 @@ class MarketScanner:
             tradeable_symbols = tradeable_symbols[:100]
             logger.info(f"⚡ LOCK PROFIT: Scanning top {len(tradeable_symbols)} symbols (speed mode)")
         else:
-            # Other modes: Scan all tradeable symbols (more thorough)
-            max_symbols = 300  # Still cap at 300 for reasonable scan time
-            tradeable_symbols = tradeable_symbols[:max_symbols]
-            logger.info(f"📊 {self.risk_mode.upper()}: Scanning {len(tradeable_symbols)} symbols")
+            # Other modes: Scan ALL tradeable symbols (thoroughness priority)
+            # No limit - scan everything for best opportunities
+            logger.info(f"📊 {self.risk_mode.upper()}: Scanning ALL {len(tradeable_symbols)} symbols")
         
         # Step 6: Calculate edge for tradeable symbols (with timeout per symbol)
         for symbol in tradeable_symbols:
