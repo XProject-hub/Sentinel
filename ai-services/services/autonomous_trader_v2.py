@@ -143,6 +143,7 @@ class AutonomousTraderV2:
         self.partial_exit_percent = 50  # How much to close (50%)
         self.use_smart_exit = False  # Enable breakeven + partial exits
         self.momentum_threshold = 0.05  # Minimum momentum % required (0.05 = 0.05%)
+        self._ticker_momentum = {}  # Cache for fast momentum checks
         
         # Risk limits (0 = unlimited positions)
         self.max_open_positions = 0  # Unlimited by default
@@ -833,29 +834,62 @@ class AutonomousTraderV2:
         except Exception as e:
             logger.error(f"Find opportunities error: {e}")
     
-    async def _check_momentum(self, symbol: str, client: BybitV5Client) -> Tuple[bool, float]:
+    def _check_momentum_fast(self, symbol: str) -> Tuple[bool, Optional[float]]:
         """
-        MOMENTUM FILTER for LOCK PROFIT strategy
+        FAST MOMENTUM CHECK using cached ticker data
         
-        Checks if price has positive momentum over last 5 minutes.
-        Only buys when price is ALREADY rising - higher win rate!
+        Uses pre-fetched bulk ticker data instead of individual API calls.
+        This is INSTANT instead of ~200ms per symbol!
         
         Returns: (has_momentum, momentum_score)
+        - has_momentum: True if price is rising
+        - momentum_score: Percentage change (can be None if no data)
         """
+        # Get cached momentum data (populated by _get_all_tickers)
+        momentum_cache = getattr(self, '_ticker_momentum', {})
+        
+        if symbol not in momentum_cache:
+            # No cached data - allow trade but skip threshold check
+            return True, None
+        
+        data = momentum_cache[symbol]
+        momentum_score = data.get('momentum', 0)
+        is_rising = data.get('is_rising', False)
+        pct_24h = data.get('pct_24h', 0)
+        
+        # Has momentum if:
+        # - 24h change is positive, OR
+        # - Recent momentum > 0
+        has_momentum = is_rising or momentum_score > 0
+        
+        logger.debug(f"📊 Fast Momentum {symbol}: 24h={pct_24h:.2f}%, momentum={momentum_score:.3f}%, rising={is_rising}")
+        
+        return has_momentum, momentum_score
+    
+    async def _check_momentum(self, symbol: str, client: BybitV5Client) -> Tuple[bool, Optional[float]]:
+        """
+        MOMENTUM FILTER - now uses FAST cached data!
+        
+        Falls back to individual API call only if cache miss.
+        """
+        # Try fast check first (uses cached bulk ticker data)
+        has_momentum, momentum_score = self._check_momentum_fast(symbol)
+        
+        if momentum_score is not None:
+            return has_momentum, momentum_score
+        
+        # Fallback: Individual API call (slow, only if cache miss)
         try:
-            # Get last 6 1-minute candles (5 complete + 1 current)
             kline_data = await client.get_kline(symbol, interval="1", category="linear", limit=6)
             
             if not kline_data.get('result', {}).get('list'):
-                return True, None  # If no data, return None to skip threshold check
+                return True, None
                 
             candles = kline_data['result']['list']
             
             if len(candles) < 5:
-                return True, None  # Not enough data, skip threshold check
+                return True, None
             
-            # Candles are [timestamp, open, high, low, close, volume, turnover]
-            # Most recent first!
             green_candles = 0
             total_change = 0
             
@@ -864,27 +898,22 @@ class AutonomousTraderV2:
                 open_price = float(candle[1])
                 close_price = float(candle[4])
                 
-                # Check if green candle
                 if close_price > open_price:
                     green_candles += 1
                     
-                # Calculate percentage change
                 change = (close_price - open_price) / open_price * 100
                 total_change += change
             
-            # Momentum is positive if:
-            # - At least 3 out of 5 candles are green, OR
-            # - Total change is positive
-            momentum_score = total_change / 5  # Average change per candle
+            momentum_score = total_change / 5
             has_momentum = green_candles >= 3 or total_change > 0.05
             
-            logger.debug(f"📊 Momentum {symbol}: {green_candles}/5 green, avg change: {momentum_score:.4f}%, has_momentum: {has_momentum}")
+            logger.debug(f"📊 Momentum {symbol}: {green_candles}/5 green, avg={momentum_score:.4f}%")
             
             return has_momentum, momentum_score
             
         except Exception as e:
             logger.debug(f"Momentum check failed for {symbol}: {e}")
-            return True, None  # On error, skip threshold check
+            return True, None
             
     async def _validate_opportunity(self, opp: TradingOpportunity, wallet: Dict, client: BybitV5Client = None) -> Tuple[bool, str]:
         """
@@ -1175,16 +1204,43 @@ class AutonomousTraderV2:
         return None
         
     async def _get_all_tickers(self, client: BybitV5Client) -> Dict[str, float]:
-        """Get ALL tickers in ONE API call - much faster than individual calls"""
+        """Get ALL tickers in ONE API call - much faster than individual calls
+        
+        Also caches momentum data (price24hPcnt) for instant momentum checks!
+        """
         try:
             result = await client.get_tickers(category="linear")
             if result.get('success'):
                 tickers = {}
+                momentum_data = {}  # Cache momentum for instant checks
+                
                 for item in result.get('data', {}).get('list', []):
                     symbol = item.get('symbol')
                     price = safe_float(item.get('lastPrice'))
+                    
                     if symbol and price > 0:
                         tickers[symbol] = price
+                        
+                        # Cache momentum data: price24hPcnt is 24h % change
+                        # Also calculate short-term momentum from price vs prevPrice24h
+                        price_24h_pct = safe_float(item.get('price24hPcnt', 0)) * 100  # Convert to %
+                        prev_price = safe_float(item.get('prevPrice24h', 0))
+                        
+                        # Calculate recent momentum: current vs 24h ago price
+                        if prev_price > 0:
+                            recent_momentum = ((price - prev_price) / prev_price) * 100
+                        else:
+                            recent_momentum = price_24h_pct
+                        
+                        momentum_data[symbol] = {
+                            'pct_24h': price_24h_pct,
+                            'momentum': recent_momentum,
+                            'is_rising': price_24h_pct > 0
+                        }
+                
+                # Store momentum cache for instant access in _check_momentum_fast
+                self._ticker_momentum = momentum_data
+                
                 logger.debug(f"⚡ Bulk fetched {len(tickers)} tickers in 1 API call")
                 return tickers
         except Exception as e:
