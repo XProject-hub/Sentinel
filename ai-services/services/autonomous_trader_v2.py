@@ -847,12 +847,12 @@ class AutonomousTraderV2:
             kline_data = await client.get_kline(symbol, interval="1", category="linear", limit=6)
             
             if not kline_data.get('result', {}).get('list'):
-                return True, 0  # If no data, allow trade
+                return True, None  # If no data, return None to skip threshold check
                 
             candles = kline_data['result']['list']
             
             if len(candles) < 5:
-                return True, 0  # Not enough data
+                return True, None  # Not enough data, skip threshold check
             
             # Candles are [timestamp, open, high, low, close, volume, turnover]
             # Most recent first!
@@ -884,7 +884,7 @@ class AutonomousTraderV2:
             
         except Exception as e:
             logger.debug(f"Momentum check failed for {symbol}: {e}")
-            return True, 0  # On error, allow trade
+            return True, None  # On error, skip threshold check
             
     async def _validate_opportunity(self, opp: TradingOpportunity, wallet: Dict, client: BybitV5Client = None) -> Tuple[bool, str]:
         """
@@ -928,13 +928,17 @@ class AutonomousTraderV2:
                     return False, f"No momentum for {mode_name} ({opp.symbol} not rising)"
                 
                 # MICRO PROFIT with threshold>0 needs momentum_score above threshold
-                if self.risk_mode == "micro_profit" and self.momentum_threshold > 0:
+                # Skip if momentum_score is None (no data available)
+                if self.risk_mode == "micro_profit" and self.momentum_threshold > 0 and momentum_score is not None:
                     if momentum_score < self.momentum_threshold:
                         self.stats['trades_rejected_no_momentum'] += 1
                         return False, f"MICRO PROFIT needs stronger momentum ({momentum_score:.3f}% < {self.momentum_threshold}%)"
                 
                 # Log positive momentum
-                logger.debug(f"Momentum OK for {opp.symbol}: score={momentum_score:.4f}%")
+                if momentum_score is not None:
+                    logger.debug(f"Momentum OK for {opp.symbol}: score={momentum_score:.4f}%")
+                else:
+                    logger.debug(f"Momentum data unavailable for {opp.symbol}, skipping threshold check")
             
         # 4. XGBoost ML Classification
         try:
