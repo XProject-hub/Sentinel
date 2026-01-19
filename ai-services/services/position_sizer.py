@@ -47,9 +47,6 @@ class PositionSize:
     stop_loss_pct: float  # Where to place stop
     take_profit_pct: float  # Where to take profit
     
-    # Kelly fraction used
-    kelly_fraction: float = 0.0  # The Kelly fraction that was used
-    
     # Reasoning
     sizing_method: str  # 'kelly', 'fixed', 'reduced', 'minimum'
     adjustments: List[str]  # Why size was adjusted
@@ -57,6 +54,9 @@ class PositionSize:
     # Limits
     is_within_limits: bool
     limit_reason: str
+    
+    # Kelly fraction used (has default value - must come after non-default fields)
+    kelly_fraction: float = 0.0
 
 
 class PositionSizer:
