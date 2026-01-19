@@ -123,7 +123,7 @@ class MarketScanner:
         if mode == 'lock_profit':
             logger.info("Scanner: LOCK PROFIT mode - scanning top 100 symbols")
         elif mode == 'micro_profit':
-            logger.info("Scanner: MICRO PROFIT mode - scanning top 200 symbols")
+            logger.info("Scanner: MICRO PROFIT mode - scanning ALL symbols")
         else:
             logger.info(f"Scanner: {mode.upper()} mode - scanning all symbols")
         
@@ -216,9 +216,8 @@ class MarketScanner:
             tradeable_symbols = tradeable_symbols[:100]
             logger.info(f"LOCK PROFIT: Scanning top {len(tradeable_symbols)} symbols (speed mode)")
         elif self.risk_mode == 'micro_profit':
-            # MICRO PROFIT: More symbols for more opportunities - top 200
-            tradeable_symbols = tradeable_symbols[:200]
-            logger.info(f"MICRO PROFIT: Scanning top {len(tradeable_symbols)} symbols")
+            # MICRO PROFIT: Scan ALL symbols for maximum opportunities
+            logger.info(f"MICRO PROFIT: Scanning ALL {len(tradeable_symbols)} symbols")
         else:
             # Other modes: Scan ALL tradeable symbols (thoroughness priority)
             # No limit - scan everything for best opportunities
