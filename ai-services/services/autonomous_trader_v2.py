@@ -1477,11 +1477,18 @@ class AutonomousTraderV2:
             logger.debug(f"Load settings error: {e}")
             
     async def _load_stats(self):
-        """Load stats from Redis"""
+        """Load stats from Redis, preserving any new keys"""
         try:
             data = await self.redis_client.get('trader:stats')
             if data:
-                self.stats = json.loads(data)
+                loaded_stats = json.loads(data)
+                # Merge loaded stats with current (keeping new keys with defaults)
+                for key, value in loaded_stats.items():
+                    if key in self.stats:
+                        self.stats[key] = value
+                # Ensure new keys exist
+                if 'trades_rejected_no_momentum' not in self.stats:
+                    self.stats['trades_rejected_no_momentum'] = 0
         except:
             pass
             
