@@ -1147,7 +1147,7 @@ export default function DashboardPage() {
                 <h2 className="text-lg font-semibold">Win/Loss Ratio</h2>
               </div>
               <div className="text-sm text-sentinel-text-secondary">
-                {((pnlData?.winningTrades || 0) + (pnlData?.losingTrades || 0))} total trades
+                {pnlData?.tradeCount || ((pnlData?.winningTrades || 0) + (pnlData?.losingTrades || 0))} trades • {pnlData?.period || 'Last 7 days'}
               </div>
             </div>
 

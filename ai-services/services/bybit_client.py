@@ -310,11 +310,19 @@ class BybitV5Client:
             params["symbol"] = symbol
         return await self._request("GET", "/v5/position/list", params, auth=True)
         
-    async def get_pnl(self, category: str = "linear", limit: int = 50) -> Dict:
-        """Get closed PnL history"""
+    async def get_pnl(self, category: str = "linear", limit: int = 200, days: int = 7) -> Dict:
+        """Get closed PnL history for last N days (max 200 trades)"""
+        import time
+        
+        # Calculate start time (7 days ago by default)
+        end_time = int(time.time() * 1000)  # Now in milliseconds
+        start_time = end_time - (days * 24 * 60 * 60 * 1000)  # N days ago
+        
         params = {
             "category": category,
-            "limit": limit
+            "limit": min(limit, 200),  # Bybit max is 200
+            "startTime": str(start_time),
+            "endTime": str(end_time)
         }
         return await self._request("GET", "/v5/position/closed-pnl", params, auth=True)
         

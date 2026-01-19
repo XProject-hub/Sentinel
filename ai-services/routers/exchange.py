@@ -226,14 +226,18 @@ async def get_positions():
 
 
 @router.get("/pnl")
-async def get_pnl_history():
-    """Get real closed PnL history"""
+async def get_pnl_history(days: int = 7, limit: int = 200):
+    """
+    Get real closed PnL history for last N days.
+    Rolling window: shows stats for last 7 days by default.
+    Max 200 trades per request (Bybit limit).
+    """
     
     if "default" not in exchange_connections:
         return {"success": False, "error": "No exchange connected"}
         
     client = exchange_connections["default"]
-    result = await client.get_pnl()
+    result = await client.get_pnl(limit=limit, days=days)
     
     if not result.get("success"):
         return result
@@ -266,7 +270,9 @@ async def get_pnl_history():
             "totalPnl": total_pnl,
             "winningTrades": winning,
             "losingTrades": losing,
-            "winRate": (winning / len(pnl_list) * 100) if pnl_list else 0
+            "winRate": (winning / len(pnl_list) * 100) if pnl_list else 0,
+            "period": f"Last {days} days",
+            "tradeCount": len(pnl_list)
         }
     }
 
