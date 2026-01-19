@@ -258,8 +258,8 @@ class AutonomousTraderV2:
                 
                 # Log every 5 cycles or first 10
                 if cycle % 5 == 0 or cycle <= 10:
-                    is_lock_profit = self.trail_from_peak <= 0.1
-                    mode_str = "🔒LOCK" if is_lock_profit else "📊NORM"
+                    mode_icons = {'lock_profit': '🔒LOCK', 'micro_profit': '💎MICRO', 'safe': '🛡️SAFE', 'aggressive': '⚡AGG', 'normal': '📊NORM'}
+                    mode_str = mode_icons.get(self.risk_mode, '📊NORM')
                     logger.info(f"🔄 Cycle {cycle} | {mode_str} | Users: {connected_users} | Pos: {total_positions} | Trail={self.trail_from_peak}%")
                     try:
                         await self._log_to_console(f"Cycle {cycle}: {total_positions} positions")
@@ -824,8 +824,9 @@ class AutonomousTraderV2:
             return False, f"Confidence too low ({opp.confidence:.1f} < {self.min_confidence})"
         
         # 3. MOMENTUM FILTER - Only for LOCK PROFIT strategy!
+        # MOMENTUM CHECK for lock_profit and micro_profit modes
         # This increases win rate by only buying when price is already rising
-        if self.risk_mode == "lock_profit" and client:
+        if self.risk_mode in ["lock_profit", "micro_profit"] and client:
             has_momentum, momentum_score = await self._check_momentum(opp.symbol, client)
             
             if not has_momentum:
@@ -1297,24 +1298,40 @@ class AutonomousTraderV2:
                 self.max_exposure_percent = float(parsed.get('maxTotalExposure', self.max_exposure_percent))
                 self.max_daily_drawdown = float(parsed.get('maxDailyDrawdown', self.max_daily_drawdown))
                 
-                # Detect trading mode based on trailing settings
-                is_lock_profit = self.trail_from_peak <= 0.1 and self.min_profit_to_trail <= 0.05
-                mode_name = "🔒 LOCK PROFIT" if is_lock_profit else "📊 NORMAL"
-                self.risk_mode = "lock_profit" if is_lock_profit else "normal"
+                # Get risk mode from settings (or detect from parameters for backwards compatibility)
+                saved_risk_mode = parsed.get('riskMode', 'normal')
+                if saved_risk_mode in ['lock_profit', 'micro_profit', 'safe', 'aggressive']:
+                    self.risk_mode = saved_risk_mode
+                else:
+                    # Backwards compatibility: detect from trailing settings
+                    is_lock_profit = self.trail_from_peak <= 0.1 and self.min_profit_to_trail <= 0.05
+                    self.risk_mode = "lock_profit" if is_lock_profit else "normal"
+                
+                # Mode display names
+                mode_names = {
+                    'lock_profit': '🔒 LOCK PROFIT',
+                    'micro_profit': '💎 MICRO PROFIT',
+                    'safe': '🛡️ SAFE',
+                    'aggressive': '⚡ AGGRESSIVE',
+                    'normal': '📊 NORMAL'
+                }
+                mode_name = mode_names.get(self.risk_mode, '📊 NORMAL')
                 
                 # Update market scanner's risk mode for optimized scanning
                 if self.market_scanner:
                     self.market_scanner.set_risk_mode(self.risk_mode)
                 
                 # Only log on first load or when settings actually change
-                new_settings_str = f"SL={self.emergency_stop_loss}%,TP={self.take_profit}%,Trail={self.trail_from_peak}%,MinTrail={self.min_profit_to_trail}%"
+                new_settings_str = f"Mode={self.risk_mode},SL={self.emergency_stop_loss}%,TP={self.take_profit}%,Trail={self.trail_from_peak}%,MinTrail={self.min_profit_to_trail}%"
                 if not hasattr(self, '_last_settings_str') or self._last_settings_str != new_settings_str:
                     logger.info(f"⚙️ Settings [{mode_name}]: SL={self.emergency_stop_loss}%, TP={self.take_profit}%, "
                                f"Trail={self.trail_from_peak}%, MinProfitToTrail={self.min_profit_to_trail}%, "
                                f"MinConf={self.min_confidence}%, MinEdge={self.min_edge}, "
                                f"MaxPos={'Unlimited' if self.max_open_positions == 0 else self.max_open_positions}")
-                    if is_lock_profit:
-                        logger.info(f"🔒 LOCK PROFIT MODE ACTIVE: Sells on {self.trail_from_peak}% drop from peak, activates at {self.min_profit_to_trail}% profit")
+                    if self.risk_mode == 'lock_profit':
+                        logger.info(f"🔒 LOCK PROFIT MODE: Sells on {self.trail_from_peak}% drop from peak")
+                    elif self.risk_mode == 'micro_profit':
+                        logger.info(f"💎 MICRO PROFIT MODE: Quick +{self.take_profit}% profits, -{self.emergency_stop_loss}% stop loss, HIGH confidence required")
                     self._last_settings_str = new_settings_str
         except Exception as e:
             logger.debug(f"Load settings error: {e}")

@@ -41,7 +41,7 @@ import Image from 'next/image'
 
 interface BotSettings {
   // Risk Mode
-  riskMode: 'safe' | 'normal' | 'aggressive' | 'lock_profit'
+  riskMode: 'safe' | 'normal' | 'aggressive' | 'lock_profit' | 'micro_profit'
   
   // Trading Parameters
   takeProfitPercent: number
@@ -212,6 +212,35 @@ const riskPresets = {
       '🛡️ Tight 1% stop loss',
       '♾️ Unlimited positions',
       '💰 100% budget utilization'
+    ]
+  },
+  micro_profit: {
+    name: 'MICRO PROFIT',
+    description: 'Scalping strategy - many small guaranteed profits. Only trades when 90%+ sure of profit!',
+    color: 'purple',
+    icon: Coins,
+    params: {
+      takeProfitPercent: 0.5,   // Take profit at just 0.5%
+      stopLossPercent: 0.3,     // Very tight stop - exit fast if wrong
+      trailingStopPercent: 0.1, // 0.1% trail - lock profits immediately
+      minProfitToTrail: 0.1,    // Start trailing at 0.1% profit
+      minConfidence: 75,        // High confidence required - ONLY sure trades
+      minEdge: 0.15,            // 15% edge - only strong signals
+      maxPositionPercent: 2,    // Small positions - 2% each
+      maxOpenPositions: 10,     // Max 10 positions at once
+      maxDailyDrawdown: 2,      // Stop if losing 2% daily
+      maxTotalExposure: 30,     // Max 30% exposure - conservative
+      useCryptoBert: true,      // ✅ Sentiment must be positive
+      useXgboostClassifier: true, // ✅ ML must predict profit
+      usePricePredictor: true,  // ✅ Price must be going up
+    },
+    features: [
+      '💎 Only HIGH confidence trades (75%+)',
+      '⚡ Quick profit: +0.5% take profit',
+      '🛡️ Minimal loss: -0.3% stop loss',
+      '📊 Small positions: 2% each',
+      '🎯 100 trades × 0.3% = +30%/month',
+      '🧠 All AI models must agree'
     ]
   }
 }

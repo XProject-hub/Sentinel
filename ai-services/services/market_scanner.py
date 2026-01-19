@@ -115,13 +115,15 @@ class MarketScanner:
         self.min_liquidity = 30  # Minimum liquidity score (lowered)
         
         # Risk mode - affects scan behavior
-        self.risk_mode = 'normal'  # 'safe', 'normal', 'aggressive', 'lock_profit'
+        self.risk_mode = 'normal'  # 'safe', 'normal', 'aggressive', 'lock_profit', 'micro_profit'
         
     def set_risk_mode(self, mode: str):
         """Set risk mode - affects number of symbols scanned"""
         self.risk_mode = mode
         if mode == 'lock_profit':
             logger.info("📊 Scanner: LOCK PROFIT mode - scanning top 100 symbols (speed priority)")
+        elif mode == 'micro_profit':
+            logger.info("📊 Scanner: MICRO PROFIT mode - scanning top 50 symbols (quality priority)")
         else:
             logger.info(f"📊 Scanner: {mode.upper()} mode - scanning all symbols")
         
@@ -212,6 +214,11 @@ class MarketScanner:
         if self.risk_mode == 'lock_profit':
             # LOCK PROFIT: Speed is priority - only top 100 by volume
             tradeable_symbols = tradeable_symbols[:100]
+            logger.info(f"⚡ LOCK PROFIT: Scanning top {len(tradeable_symbols)} symbols (speed mode)")
+        elif self.risk_mode == 'micro_profit':
+            # MICRO PROFIT: Quality is priority - only top 50 most liquid
+            tradeable_symbols = tradeable_symbols[:50]
+            logger.info(f"💎 MICRO PROFIT: Scanning top {len(tradeable_symbols)} symbols (quality mode)")
             logger.info(f"⚡ LOCK PROFIT: Scanning top {len(tradeable_symbols)} symbols (speed mode)")
         else:
             # Other modes: Scan ALL tradeable symbols (thoroughness priority)
