@@ -496,11 +496,13 @@ class AutonomousTraderV2:
             # Determine close side (opposite of position)
             close_side = 'Sell' if position.side == 'Buy' else 'Buy'
             
+            # FIXED: qty must be string, add category parameter
             result = await client.place_order(
+                category="linear",  # Crypto perpetuals
                 symbol=position.symbol,
                 side=close_side,
                 order_type='Market',
-                qty=position.size,
+                qty=str(position.size),  # Must be string!
                 reduce_only=True
             )
             
