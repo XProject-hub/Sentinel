@@ -397,17 +397,54 @@ class XGBoostClassifier:
             if X is None or len(X) < self.min_samples_for_training:
                 logger.warning(f"Not enough training data: {len(X) if X is not None else 0}")
                 return
-                
-            # Split data (with stratification)
-            if weights is not None:
-                X_train, X_test, y_train, y_test, w_train, w_test = train_test_split(
-                    X, y, weights, test_size=0.2, random_state=42
-                )
+            
+            # Ensure X and y are numpy arrays with correct types
+            X = np.array(X, dtype=np.float32)
+            y = np.array(y)
+            
+            # Convert labels to integers (0, 1, 2) if they're not already
+            # Handle various label formats: strings, floats, one-hot, etc.
+            if y.ndim > 1:
+                # One-hot encoded - convert to class indices
+                y = np.argmax(y, axis=1)
+            elif y.dtype == object or isinstance(y[0], str):
+                # String labels - map to integers
+                label_map = {'sell': 0, 'hold': 1, 'buy': 2, '0': 0, '1': 1, '2': 2}
+                y = np.array([label_map.get(str(label).lower(), 1) for label in y])
             else:
-                X_train, X_test, y_train, y_test = train_test_split(
-                    X, y, test_size=0.2, random_state=42
-                )
-                w_train, w_test = None, None
+                # Ensure integer type
+                y = y.astype(np.int32)
+            
+            # Ensure labels are in valid range [0, 2]
+            y = np.clip(y, 0, 2)
+            
+            logger.info(f"Training data: X shape={X.shape}, y unique values={np.unique(y)}")
+                
+            # Split data (with stratification if possible)
+            try:
+                if weights is not None:
+                    weights = np.array(weights, dtype=np.float32)
+                    X_train, X_test, y_train, y_test, w_train, w_test = train_test_split(
+                        X, y, weights, test_size=0.2, random_state=42, stratify=y
+                    )
+                else:
+                    X_train, X_test, y_train, y_test = train_test_split(
+                        X, y, test_size=0.2, random_state=42, stratify=y
+                    )
+                    w_train, w_test = None, None
+            except ValueError:
+                # Stratification failed (not enough samples per class)
+                logger.warning("Stratification failed, using random split")
+                if weights is not None:
+                    weights = np.array(weights, dtype=np.float32)
+                    X_train, X_test, y_train, y_test, w_train, w_test = train_test_split(
+                        X, y, weights, test_size=0.2, random_state=42
+                    )
+                else:
+                    X_train, X_test, y_train, y_test = train_test_split(
+                        X, y, test_size=0.2, random_state=42
+                    )
+                    w_train, w_test = None, None
             
             # Scale features
             self.scaler = StandardScaler()
