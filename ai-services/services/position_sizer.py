@@ -212,15 +212,16 @@ class PositionSizer:
         
         # 3.5 Check max open positions (0 = unlimited)
         num_positions = len(self.open_positions)
+        
+        # DEBUG: Always log position count to track the 20 limit bug
+        logger.debug(f"📊 Position sizer: {num_positions} tracked, MAX={'∞' if self.MAX_OPEN_POSITIONS == 0 else self.MAX_OPEN_POSITIONS}, exposure=${current_exposure:.2f}/${max_allowed:.2f}")
+        
         if self.MAX_OPEN_POSITIONS > 0 and num_positions >= self.MAX_OPEN_POSITIONS:
             logger.warning(f"🚫 Max positions check failed: {num_positions} >= {self.MAX_OPEN_POSITIONS}")
+            logger.warning(f"   Tracked positions: {list(self.open_positions.keys())[:10]}...")
             return self._blocked_position(
                 symbol, f"Maximum {self.MAX_OPEN_POSITIONS} positions reached", wallet_balance
             )
-        
-        # Log current state for debugging (only occasionally)
-        if num_positions > 0 and num_positions % 5 == 0:
-            logger.info(f"📊 Position check: {num_positions} open, exposure=${current_exposure:.2f}/${max_allowed:.2f}, limit={'∞' if self.MAX_OPEN_POSITIONS == 0 else self.MAX_OPEN_POSITIONS}")
             
         # 4. Check if symbol already has position
         if symbol in self.open_positions:

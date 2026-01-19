@@ -483,37 +483,48 @@ class AutonomousTraderV2:
                 exit_reason = f"Take profit reached ({pnl_percent:.2f}% >= {self.take_profit}%)"
                 logger.info(f"🎯 TAKE PROFIT: {position.symbol} at {pnl_percent:+.2f}% >= TP {self.take_profit}% - SELLING NOW!")
                 
-            # 3. TRAILING STOP
-            # Activates when profit >= min_profit_to_trail (e.g., 0.8% normal, 0.01% for lock_profit)
-            # LOCK_PROFIT mode: trail_from_peak=0.05%, min_profit_to_trail=0.01%
-            elif pnl_percent >= self.min_profit_to_trail:
-                position.trailing_active = True
-                
-                # Calculate drop from peak price (percentage)
-                if position.side == 'Buy':
-                    drop_from_peak = ((position.peak_price - current_price) / position.peak_price) * 100
-                else:
-                    drop_from_peak = ((current_price - position.trough_price) / position.trough_price) * 100
-                
-                # Log trailing status (especially important for lock_profit mode)
-                is_lock_profit_mode = self.trail_from_peak <= 0.1  # Ultra-tight trailing
-                if is_lock_profit_mode or drop_from_peak >= self.trail_from_peak * 0.5:
-                    logger.info(f"📈 TRAILING {position.symbol}: Peak={position.peak_pnl_percent:+.3f}%, Now={pnl_percent:+.3f}%, Drop={drop_from_peak:.3f}%, Trigger={self.trail_from_peak:.3f}%")
+            # 3. TRAILING STOP - LOCK PROFIT MODE
+            # For LOCK PROFIT: trail_from_peak=0.05%, min_profit_to_trail=0.01%
+            # Activates as soon as we're in ANY profit, exits on drop from peak
+            
+            is_lock_profit_mode = self.trail_from_peak <= 0.1  # Ultra-tight = LOCK PROFIT
+            
+            # Calculate drop from peak (always, for logging)
+            if position.side == 'Buy':
+                drop_from_peak = ((position.peak_price - current_price) / position.peak_price) * 100
+            else:
+                drop_from_peak = ((current_price - position.trough_price) / position.trough_price) * 100
+            
+            # LOCK PROFIT MODE: More aggressive - activate trailing earlier
+            if is_lock_profit_mode:
+                # Activate trailing as soon as we've EVER been in profit
+                if position.peak_pnl_percent >= self.min_profit_to_trail:
+                    position.trailing_active = True
                     
-                # Exit conditions:
-                # 1. Peak profit was at/above take profit (we hit TP, now trailing down)
-                # 2. Current profit is still positive (lock in any profit for lock_profit mode)
-                if drop_from_peak >= self.trail_from_peak:
-                    if position.peak_pnl_percent >= self.take_profit:
-                        # We reached TP at peak, now trailing to lock profits
+                    # Log EVERY check in lock profit mode
+                    logger.info(f"📈 LOCK_PROFIT {position.symbol}: Peak={position.peak_pnl_percent:+.3f}%, Now={pnl_percent:+.3f}%, Drop={drop_from_peak:.3f}%, Trigger={self.trail_from_peak:.3f}%")
+                    
+                    # EXIT if drop from peak exceeds threshold
+                    # Even if current P&L is 0 or slightly negative!
+                    if drop_from_peak >= self.trail_from_peak:
                         should_exit = True
-                        exit_reason = f"Trailing from TP (peak: {position.peak_pnl_percent:.2f}%, now: {pnl_percent:.2f}%)"
-                        logger.info(f"🔒 LOCK PROFIT EXIT: {position.symbol} - Peak was TP, drop {drop_from_peak:.3f}% >= {self.trail_from_peak:.3f}%")
-                    elif pnl_percent >= self.min_profit_to_trail:
-                        # Lock in profit - key for LOCK_PROFIT mode!
-                        should_exit = True
-                        exit_reason = f"Trailing stop (peak: {position.peak_pnl_percent:.2f}%, now: {pnl_percent:.2f}%, drop: {drop_from_peak:.3f}%)"
-                        logger.info(f"🔒 LOCK PROFIT EXIT: {position.symbol} - Locking {pnl_percent:+.2f}% profit! Drop {drop_from_peak:.3f}% >= {self.trail_from_peak:.3f}%")
+                        exit_reason = f"🔒 LOCK PROFIT (peak: {position.peak_pnl_percent:.2f}%, drop: {drop_from_peak:.3f}%)"
+                        logger.info(f"🔒 LOCK PROFIT SELL: {position.symbol} | Peak was {position.peak_pnl_percent:+.2f}%, dropped {drop_from_peak:.3f}% >= {self.trail_from_peak:.3f}%")
+            else:
+                # NORMAL MODE: Standard trailing stop
+                if pnl_percent >= self.min_profit_to_trail:
+                    position.trailing_active = True
+                    
+                    if drop_from_peak >= self.trail_from_peak * 0.5:
+                        logger.info(f"📈 TRAILING {position.symbol}: Peak={position.peak_pnl_percent:+.3f}%, Now={pnl_percent:+.3f}%, Drop={drop_from_peak:.3f}%")
+                    
+                    if drop_from_peak >= self.trail_from_peak:
+                        if position.peak_pnl_percent >= self.take_profit:
+                            should_exit = True
+                            exit_reason = f"Trailing from TP (peak: {position.peak_pnl_percent:.2f}%, now: {pnl_percent:.2f}%)"
+                        elif pnl_percent >= self.min_profit_to_trail:
+                            should_exit = True
+                            exit_reason = f"Trailing stop (peak: {position.peak_pnl_percent:.2f}%, now: {pnl_percent:.2f}%)"
                     
             # 4. REGIME CHANGED TO AVOID
             if not should_exit:
