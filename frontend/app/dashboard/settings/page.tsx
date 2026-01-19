@@ -101,6 +101,7 @@ const defaultSettings: BotSettings = {
   useCryptoBert: true,
   useXgboostClassifier: true,
   usePricePredictor: true,
+  momentumThreshold: 0.05, // 0.05% min price rise to buy
 }
 
 // === RISK PRESETS ===
@@ -986,6 +987,33 @@ export default function SettingsPage() {
                       {settings.minEdge.toFixed(2)}
                     </span>
                   </div>
+                </div>
+
+                {/* Momentum Threshold */}
+                <div>
+                  <label className="block text-sm font-medium text-sentinel-text-secondary mb-2">
+                    Momentum Threshold (MICRO PROFIT)
+                  </label>
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="range"
+                      min="0"
+                      max="0.20"
+                      step="0.01"
+                      value={settings.momentumThreshold || 0.05}
+                      onChange={(e) => setSettings(prev => ({ 
+                        ...prev, 
+                        momentumThreshold: parseFloat(e.target.value)
+                      }))}
+                      className="flex-1 accent-purple-500"
+                    />
+                    <span className="w-16 text-right font-mono text-purple-400">
+                      {(settings.momentumThreshold || 0.05).toFixed(2)}%
+                    </span>
+                  </div>
+                  <p className="text-xs text-sentinel-text-muted mt-1">
+                    Min price rise in 5min to buy (0 = disabled)
+                  </p>
                 </div>
               </div>
             </section>
