@@ -560,7 +560,7 @@ class AutonomousTraderV2:
                         sentiment_at_entry=0.0,   # Not tracked
                         timestamp=datetime.utcnow().isoformat()
                     )
-                    await self.learning_engine.record_trade_outcome(outcome)
+                    await self.learning_engine.update_from_trade(outcome)
                     
                 # Remove from active positions
                 if user_id in self.active_positions:
