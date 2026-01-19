@@ -1005,8 +1005,8 @@ export default function SettingsPage() {
                     <input
                       type="range"
                       min="0"
-                      max="0.20"
-                      step="0.005"
+                      max="0.10"
+                      step="0.01"
                       value={settings.momentumThreshold ?? 0.02}
                       onChange={(e) => setSettings(prev => ({ 
                         ...prev, 
@@ -1014,12 +1014,12 @@ export default function SettingsPage() {
                       }))}
                       className="flex-1 accent-purple-500"
                     />
-                    <span className="w-20 text-right font-mono text-purple-400">
-                      {settings.momentumThreshold === 0 ? 'OFF' : `${(settings.momentumThreshold ?? 0.02).toFixed(3)}%`}
+                    <span className="w-16 text-right font-mono text-purple-400">
+                      {(settings.momentumThreshold ?? 0.02) === 0 ? 'OFF' : `${(settings.momentumThreshold ?? 0.02).toFixed(2)}%`}
                     </span>
                   </div>
                   <p className="text-xs text-sentinel-text-muted mt-1">
-                    Min price rise to buy (0 = OFF, disabled)
+                    0=OFF, 0.01, 0.02, 0.03... 0.10 max
                   </p>
                 </div>
               </div>
