@@ -187,7 +187,7 @@ const riskPresets = {
   },
   lock_profit: {
     name: 'LOCK PROFIT',
-    description: 'Ultra-aggressive trading with tight trailing stop. Buys freely, sells on ANY 0.05% drop from peak!',
+    description: 'AI predicts profitable trades, tight trailing stop locks in ANY profit immediately!',
     color: 'cyan',
     icon: TrendingDown,
     params: {
@@ -195,20 +195,20 @@ const riskPresets = {
       stopLossPercent: 1.0,     // Tight stop loss
       trailingStopPercent: 0.05, // 0.05% drop from peak = SELL
       minProfitToTrail: 0.01,   // Trail activates almost immediately (0.01% profit)
-      minConfidence: 30,        // LOW - trailing stop is the protection
-      minEdge: 0.02,            // LOW (2%) - buy freely, trailing protects
+      minConfidence: 40,        // AI must be 40%+ confident of profit
+      minEdge: 0.05,            // 5% edge - AI sees profit potential
       maxPositionPercent: 5,
       maxOpenPositions: 0,      // Unlimited
       maxDailyDrawdown: 5,      // Higher tolerance for LOCK PROFIT
       maxTotalExposure: 100,    // Use full budget
-      useCryptoBert: false,     // Skip - speed is priority
-      useXgboostClassifier: false, // Skip - trailing is the protection
-      usePricePredictor: false, // Skip - just trade and let trailing work
+      useCryptoBert: true,      // ✅ AI sentiment analysis
+      useXgboostClassifier: true, // ✅ AI profit prediction
+      usePricePredictor: true,  // ✅ AI price forecast
     },
     features: [
+      '🧠 AI predicts profitable entries',
       '🔒 Locks ANY profit immediately',
       '📉 Sells on 0.05% drop from peak',
-      '⚡ Ultra-fast entry (low filters)',
       '🛡️ Tight 1% stop loss',
       '♾️ Unlimited positions',
       '💰 100% budget utilization'
