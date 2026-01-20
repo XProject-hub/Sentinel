@@ -64,12 +64,33 @@ interface Strategy {
   description: string
 }
 
+// Default strategies and symbols - defined outside component for initial state
+const initialStrategies = [
+  { id: 'trend_following', name: 'Trend Following', description: 'SMA crossover strategy - best in trending markets' },
+  { id: 'mean_reversion', name: 'Mean Reversion', description: 'RSI + Bollinger Bands - best in ranging markets' },
+  { id: 'breakout', name: 'Breakout', description: '20-period range breakout - good for volatile markets' },
+  { id: 'macd_crossover', name: 'MACD Crossover', description: 'MACD signal crossovers - classic momentum strategy' }
+]
+
+const initialSymbols = [
+  { symbol: 'BTCUSDT', name: 'Bitcoin' },
+  { symbol: 'ETHUSDT', name: 'Ethereum' },
+  { symbol: 'SOLUSDT', name: 'Solana' },
+  { symbol: 'XRPUSDT', name: 'XRP' },
+  { symbol: 'DOGEUSDT', name: 'Dogecoin' },
+  { symbol: 'ADAUSDT', name: 'Cardano' },
+  { symbol: 'AVAXUSDT', name: 'Avalanche' },
+  { symbol: 'DOTUSDT', name: 'Polkadot' },
+  { symbol: 'LINKUSDT', name: 'Chainlink' },
+  { symbol: 'MATICUSDT', name: 'Polygon' }
+]
+
 export default function BacktestPage() {
   const [isRunning, setIsRunning] = useState(false)
   const [result, setResult] = useState<BacktestResult | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [strategies, setStrategies] = useState<Strategy[]>([])
-  const [symbols, setSymbols] = useState<{symbol: string, name: string}[]>([])
+  const [strategies, setStrategies] = useState<Strategy[]>(initialStrategies)
+  const [symbols, setSymbols] = useState<{symbol: string, name: string}[]>(initialSymbols)
   
   // Form state
   const [config, setConfig] = useState({
@@ -97,16 +118,12 @@ export default function BacktestPage() {
       const response = await fetch('/api/ai/backtest/strategies')
       if (response.ok) {
         const data = await response.json()
-        setStrategies(data.strategies || [])
+        if (data.strategies && data.strategies.length > 0) {
+          setStrategies(data.strategies)
+        }
       }
     } catch (e) {
-      // Use defaults
-      setStrategies([
-        { id: 'trend_following', name: 'Trend Following', description: 'SMA crossover strategy' },
-        { id: 'mean_reversion', name: 'Mean Reversion', description: 'RSI + Bollinger Bands' },
-        { id: 'breakout', name: 'Breakout', description: '20-period range breakout' },
-        { id: 'macd_crossover', name: 'MACD Crossover', description: 'MACD signal crossovers' }
-      ])
+      // Keep using initial strategies
     }
   }
 
@@ -115,14 +132,12 @@ export default function BacktestPage() {
       const response = await fetch('/api/ai/backtest/symbols')
       if (response.ok) {
         const data = await response.json()
-        setSymbols(data.symbols || [])
+        if (data.symbols && data.symbols.length > 0) {
+          setSymbols(data.symbols)
+        }
       }
     } catch (e) {
-      setSymbols([
-        { symbol: 'BTCUSDT', name: 'Bitcoin' },
-        { symbol: 'ETHUSDT', name: 'Ethereum' },
-        { symbol: 'SOLUSDT', name: 'Solana' }
-      ])
+      // Keep using initial symbols
     }
   }
 
