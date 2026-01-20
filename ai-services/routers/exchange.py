@@ -1196,3 +1196,162 @@ async def close_single_position(symbol: str):
         logger.error(f"Close position error for {symbol}: {e}")
         return {"success": False, "error": str(e)}
 
+
+@router.get("/learning/status")
+async def get_learning_status():
+    """Get learning progress for all AI models"""
+    
+    r = await get_redis()
+    
+    learning_status = {
+        "models": {},
+        "overall_progress": 0,
+        "recommendations": []
+    }
+    
+    try:
+        # 1. TRADER STATS
+        trader_stats_raw = await r.get('trader:stats')
+        if trader_stats_raw:
+            trader_stats = json.loads(trader_stats_raw)
+            total_trades = int(trader_stats.get('total_trades', 0))
+            winning = int(trader_stats.get('winning_trades', 0))
+            win_rate = (winning / total_trades * 100) if total_trades > 0 else 0
+            
+            learning_status["models"]["trader"] = {
+                "name": "Trade Executor",
+                "total_trades": total_trades,
+                "winning_trades": winning,
+                "win_rate": round(win_rate, 1),
+                "total_pnl": round(trader_stats.get('total_pnl', 0), 2),
+                "progress": min(100, total_trades / 10),  # 1000 trades = 100%
+                "status": "expert" if total_trades > 1000 else "learning" if total_trades > 100 else "beginner",
+                "needed_for_expert": max(0, 1000 - total_trades)
+            }
+        
+        # 2. POSITION SIZER (Kelly Calibration)
+        sizer_raw = await r.get('sizer:state')
+        if sizer_raw:
+            sizer_data = json.loads(sizer_raw)
+            learning_status["models"]["position_sizer"] = {
+                "name": "Position Sizer (Kelly)",
+                "daily_pnl": round(sizer_data.get('daily_pnl', 0), 2),
+                "weekly_pnl": round(sizer_data.get('weekly_pnl', 0), 2),
+                "open_positions": len(sizer_data.get('open_positions', {})),
+                "progress": 80,  # Always learning from real trades
+                "status": "active",
+                "description": "Calibrating position sizes based on outcomes"
+            }
+        
+        # 3. EDGE ESTIMATOR
+        try:
+            edge_type = await r.type('edge:calibration')
+            if edge_type == b'hash':
+                edge_count = await r.hlen('edge:calibration')
+            else:
+                edge_count = 0
+        except:
+            edge_count = 0
+            
+        # Count edge outcomes
+        edge_outcome_keys = await r.keys('edge:outcomes:*')
+        edge_outcomes = len(edge_outcome_keys) if edge_outcome_keys else 0
+        
+        learning_status["models"]["edge_estimator"] = {
+            "name": "Edge Estimator",
+            "calibrated_symbols": edge_count,
+            "outcome_records": edge_outcomes,
+            "progress": min(100, edge_outcomes / 5),  # 500 outcomes = 100%
+            "status": "expert" if edge_outcomes > 500 else "learning" if edge_outcomes > 50 else "beginner",
+            "needed_for_expert": max(0, 500 - edge_outcomes),
+            "description": "Learns which signals lead to profits"
+        }
+        
+        # 4. LEARNING ENGINE (Q-Learning)
+        learning_stats_raw = await r.get('learning:stats')
+        q_values_raw = await r.get('learning:q_values')
+        
+        episodes = 0
+        strategies_learned = 0
+        if learning_stats_raw:
+            try:
+                learning_stats = json.loads(learning_stats_raw)
+                episodes = learning_stats.get('total_episodes', 0)
+            except:
+                pass
+        if q_values_raw:
+            try:
+                q_values = json.loads(q_values_raw)
+                strategies_learned = len(q_values)
+            except:
+                pass
+                
+        learning_status["models"]["learning_engine"] = {
+            "name": "Strategy Learner (Q-Learning)",
+            "episodes_completed": episodes,
+            "strategies_learned": strategies_learned,
+            "progress": min(100, episodes / 100),  # 10,000 episodes = 100%
+            "status": "expert" if episodes > 10000 else "learning" if episodes > 100 else "beginner",
+            "needed_for_expert": max(0, 10000 - episodes),
+            "description": "Learns optimal strategies per market regime"
+        }
+        
+        # 5. TRAINING DATA (for XGBoost/ML)
+        training_count = await r.llen('training:trades')
+        
+        learning_status["models"]["training_data"] = {
+            "name": "ML Training Data",
+            "trades_collected": training_count,
+            "progress": min(100, training_count / 5),  # 500 trades = 100%
+            "status": "ready" if training_count > 500 else "collecting" if training_count > 50 else "empty",
+            "needed_for_training": max(0, 500 - training_count),
+            "description": "Training data for XGBoost classifier"
+        }
+        
+        # 6. REGIME DETECTOR
+        regime_keys = await r.keys('regime:*')
+        regime_count = len([k for k in regime_keys if b':duration:' not in k]) if regime_keys else 0
+        
+        learning_status["models"]["regime_detector"] = {
+            "name": "Regime Detector",
+            "symbols_analyzed": regime_count,
+            "progress": min(100, regime_count / 5),  # 500 symbols = 100%
+            "status": "active" if regime_count > 100 else "learning",
+            "description": "Detects market conditions (trend, range, volatile)"
+        }
+        
+        # 7. COMPLETED TRADES HISTORY
+        completed_count = await r.llen('trades:completed:default')
+        events_count = await r.llen('trading:events')
+        
+        learning_status["models"]["trade_history"] = {
+            "name": "Trade History",
+            "completed_trades": completed_count,
+            "total_events": events_count,
+            "progress": min(100, completed_count / 1),  # 100 completed = 100%
+            "status": "recording",
+            "description": "Historical trade data for analysis"
+        }
+        
+        # Calculate overall progress
+        progresses = [m.get('progress', 0) for m in learning_status["models"].values()]
+        learning_status["overall_progress"] = round(sum(progresses) / len(progresses), 1) if progresses else 0
+        
+        # Generate recommendations
+        if learning_status["models"].get("training_data", {}).get("trades_collected", 0) < 100:
+            learning_status["recommendations"].append("Need more trades to train ML models (currently collecting)")
+        if learning_status["models"].get("edge_estimator", {}).get("outcome_records", 0) < 50:
+            learning_status["recommendations"].append("Edge Estimator needs more trade outcomes to calibrate")
+        if learning_status["models"].get("learning_engine", {}).get("episodes_completed", 0) < 100:
+            learning_status["recommendations"].append("Q-Learning engine needs more episodes to learn strategies")
+            
+        # Expert level calculation
+        expert_models = sum(1 for m in learning_status["models"].values() if m.get('status') == 'expert')
+        learning_status["expert_level"] = f"{expert_models}/{len(learning_status['models'])} models at expert level"
+        
+    except Exception as e:
+        logger.error(f"Learning status error: {e}")
+        learning_status["error"] = str(e)
+        
+    return {"success": True, "data": learning_status}
+
