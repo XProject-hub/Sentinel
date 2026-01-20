@@ -158,10 +158,13 @@ export default function BacktestPage() {
       if (response.ok && data.success) {
         setResult(data)
       } else {
-        setError(data.detail || data.message || 'Backtest failed')
+        // Show detailed error
+        const errorMsg = data.detail || data.message || data.error || 'Backtest failed'
+        setError(errorMsg)
       }
-    } catch (e) {
-      setError('Failed to connect to server')
+    } catch (e: any) {
+      console.error('Backtest error:', e)
+      setError(`Connection error: ${e.message || 'Failed to connect to server'}`)
     } finally {
       setIsRunning(false)
     }
