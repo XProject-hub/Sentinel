@@ -1219,23 +1219,30 @@ async def get_learning_status():
         
         if trader_stats_raw:
             trader_stats = json.loads(trader_stats_raw)
-            total_trades = int(trader_stats.get('total_trades', 0))
-            winning = int(trader_stats.get('winning_trades', 0))
+            total_trades = int(float(trader_stats.get('total_trades', 0)))
+            winning = int(float(trader_stats.get('winning_trades', 0)))
             total_pnl = float(trader_stats.get('total_pnl', 0))
+            max_drawdown = float(trader_stats.get('max_drawdown', 0))
+            losing = total_trades - winning
             win_rate = (winning / total_trades * 100) if total_trades > 0 else 0
             
-            # Trade Executor learns from actual trades
-            trade_progress = min(100, (total_trades / 100) * 100)  # 100 trades = 100%
+            # EXPERT requires 5000+ trades with 55%+ win rate
+            is_expert = total_trades >= 5000 and win_rate >= 55
+            is_learning = total_trades >= 100
+            trade_progress = min(100, (total_trades / 5000) * 100)  # 5000 trades = 100%
+            
             learning_status["models"]["trader"] = {
                 "name": "Trade Executor",
                 "total_trades": total_trades,
                 "winning_trades": winning,
+                "losing_trades": losing,
                 "win_rate": round(win_rate, 1),
                 "total_pnl": round(total_pnl, 2),
-                "progress": trade_progress,
-                "status": "expert" if total_trades > 100 else "learning" if total_trades > 10 else "beginner",
-                "needed_for_expert": max(0, 100 - total_trades),
-                "description": f"{winning} wins from {total_trades} trades"
+                "max_drawdown": round(max_drawdown, 2),
+                "progress": round(trade_progress, 1),
+                "status": "expert" if is_expert else "learning" if is_learning else "beginner",
+                "needed_for_expert": max(0, 5000 - total_trades),
+                "description": f"{winning}W / {losing}L ({win_rate:.1f}% win rate)"
             }
         
         # 2. Q-LEARNING STRATEGIES (Read from ai:learning:q_values)
@@ -1264,15 +1271,16 @@ async def get_learning_status():
                 except:
                     pass
         
-        q_progress = min(100, (q_states / 50) * 100)  # 50 Q-states = 100%
+        # EXPERT requires 500+ Q-states
+        q_progress = min(100, (q_states / 500) * 100)  # 500 Q-states = 100%
         learning_status["models"]["learning_engine"] = {
             "name": "Strategy Learner (Q-Learning)",
             "q_states": q_states,
             "strategies_learned": strategies_learned,
-            "progress": q_progress,
-            "status": "expert" if q_states > 50 else "learning" if q_states > 10 else "beginner",
-            "needed_for_expert": max(0, 50 - q_states),
-            "description": f"{q_states} Q-states learned"
+            "progress": round(q_progress, 1),
+            "status": "expert" if q_states >= 500 else "learning" if q_states >= 20 else "beginner",
+            "needed_for_expert": max(0, 500 - q_states),
+            "description": f"{q_states} Q-states, {strategies_learned} strategies"
         }
         
         # 3. PATTERN RECOGNITION
@@ -1285,13 +1293,14 @@ async def get_learning_status():
             except:
                 pass
         
-        pattern_progress = min(100, (patterns_count / 50) * 100)  # 50 patterns = 100%
+        # EXPERT requires 200+ patterns
+        pattern_progress = min(100, (patterns_count / 200) * 100)  # 200 patterns = 100%
         learning_status["models"]["patterns"] = {
             "name": "Pattern Recognition",
             "patterns_learned": patterns_count,
-            "progress": pattern_progress,
-            "status": "expert" if patterns_count > 50 else "learning" if patterns_count > 10 else "beginner",
-            "needed_for_expert": max(0, 50 - patterns_count),
+            "progress": round(pattern_progress, 1),
+            "status": "expert" if patterns_count >= 200 else "learning" if patterns_count >= 20 else "beginner",
+            "needed_for_expert": max(0, 200 - patterns_count),
             "description": f"{patterns_count} patterns identified"
         }
         
@@ -1305,14 +1314,15 @@ async def get_learning_status():
             except:
                 pass
         
-        market_progress = min(100, (market_states / 10) * 100)  # 10 market states = 100%
+        # EXPERT requires 50+ market states
+        market_progress = min(100, (market_states / 50) * 100)  # 50 market states = 100%
         learning_status["models"]["market_states"] = {
             "name": "Market State Analyzer",
             "states_learned": market_states,
-            "progress": market_progress,
-            "status": "expert" if market_states > 10 else "learning" if market_states > 3 else "beginner",
-            "needed_for_expert": max(0, 10 - market_states),
-            "description": f"{market_states} market states"
+            "progress": round(market_progress, 1),
+            "status": "expert" if market_states >= 50 else "learning" if market_states >= 5 else "beginner",
+            "needed_for_expert": max(0, 50 - market_states),
+            "description": f"{market_states} market states learned"
         }
         
         # 5. SENTIMENT ANALYZER
@@ -1325,40 +1335,44 @@ async def get_learning_status():
             except:
                 pass
         
-        sentiment_progress = min(100, (sentiment_states / 5) * 100)  # 5 sentiment states = 100%
+        # EXPERT requires 30+ sentiment patterns
+        sentiment_progress = min(100, (sentiment_states / 30) * 100)  # 30 sentiment states = 100%
         learning_status["models"]["sentiment"] = {
             "name": "Sentiment Analyzer",
             "states_learned": sentiment_states,
-            "progress": sentiment_progress,
-            "status": "expert" if sentiment_states > 5 else "learning" if sentiment_states > 1 else "beginner",
-            "needed_for_expert": max(0, 5 - sentiment_states),
-            "description": f"{sentiment_states} sentiment patterns"
+            "progress": round(sentiment_progress, 1),
+            "status": "expert" if sentiment_states >= 30 else "learning" if sentiment_states >= 3 else "beginner",
+            "needed_for_expert": max(0, 30 - sentiment_states),
+            "description": f"{sentiment_states} sentiment patterns learned"
         }
         
         # 6. REGIME DETECTOR
         regime_keys = await r.keys('regime:*')
         regime_count = len([k for k in regime_keys if b':duration:' not in k]) if regime_keys else 0
         
-        regime_progress = min(100, (regime_count / 100) * 100)  # 100 symbols = 100%
+        # EXPERT requires 500+ symbols analyzed
+        regime_progress = min(100, (regime_count / 500) * 100)  # 500 symbols = 100%
         learning_status["models"]["regime_detector"] = {
             "name": "Regime Detector",
             "symbols_analyzed": regime_count,
-            "progress": regime_progress,
-            "status": "expert" if regime_count > 100 else "learning" if regime_count > 20 else "beginner",
-            "needed_for_expert": max(0, 100 - regime_count),
+            "progress": round(regime_progress, 1),
+            "status": "expert" if regime_count >= 500 else "learning" if regime_count >= 50 else "beginner",
+            "needed_for_expert": max(0, 500 - regime_count),
             "description": f"{regime_count} symbols analyzed"
         }
         
         # 7. COMPLETED TRADES (Learning History)
         completed_count = await r.llen('trades:completed:default')
         
-        history_progress = min(100, (completed_count / 50) * 100)  # 50 trades = 100%
+        # EXPERT requires 500+ completed trades in history
+        history_progress = min(100, (completed_count / 500) * 100)  # 500 trades = 100%
         learning_status["models"]["trade_history"] = {
             "name": "Trade History",
             "completed_trades": completed_count,
-            "progress": history_progress,
-            "status": "active" if completed_count > 10 else "recording",
-            "description": f"{completed_count} completed trades"
+            "progress": round(history_progress, 1),
+            "status": "expert" if completed_count >= 500 else "learning" if completed_count >= 50 else "beginner",
+            "needed_for_expert": max(0, 500 - completed_count),
+            "description": f"{completed_count} trades recorded"
         }
         
         # Calculate overall progress (weighted average)
@@ -1378,25 +1392,29 @@ async def get_learning_status():
         else:
             learning_status["expert_level"] = "Beginner"
         
-        # Summary stats
+        # Summary stats with accurate numbers
         learning_status["summary"] = {
             "total_trades": total_trades,
+            "winning_trades": winning,
+            "losing_trades": total_trades - winning if total_trades else 0,
             "win_rate": round((winning / total_trades * 100), 1) if total_trades > 0 else 0,
             "total_pnl": round(total_pnl, 2),
             "q_states": q_states,
             "patterns": patterns_count,
             "market_states": market_states,
             "sentiment_states": sentiment_states,
+            "regime_symbols": regime_count,
+            "completed_history": completed_count,
             "total_states_learned": q_states + patterns_count + market_states + sentiment_states
         }
         
-        # Generate recommendations
-        if total_trades < 50:
-            learning_status["recommendations"].append(f"Execute more trades to improve learning ({total_trades}/50 minimum)")
-        if q_states < 20:
-            learning_status["recommendations"].append(f"Q-Learning needs more data ({q_states}/20 states)")
-        if patterns_count < 20:
-            learning_status["recommendations"].append(f"Pattern recognition improving ({patterns_count}/20 patterns)")
+        # Generate helpful recommendations
+        if total_trades < 1000:
+            learning_status["recommendations"].append(f"Continue trading to improve learning ({total_trades}/5000 for expert)")
+        if q_states < 100:
+            learning_status["recommendations"].append(f"Q-Learning building knowledge ({q_states}/500 states for expert)")
+        if patterns_count < 50:
+            learning_status["recommendations"].append(f"Pattern recognition developing ({patterns_count}/200 patterns for expert)")
         # Count expert models
         expert_models = sum(1 for m in learning_status["models"].values() if m.get('status') == 'expert')
         learning_models = sum(1 for m in learning_status["models"].values() if m.get('status') == 'learning')
