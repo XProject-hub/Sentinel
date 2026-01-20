@@ -274,13 +274,29 @@ class AutonomousTraderV2:
                 connected_users = len(self.user_clients)
                 total_positions = sum(len(p) for p in self.active_positions.values())
                 
+                # Get and store current regime (for dashboard)
+                current_regime = "Unknown"
+                try:
+                    if self.regime_detector:
+                        btc_regime = await self.regime_detector.detect_regime("BTCUSDT")
+                        current_regime = btc_regime.regime if btc_regime else "Unknown"
+                        # Store for dashboard console
+                        if self.redis_client:
+                            await self.redis_client.set('bot:current_regime', current_regime)
+                except:
+                    pass
+                
                 # Log every 5 cycles or first 10
                 if cycle % 5 == 0 or cycle <= 10:
                     mode_icons = {'lock_profit': '🔒LOCK', 'micro_profit': '💎MICRO', 'safe': '🛡️SAFE', 'aggressive': '⚡AGG', 'normal': '📊NORM'}
                     mode_str = mode_icons.get(self.risk_mode, '📊NORM')
                     logger.info(f"🔄 Cycle {cycle} | {mode_str} | Users: {connected_users} | Pos: {total_positions} | Trail={self.trail_from_peak}%")
+                    
+                    # Detailed console log for dashboard
+                    tp_str = f"TP={self.take_profit}%" if self.take_profit > 0 else "TP=OFF"
+                    console_msg = f"[{mode_str}] Positions: {total_positions} | {tp_str} | SL={self.emergency_stop_loss}% | Trail={self.trail_from_peak}% | Regime: {current_regime}"
                     try:
-                        await self._log_to_console(f"Cycle {cycle}: {total_positions} positions")
+                        await self._log_to_console(console_msg, "INFO")
                     except:
                         pass  # Never fail on console logging
                 
@@ -677,6 +693,13 @@ class AutonomousTraderV2:
                 
                 logger.info(f"CLOSED {position.symbol}: {reason} | P&L: {pnl_percent:+.2f}% (${pnl_value:+.2f})")
                 
+                # Console log for dashboard
+                emoji = "✅" if won else "❌"
+                await self._log_to_console(
+                    f"{emoji} CLOSED {position.symbol}: {pnl_percent:+.2f}% (${pnl_value:+.2f}) | {reason}",
+                    "TRADE"
+                )
+                
                 # Update stats
                 self.stats['total_trades'] += 1
                 if won:
@@ -778,7 +801,7 @@ class AutonomousTraderV2:
                 self.stats['total_pnl'] += pnl_value
                 
                 # Log to console
-                await self._log_to_console(f"💰 PARTIAL: {position.symbol} +{pnl_percent:.2f}% (took {close_percent}%)")
+                await self._log_to_console(f"💰 PARTIAL: {position.symbol} +{pnl_percent:.2f}% (took {close_percent}%)", "TRADE")
                 
                 return True
             else:
@@ -814,8 +837,13 @@ class AutonomousTraderV2:
             self._reject_count = 0
             if opportunities:
                 logger.info(f"🔍 Found {len(opportunities)} potential opportunities")
+                # Console log with top 3 opportunities
+                top_opps = opportunities[:3]
+                opp_str = ", ".join([f"{o.symbol}({o.edge_score:.2f})" for o in top_opps])
+                await self._log_to_console(f"🔍 Scanned: {len(opportunities)} opportunities | Top: {opp_str}", "SIGNAL")
             else:
                 logger.debug("🔍 No opportunities found in this scan")
+                await self._log_to_console("🔍 Scanning... no strong signals", "INFO")
             
             for opp in opportunities:
                 # Skip if we have max positions (0 = unlimited)
@@ -1148,6 +1176,12 @@ class AutonomousTraderV2:
             if result.get('success'):
                 logger.info(f"ORDER SUCCESS: {opp.symbol} {side} {qty}")
                 
+                # Log to console for dashboard
+                await self._log_to_console(
+                    f"🚀 OPENED {opp.symbol} {side} | ${pos_size.position_value_usdt:.0f} | Edge: {opp.edge_score:.2f} | Conf: {opp.confidence:.0f}%",
+                    "TRADE"
+                )
+                
                 # Create position tracking
                 if user_id not in self.active_positions:
                     self.active_positions[user_id] = {}
@@ -1325,12 +1359,12 @@ class AutonomousTraderV2:
             # Take Profit only triggers if TP > 0 (enabled)
             if self.take_profit > 0 and pnl_percent >= self.take_profit:
                 logger.info(f"✅ {position.symbol}: P&L={pnl_percent:+.2f}% >= TP={self.take_profit}% - SELLING!")
-                await self._log_to_console(f"✅ SELLING {position.symbol}: +{pnl_percent:.2f}% (Take Profit)")
+                await self._log_to_console(f"✅ SOLD {position.symbol}: +{pnl_percent:.2f}% (Take Profit)", "TRADE")
                 should_exit = True
                 exit_reason = f"Take profit ({pnl_percent:.2f}%)"
             elif pnl_percent <= -self.emergency_stop_loss:
                 logger.info(f"❌ {position.symbol}: P&L={pnl_percent:+.2f}% <= SL=-{self.emergency_stop_loss}% - SELLING!")
-                await self._log_to_console(f"❌ SELLING {position.symbol}: {pnl_percent:.2f}% (Stop Loss)")
+                await self._log_to_console(f"❌ SOLD {position.symbol}: {pnl_percent:.2f}% (Stop Loss)", "TRADE")
                 should_exit = True
                 exit_reason = f"Stop loss ({pnl_percent:.2f}%)"
             elif self.take_profit > 0 and pnl_percent >= self.take_profit * 0.8:
@@ -1392,12 +1426,13 @@ class AutonomousTraderV2:
         except Exception as e:
             logger.error(f"Fast exit check error for {position.symbol}: {e}")
             
-    async def _log_to_console(self, message: str):
+    async def _log_to_console(self, message: str, level: str = "INFO"):
         """Log message to Redis for dashboard real-time console"""
         try:
             if self.redis_client:
                 log_entry = {
-                    "timestamp": datetime.utcnow().isoformat(),
+                    "time": datetime.utcnow().isoformat(),
+                    "level": level,
                     "message": message
                 }
                 await self.redis_client.lpush('bot:console:logs', json.dumps(log_entry))
