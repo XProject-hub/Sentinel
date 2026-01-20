@@ -70,10 +70,12 @@ services:
       - CLICKHOUSE_HOST=clickhouse
       - CLICKHOUSE_PORT=9000
       - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - MODEL_PATH=/app/models
+      - DATA_PATH=/mnt/data
     volumes:
       - ./ai-services:/app
-      - ./ai-services/models:/app/models
-      - ./ai-services/data:/app/data
+      - /mnt/sentinel-data/ai-models:/app/models
+      - /mnt/sentinel-data/ai-data:/mnt/data
     depends_on:
       - postgres
       - redis
@@ -117,7 +119,7 @@ services:
       - POSTGRES_USER=sentinel
       - POSTGRES_PASSWORD=${DB_PASSWORD}
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - /mnt/sentinel-data/postgres:/var/lib/postgresql/data
       - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
     networks:
       - sentinel_network
@@ -129,9 +131,9 @@ services:
   redis:
     image: redis:7-alpine
     container_name: sentinel_redis
-    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    command: redis-server --appendonly yes --maxmemory 2gb --maxmemory-policy allkeys-lru --save 60 1 --save 300 10
     volumes:
-      - redis_data:/data
+      - /mnt/sentinel-data/redis:/data
     networks:
       - sentinel_network
     restart: unless-stopped
@@ -147,7 +149,7 @@ services:
       - CLICKHOUSE_USER=sentinel
       - CLICKHOUSE_PASSWORD=${DB_PASSWORD}
     volumes:
-      - clickhouse_data:/var/lib/clickhouse
+      - /mnt/sentinel-data/clickhouse:/var/lib/clickhouse
       - ./database/clickhouse-init.sql:/docker-entrypoint-initdb.d/init.sql
     networks:
       - sentinel_network
@@ -174,7 +176,7 @@ services:
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
     volumes:
-      - kafka_data:/var/lib/kafka/data
+      - /mnt/sentinel-data/kafka:/var/lib/kafka/data
     depends_on:
       - zookeeper
     networks:
@@ -185,9 +187,11 @@ networks:
   sentinel_network:
     driver: bridge
 
-volumes:
-  postgres_data:
-  redis_data:
-  clickhouse_data:
-  kafka_data:
+# All persistent data now stored on /mnt/sentinel-data (1.8TB disk)
+# - /mnt/sentinel-data/redis      - Redis AOF persistence
+# - /mnt/sentinel-data/postgres   - PostgreSQL data
+# - /mnt/sentinel-data/clickhouse - ClickHouse analytics
+# - /mnt/sentinel-data/kafka      - Kafka streams
+# - /mnt/sentinel-data/ai-models  - Trained ML models
+# - /mnt/sentinel-data/ai-data    - Training data & logs
 
