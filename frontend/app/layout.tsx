@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import './globals.css'
+import Footer from '@/components/Footer'
 
 export const metadata: Metadata = {
   title: 'SENTINEL AI | Autonomous Trading Intelligence',
@@ -28,11 +29,13 @@ export default function RootLayout({
         </div>
         
         {/* Content */}
-        <div className="relative z-10">
+        <div className="relative z-10 pb-12">
           {children}
         </div>
+        
+        {/* Footer */}
+        <Footer />
       </body>
     </html>
   )
 }
-

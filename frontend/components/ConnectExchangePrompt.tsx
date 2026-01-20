@@ -17,7 +17,8 @@ import {
   Loader2,
   Info,
   ExternalLink,
-  Copy
+  Copy,
+  LogOut
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 
@@ -48,6 +49,12 @@ export default function ConnectExchangePrompt() {
     api_secret: '',
     is_testnet: false,
   })
+
+  const handleLogout = () => {
+    localStorage.removeItem('token')
+    localStorage.removeItem('sentinel_user')
+    window.location.href = '/login'
+  }
 
   const exchanges: Exchange[] = [
     { id: 'bybit', name: 'Bybit', available: true, description: 'Leading crypto derivatives exchange' },
@@ -119,6 +126,15 @@ export default function ConnectExchangePrompt() {
 
   return (
     <div className="min-h-screen bg-sentinel-bg-primary p-6 flex items-center justify-center">
+      {/* Logout Button - Top Right */}
+      <button
+        onClick={handleLogout}
+        className="fixed top-4 right-4 px-4 py-2 glass-card border border-sentinel-border rounded-lg text-sentinel-text-secondary hover:text-white hover:border-sentinel-accent-crimson/50 transition-all flex items-center gap-2 z-50"
+      >
+        <LogOut className="w-4 h-4" />
+        <span className="hidden sm:inline">Logout</span>
+      </button>
+      
       <div className="max-w-2xl w-full">
         
         {/* Step: Select Exchange */}
