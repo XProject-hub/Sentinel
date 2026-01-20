@@ -1693,9 +1693,12 @@ class AutonomousTraderV2:
                 if self.leverage_mode not in ['1x', '2x', '3x', '5x', '10x', 'auto']:
                     self.leverage_mode = 'auto'
                 
-                # Sync leverage mode to position sizer
+                # Sync ALL settings to position sizer (HOT RELOAD)
                 if self.position_sizer:
                     self.position_sizer.leverage_mode = self.leverage_mode
+                    self.position_sizer.MAX_OPEN_POSITIONS = self.max_open_positions
+                    self.position_sizer.MAX_TOTAL_EXPOSURE = self.max_exposure_percent / 100  # Convert to fraction
+                    self.position_sizer.MAX_DAILY_DRAWDOWN = self.max_daily_drawdown / 100  # Convert to fraction
                 
                 # Mode display names
                 mode_names = {
