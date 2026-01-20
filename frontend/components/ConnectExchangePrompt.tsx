@@ -129,9 +129,9 @@ export default function ConnectExchangePrompt() {
             animate={{ opacity: 1, y: 0 }}
             className="text-center"
           >
-            {/* Icon */}
-            <div className="w-20 h-20 bg-gradient-to-br from-sentinel-accent-cyan to-sentinel-accent-emerald rounded-2xl flex items-center justify-center mx-auto mb-6">
-              <Wallet className="w-10 h-10 text-white" />
+            {/* Logo */}
+            <div className="w-20 h-20 rounded-2xl flex items-center justify-center mx-auto mb-6 overflow-hidden">
+              <img src="/logo.png" alt="Sentinel" className="w-full h-full object-contain" />
             </div>
             
             {/* Title */}
