@@ -37,7 +37,6 @@ import {
   RefreshCw
 } from 'lucide-react'
 import Link from 'next/link'
-import Image from 'next/image'
 
 interface BotSettings {
   // Risk Mode
@@ -201,7 +200,7 @@ const riskPresets = {
       'Max 10% per position',
       'Max 8% daily drawdown',
       'Unlimited positions',
-      '3x Leverage ⚠️'
+      '3x Leverage (High Risk)'
     ]
   },
   lock_profit: {
@@ -221,9 +220,9 @@ const riskPresets = {
       maxDailyDrawdown: 5,      // Higher tolerance for LOCK PROFIT
       maxTotalExposure: 100,    // Use full budget
       leverageMode: 'auto' as const,  // AI decides leverage
-      useCryptoBert: true,      // ✅ AI sentiment analysis
-      useXgboostClassifier: true, // ✅ AI profit prediction
-      usePricePredictor: true,  // ✅ AI price forecast
+      useCryptoBert: true,      // AI sentiment analysis
+      useXgboostClassifier: true, // AI profit prediction
+      usePricePredictor: true,  // AI price forecast
     },
     features: [
       'AI predicts profitable entries',
@@ -538,20 +537,17 @@ export default function SettingsPage() {
     <div className="min-h-screen bg-sentinel-bg-primary">
       {/* Header */}
       <nav className="sticky top-0 z-50 glass-card border-b border-sentinel-border">
-        <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
+        <div className="max-w-[1800px] mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-4">
             <Link href="/dashboard" className="p-2 rounded-lg hover:bg-sentinel-bg-tertiary transition-colors">
               <ArrowLeft className="w-5 h-5" />
             </Link>
-            <Image 
-              src="/logo.png" 
-              alt="Sentinel Logo" 
-              width={36} 
-              height={36} 
-              className="rounded-lg"
-            />
             <div>
-              <h1 className="font-display font-bold text-xl">Trading Settings</h1>
+              <div className="flex items-center gap-2">
+                <span className="font-display font-bold text-xl text-white">SENTINEL</span>
+                <span className="text-sentinel-text-muted">|</span>
+                <span className="font-display font-bold text-xl">Settings</span>
+              </div>
               <p className="text-xs text-sentinel-text-muted">Configure risk levels, AI models, and trading parameters</p>
             </div>
           </div>
@@ -596,7 +592,7 @@ export default function SettingsPage() {
 
       {/* Sell All Status */}
       {sellAllStatus && (
-        <div className="max-w-6xl mx-auto px-6 pt-4">
+        <div className="max-w-[1800px] mx-auto px-6 pt-4">
           <div className={`p-4 rounded-xl ${
             sellAllStatus.includes('Error') || sellAllStatus.includes('Failed') 
               ? 'bg-sentinel-accent-crimson/10 border border-sentinel-accent-crimson/30' 
@@ -607,7 +603,7 @@ export default function SettingsPage() {
         </div>
       )}
 
-      <main className="max-w-6xl mx-auto px-6 py-8 space-y-8">
+      <main className="max-w-[1800px] mx-auto px-6 py-8 space-y-8">
         
         {/* Balance & Budget Card */}
         <div className="p-6 rounded-2xl glass-card">
@@ -1235,7 +1231,9 @@ export default function SettingsPage() {
                           {(equity * parseInt(settings.leverageMode)).toFixed(0)} USDT
                         </span>.
                         {parseInt(settings.leverageMode) >= 5 && (
-                          <span className="text-sentinel-accent-crimson"> ⚠️ High risk!</span>
+                          <span className="text-sentinel-accent-crimson flex items-center gap-1">
+                            <AlertTriangle className="w-3 h-3" /> High risk!
+                          </span>
                         )}
                       </p>
                     )}
@@ -1462,7 +1460,7 @@ export default function SettingsPage() {
 
       {/* Footer */}
       <footer className="border-t border-sentinel-border mt-12 py-6">
-        <div className="max-w-6xl mx-auto px-6 text-center text-sm text-sentinel-text-muted">
+        <div className="max-w-[1800px] mx-auto px-6 text-center text-sm text-sentinel-text-muted">
           Developed by NoLimitDevelopments
         </div>
       </footer>

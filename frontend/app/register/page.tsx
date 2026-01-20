@@ -4,7 +4,6 @@ import { useState } from 'react'
 import { motion } from 'framer-motion'
 import { Eye, EyeOff, ArrowRight, Check, AlertCircle } from 'lucide-react'
 import Link from 'next/link'
-import Image from 'next/image'
 
 export default function RegisterPage() {
   const [showPassword, setShowPassword] = useState(false)
@@ -147,14 +146,7 @@ export default function RegisterPage() {
         >
           {/* Logo */}
           <Link href="/" className="inline-flex items-center gap-3 mb-12">
-            <Image 
-              src="/logo.png" 
-              alt="Sentinel Logo" 
-              width={48} 
-              height={48} 
-              className="rounded-xl"
-            />
-            <span className="font-display font-bold text-2xl">SENTINEL</span>
+            <span className="font-display font-bold text-3xl text-white">SENTINEL</span>
           </Link>
 
           {/* Header */}

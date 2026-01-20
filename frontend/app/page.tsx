@@ -4,7 +4,6 @@ import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
 import { Zap, Brain, ArrowRight, Shield, User, LogOut } from 'lucide-react'
 import Link from 'next/link'
-import Image from 'next/image'
 
 interface LiveStats {
   totalVolume: number
@@ -108,14 +107,7 @@ export default function LandingPage() {
       <nav className="fixed top-0 left-0 right-0 z-50 glass-card border-b border-sentinel-border">
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <Image 
-              src="/logo.png" 
-              alt="Sentinel Logo" 
-              width={56} 
-              height={56} 
-              className="rounded-xl"
-            />
-            <span className="font-display font-bold text-2xl tracking-tight">SENTINEL</span>
+            <span className="font-display font-bold text-2xl tracking-tight text-white">SENTINEL</span>
           </div>
           
           <div className="flex items-center gap-6">

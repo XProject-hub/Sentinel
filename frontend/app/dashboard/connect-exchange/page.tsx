@@ -18,7 +18,6 @@ import {
 } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import Image from 'next/image'
 
 interface ExchangeConnection {
   id: string
@@ -81,7 +80,6 @@ export default function ConnectExchangePage() {
     {
       id: 'bybit',
       name: 'Bybit',
-      logo: '/exchanges/bybit.svg',
       description: 'Leading crypto derivatives exchange',
       supported: true,
       apiGuideUrl: 'https://www.bybit.com/future-activity/en/developer',
@@ -89,7 +87,6 @@ export default function ConnectExchangePage() {
     {
       id: 'binance',
       name: 'Binance',
-      logo: '/exchanges/binance.svg',
       description: 'World\'s largest crypto exchange',
       supported: false,
       comingSoon: true,
@@ -97,7 +94,6 @@ export default function ConnectExchangePage() {
     {
       id: 'okx',
       name: 'OKX',
-      logo: '/exchanges/okx.svg',
       description: 'Global crypto trading platform',
       supported: false,
       comingSoon: true,

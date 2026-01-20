@@ -154,7 +154,7 @@ export default function BacktestPage() {
 
   return (
     <div className="min-h-screen bg-sentinel-bg-primary p-6 pb-20">
-      <div className="max-w-7xl mx-auto">
+      <div className="max-w-[1800px] mx-auto">
         {/* Header */}
         <div className="flex items-center justify-between mb-8">
           <div className="flex items-center gap-4">
@@ -165,8 +165,12 @@ export default function BacktestPage() {
               <ArrowLeft className="w-5 h-5 text-sentinel-text-secondary" />
             </Link>
             <div>
-              <h1 className="text-2xl font-bold text-white">Strategy Backtester</h1>
-              <p className="text-sentinel-text-muted">Test strategies on historical data</p>
+              <div className="flex items-center gap-2">
+                <span className="font-display font-bold text-xl text-white">SENTINEL</span>
+                <span className="text-sentinel-text-muted">|</span>
+                <span className="font-display font-bold text-xl">Backtester</span>
+              </div>
+              <p className="text-sentinel-text-muted text-sm">Test strategies on historical data</p>
             </div>
           </div>
           <div className="flex items-center gap-2">

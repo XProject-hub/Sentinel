@@ -21,7 +21,6 @@ import {
   Clock
 } from 'lucide-react'
 import Link from 'next/link'
-import Image from 'next/image'
 
 interface SystemStats {
   uptime: string
@@ -161,18 +160,15 @@ export default function AdminPage() {
       <nav className="sticky top-0 z-50 glass-card border-b border-sentinel-border">
         <div className="max-w-[1600px] mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <Image 
-              src="/logo.png" 
-              alt="Sentinel Logo" 
-              width={40} 
-              height={40} 
-              className="rounded-lg"
-            />
             <div>
-              <span className="font-display font-bold text-lg">SENTINEL ADMIN</span>
+              <div className="flex items-center gap-2">
+                <span className="font-display font-bold text-xl text-white">SENTINEL</span>
+                <span className="text-sentinel-text-muted">|</span>
+                <span className="font-display font-bold text-lg">Admin</span>
+              </div>
               <div className="flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full bg-sentinel-accent-emerald live-pulse" />
-                <span className="text-xs text-sentinel-text-muted">Admin Panel</span>
+                <span className="text-xs text-sentinel-text-muted">System Management</span>
               </div>
             </div>
           </div>
