@@ -248,12 +248,21 @@ export default function DashboardPage() {
     
     // Check if admin user (has global access)
     const adminEmail = 'admin@sentinel.ai' // Admin email
-    setIsAdmin(parsedUser.email === adminEmail)
+    const userIsAdmin = parsedUser.email === adminEmail
+    setIsAdmin(userIsAdmin)
     
     // Check if user has exchange connection
     const checkExchangeConnection = async () => {
+      // Admin users bypass exchange check
+      if (userIsAdmin) {
+        console.log('Admin user detected, loading dashboard...')
+        loadData()
+        return
+      }
+      
       if (token) {
         try {
+          console.log('Checking exchange connection for user...')
           const response = await fetch('/api/exchanges', {
             headers: {
               'Authorization': `Bearer ${token}`,
@@ -262,24 +271,35 @@ export default function DashboardPage() {
           
           if (response.ok) {
             const data = await response.json()
+            console.log('Exchange connection response:', data)
             const hasConnection = data.data && data.data.length > 0
             setHasExchangeConnection(hasConnection)
             
-            // If no connection and not admin, they'll see the connect prompt
-            if (!hasConnection && !isAdmin) {
+            // If no connection, show connect prompt
+            if (!hasConnection) {
+              console.log('No exchange connection, showing connect prompt')
               setIsLoading(false)
               return
             }
+            
+            // User has connection, load their data
+            console.log('User has exchange connection, loading dashboard...')
+            loadData()
+          } else {
+            console.error('API error:', response.status)
+            setHasExchangeConnection(false)
+            setIsLoading(false)
           }
         } catch (error) {
           console.error('Failed to check exchange connection:', error)
-          // If API fails, assume no connection for non-admin
           setHasExchangeConnection(false)
+          setIsLoading(false)
         }
+      } else {
+        // No token, can't check
+        setHasExchangeConnection(false)
+        setIsLoading(false)
       }
-      
-      // Load real data (for admin or users with connection)
-      loadData()
     }
     
     checkExchangeConnection()
