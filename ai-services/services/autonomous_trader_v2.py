@@ -82,6 +82,7 @@ class ActivePosition:
     # Sizing
     position_value: float = 0.0
     kelly_fraction: float = 0.0
+    leverage: int = 1  # Leverage used for this position
     
     # Smart exit features (MICRO PROFIT)
     breakeven_active: bool = False  # SL moved to entry price
@@ -154,6 +155,9 @@ class AutonomousTraderV2:
         self.max_open_positions = 0  # Unlimited by default
         self.max_exposure_percent = 100  # 100% = can use entire budget
         self.max_daily_drawdown = 3.0
+        
+        # Leverage mode: '1x', '2x', '3x', '5x', '10x', 'auto'
+        self.leverage_mode = 'auto'
         
         # AI Model toggles
         self.use_dynamic_sizing = True
@@ -1198,7 +1202,25 @@ class AutonomousTraderV2:
             # Determine side
             side = 'Buy' if opp.direction == 'long' else 'Sell'
             
-            logger.info(f"EXECUTING: {side} {opp.symbol} | Qty: {qty_str} | "
+            # Get leverage from position sizer
+            leverage = pos_size.recommended_leverage
+            
+            # Set leverage on Bybit before placing order
+            try:
+                leverage_result = await client.set_leverage(
+                    symbol=opp.symbol,
+                    leverage=str(leverage),
+                    category="linear"
+                )
+                if leverage_result.get('success'):
+                    logger.debug(f"Set leverage to {leverage}x for {opp.symbol}")
+                else:
+                    # If can't set leverage (e.g., has open position), continue with current leverage
+                    logger.debug(f"Could not set leverage for {opp.symbol}: {leverage_result.get('error', 'unknown')}")
+            except Exception as lev_err:
+                logger.debug(f"Leverage set error for {opp.symbol}: {lev_err}")
+            
+            logger.info(f"EXECUTING: {side} {opp.symbol} | Qty: {qty_str} | Leverage: {leverage}x | "
                        f"Edge: {opp.edge_score:.2f} | Confidence: {opp.confidence:.1f}%")
             
             result = await client.place_order(
@@ -1212,8 +1234,9 @@ class AutonomousTraderV2:
                 logger.info(f"ORDER SUCCESS: {opp.symbol} {side} {qty}")
                 
                 # Log to console for dashboard
+                leverage_display = f" | {leverage}x" if leverage > 1 else ""
                 await self._log_to_console(
-                    f"🚀 OPENED {opp.symbol} {side} | ${pos_size.position_value_usdt:.0f} | Edge: {opp.edge_score:.2f} | Conf: {opp.confidence:.0f}%",
+                    f"🚀 OPENED {opp.symbol} {side} | ${pos_size.position_value_usdt:.0f}{leverage_display} | Edge: {opp.edge_score:.2f} | Conf: {opp.confidence:.0f}%",
                     "TRADE"
                 )
                 
@@ -1246,7 +1269,8 @@ class AutonomousTraderV2:
                     take_profit_price=take_profit,
                     trailing_active=False,
                     position_value=pos_size.position_value_usdt,
-                    kelly_fraction=pos_size.kelly_fraction
+                    kelly_fraction=pos_size.kelly_fraction,
+                    leverage=leverage
                 )
                 
                 # Register in position sizer
@@ -1532,7 +1556,7 @@ class AutonomousTraderV2:
                     entry_price=position.entry_price,
                     quantity=position.size,
                     position_value=position.position_value,
-                    leverage=1,
+                    leverage=position.leverage,
                     stop_loss=position.stop_loss_price,
                     take_profit=position.take_profit_price,
                     kelly_fraction=position.kelly_fraction,
@@ -1645,6 +1669,15 @@ class AutonomousTraderV2:
                 self.use_xgboost_classifier = parsed.get('useXgboostClassifier', 'true').lower() == 'true'
                 self.use_price_predictor = parsed.get('usePricePredictor', 'true').lower() == 'true'
                 
+                # Leverage mode
+                self.leverage_mode = parsed.get('leverageMode', 'auto')
+                if self.leverage_mode not in ['1x', '2x', '3x', '5x', '10x', 'auto']:
+                    self.leverage_mode = 'auto'
+                
+                # Sync leverage mode to position sizer
+                if self.position_sizer:
+                    self.position_sizer.leverage_mode = self.leverage_mode
+                
                 # Mode display names
                 mode_names = {
                     'lock_profit': '🔒 LOCK PROFIT',
@@ -1661,12 +1694,14 @@ class AutonomousTraderV2:
                 
                 # Only log on first load or when settings actually change
                 tp_display = f"{self.take_profit}%" if self.take_profit > 0 else "OFF"
-                new_settings_str = f"Mode={self.risk_mode},SL={self.emergency_stop_loss}%,TP={tp_display},Trail={self.trail_from_peak}%,MinTrail={self.min_profit_to_trail}%"
+                leverage_display = self.leverage_mode.upper()
+                new_settings_str = f"Mode={self.risk_mode},SL={self.emergency_stop_loss}%,TP={tp_display},Trail={self.trail_from_peak}%,MinTrail={self.min_profit_to_trail}%,Lev={self.leverage_mode}"
                 if not hasattr(self, '_last_settings_str') or self._last_settings_str != new_settings_str:
                     logger.info(f"⚙️ Settings [{mode_name}]: SL={self.emergency_stop_loss}%, TP={tp_display}, "
                                f"Trail={self.trail_from_peak}%, MinProfitToTrail={self.min_profit_to_trail}%, "
                                f"MinConf={self.min_confidence}%, MinEdge={self.min_edge}, "
-                               f"MaxPos={'Unlimited' if self.max_open_positions == 0 else self.max_open_positions}")
+                               f"MaxPos={'Unlimited' if self.max_open_positions == 0 else self.max_open_positions}, "
+                               f"Leverage={leverage_display}")
                     if self.take_profit == 0:
                         logger.info(f"📊 TRAILING ONLY MODE: No Take Profit limit, sells only when trailing stop triggers")
                     if self.risk_mode == 'lock_profit':

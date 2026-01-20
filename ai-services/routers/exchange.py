@@ -876,6 +876,7 @@ async def get_settings():
         "maxOpenPositions": 0,  # 0 = unlimited
         "maxDailyDrawdown": 3,
         "maxTotalExposure": 100,  # 100% = can use entire budget
+        "leverageMode": "auto",  # 1x, 2x, 3x, 5x, 10x, auto
         "cryptoBudget": 100,
         "tradFiBudget": 0,
         "enableCrypto": True,
@@ -922,6 +923,7 @@ async def get_settings():
                     "maxOpenPositions": int(float(parsed.get('maxOpenPositions', defaults['maxOpenPositions']))),
                     "maxDailyDrawdown": float(parsed.get('maxDailyDrawdown', defaults['maxDailyDrawdown'])),
                     "maxTotalExposure": float(parsed.get('maxTotalExposure', defaults['maxTotalExposure'])),
+                    "leverageMode": parsed.get('leverageMode', defaults['leverageMode']),
                     "cryptoBudget": float(parsed.get('cryptoBudget', defaults['cryptoBudget'])),
                     "tradFiBudget": float(parsed.get('tradFiBudget', defaults['tradFiBudget'])),
                     "enableCrypto": parsed.get('enableCrypto', 'true') == 'true',
@@ -980,6 +982,9 @@ async def save_settings(request: Request):
             'maxOpenPositions': str(body.get('maxOpenPositions', 0)),  # 0 = unlimited
             'maxDailyDrawdown': str(body.get('maxDailyDrawdown', 3)),
             'maxTotalExposure': str(body.get('maxTotalExposure', 100)),  # 100% = can use entire budget
+            
+            # Leverage
+            'leverageMode': str(body.get('leverageMode', 'auto')),  # 1x, 2x, 3x, 5x, 10x, auto
             
             # Budget allocation
             'cryptoBudget': str(body.get('cryptoBudget', 100)),
@@ -1041,9 +1046,16 @@ async def save_settings(request: Request):
             trader.position_sizer.max_daily_drawdown = float(body.get('maxDailyDrawdown', 3))
             trader.position_sizer.max_open_positions = int(body.get('maxOpenPositions', 0))
         
+        # Update leverage mode
+        leverage_mode = body.get('leverageMode', 'auto')
+        if hasattr(trader, 'leverage_mode'):
+            trader.leverage_mode = leverage_mode
+        if hasattr(trader, 'position_sizer') and trader.position_sizer:
+            trader.position_sizer.leverage_mode = leverage_mode
+        
         logger.info("=" * 50)
         logger.info(f"⚙️ SETTINGS UPDATED INSTANTLY!")
-        logger.info(f"   Mode: {body.get('riskMode')}")
+        logger.info(f"   Mode: {body.get('riskMode')} | Leverage: {leverage_mode}")
         logger.info(f"   TP: {body.get('takeProfitPercent')}% | SL: {body.get('stopLossPercent')}%")
         logger.info(f"   Min Edge: {body.get('minEdge')} | Min Conf: {body.get('minConfidence')}%")
         logger.info(f"   Max Positions: {body.get('maxOpenPositions')} | Max Exposure: {body.get('maxTotalExposure')}%")

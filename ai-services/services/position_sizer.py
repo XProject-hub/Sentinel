@@ -96,6 +96,9 @@ class PositionSizer:
         # Open positions tracker
         self.open_positions: Dict[str, float] = {}
         
+        # Leverage mode: '1x', '2x', '3x', '5x', '10x', 'auto'
+        self.leverage_mode: str = 'auto'
+        
         # Correlation groups (assets that move together)
         self.correlation_groups = {
             'btc_correlated': ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT', 'AVAXUSDT'],
@@ -137,10 +140,16 @@ class PositionSizer:
                 self.MAX_RISK_PER_TRADE = float(parsed.get('maxPositionPercent', 15)) / 100  # Same as position %
                 self.MAX_OPEN_POSITIONS = int(float(parsed.get('maxOpenPositions', 0)))
                 
+                # Leverage mode
+                self.leverage_mode = parsed.get('leverageMode', 'auto')
+                if self.leverage_mode not in ['1x', '2x', '3x', '5x', '10x', 'auto']:
+                    self.leverage_mode = 'auto'
+                
                 logger.info(f"Loaded position sizer settings: MaxDD={self.MAX_DAILY_DRAWDOWN*100:.1f}%, "
                            f"MaxExposure={self.MAX_TOTAL_EXPOSURE*100:.0f}%, "
                            f"MaxPos={self.MAX_SINGLE_POSITION*100:.0f}%, "
-                           f"MaxOpenPos={'Unlimited' if self.MAX_OPEN_POSITIONS == 0 else self.MAX_OPEN_POSITIONS}")
+                           f"MaxOpenPos={'Unlimited' if self.MAX_OPEN_POSITIONS == 0 else self.MAX_OPEN_POSITIONS}, "
+                           f"Leverage={self.leverage_mode}")
         except Exception as e:
             logger.debug(f"Load settings error: {e}")
         
@@ -373,10 +382,18 @@ class PositionSizer:
         )
         
     def _calculate_leverage(self, edge: float, win_prob: float) -> int:
-        """Calculate recommended leverage based on edge"""
-        # Higher edge = can use slightly more leverage
-        # But always conservative
+        """Calculate recommended leverage based on edge and leverage_mode setting"""
         
+        # If fixed leverage mode, use that value
+        if self.leverage_mode != 'auto':
+            try:
+                fixed_leverage = int(self.leverage_mode.replace('x', ''))
+                return min(self.MAX_LEVERAGE, fixed_leverage)
+            except ValueError:
+                pass  # Fall through to auto calculation
+        
+        # AUTO mode: Higher edge = can use slightly more leverage
+        # But always conservative
         if edge > 0.5 and win_prob > 60:
             return min(self.MAX_LEVERAGE, 3)
         elif edge > 0.3:

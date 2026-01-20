@@ -57,6 +57,9 @@ interface BotSettings {
   maxDailyDrawdown: number
   maxTotalExposure: number
   
+  // Leverage
+  leverageMode: '1x' | '2x' | '3x' | '5x' | '10x' | 'auto'
+  
   // Budget - Unified
   totalBudget: number
   
@@ -96,6 +99,7 @@ const defaultSettings: BotSettings = {
   maxOpenPositions: 0, // 0 = unlimited
   maxDailyDrawdown: 3,
   maxTotalExposure: 50,
+  leverageMode: 'auto', // auto = bot decides
   totalBudget: 0,
   useAiSignals: true,
   learnFromTrades: true,
@@ -126,6 +130,7 @@ const riskPresets = {
       maxOpenPositions: 5,
       maxDailyDrawdown: 1,
       maxTotalExposure: 20,
+      leverageMode: '1x' as const,  // No leverage - safest
       useCryptoBert: true,
       useXgboostClassifier: true,
       usePricePredictor: true,
@@ -136,7 +141,7 @@ const riskPresets = {
       'Max 2% per position',
       'Max 1% daily drawdown',
       'Max 5 positions',
-      'All AI models active'
+      'No leverage (1x)'
     ]
   },
   normal: {
@@ -155,6 +160,7 @@ const riskPresets = {
       maxOpenPositions: 0, // Unlimited
       maxDailyDrawdown: 3,
       maxTotalExposure: 50,
+      leverageMode: 'auto' as const,  // AI decides leverage
       useCryptoBert: true,
       useXgboostClassifier: true,
       usePricePredictor: true,
@@ -165,7 +171,7 @@ const riskPresets = {
       'Max 5% per position',
       'Max 3% daily drawdown',
       'Unlimited positions',
-      'Dynamic Kelly sizing'
+      'Auto leverage (AI decides)'
     ]
   },
   aggressive: {
@@ -184,6 +190,7 @@ const riskPresets = {
       maxOpenPositions: 0, // Unlimited
       maxDailyDrawdown: 8,
       maxTotalExposure: 80,
+      leverageMode: '3x' as const,  // 3x leverage for aggressive
       useCryptoBert: true,
       useXgboostClassifier: true,
       usePricePredictor: true,
@@ -194,7 +201,7 @@ const riskPresets = {
       'Max 10% per position',
       'Max 8% daily drawdown',
       'Unlimited positions',
-      'Maximum market exposure'
+      '3x Leverage ⚠️'
     ]
   },
   lock_profit: {
@@ -213,6 +220,7 @@ const riskPresets = {
       maxOpenPositions: 0,      // Unlimited
       maxDailyDrawdown: 5,      // Higher tolerance for LOCK PROFIT
       maxTotalExposure: 100,    // Use full budget
+      leverageMode: 'auto' as const,  // AI decides leverage
       useCryptoBert: true,      // ✅ AI sentiment analysis
       useXgboostClassifier: true, // ✅ AI profit prediction
       usePricePredictor: true,  // ✅ AI price forecast
@@ -223,7 +231,7 @@ const riskPresets = {
       'Sells on 0.05% drop from peak',
       'Tight 1% stop loss',
       'Unlimited positions',
-      '100% budget utilization'
+      'Auto leverage (AI decides)'
     ]
   },
   micro_profit: {
@@ -242,6 +250,7 @@ const riskPresets = {
       maxOpenPositions: 5,      // Max 5 positions
       maxDailyDrawdown: 2.5,    // Stop if losing 2.5% daily
       maxTotalExposure: 75,     // Use 75% of budget
+      leverageMode: '1x' as const,  // No leverage for scalping
       useCryptoBert: true,
       useXgboostClassifier: true,
       usePricePredictor: true,
@@ -260,7 +269,7 @@ const riskPresets = {
       'BREAKEVEN at +0.25% (worst = 0%)',
       'TIME-STOP: Close at 4min if PnL < 0.15%',
       'Tight -0.40% stop loss',
-      'Max 5 positions, 75% budget',
+      'No leverage (1x) - safer',
       'Momentum + ADX filter'
     ]
   }
@@ -303,10 +312,17 @@ export default function SettingsPage() {
           riskMode = 'normal' // Default to normal if invalid value
         }
         
+        // Validate leverageMode
+        let leverageMode = data.data.leverageMode || 'auto'
+        if (!['1x', '2x', '3x', '5x', '10x', 'auto'].includes(leverageMode)) {
+          leverageMode = 'auto'
+        }
+        
         setSettings(prev => ({ 
           ...prev, 
           ...data.data,
           riskMode: riskMode as 'safe' | 'normal' | 'aggressive' | 'lock_profit' | 'micro_profit',
+          leverageMode: leverageMode as '1x' | '2x' | '3x' | '5x' | '10x' | 'auto',
           // Map backend field names to frontend
           useCryptoBert: data.data.enableFinbertSentiment ?? data.data.useCryptoBert ?? true,
           useXgboostClassifier: data.data.enableXgboostClassifier ?? data.data.useXgboostClassifier ?? true,
@@ -407,6 +423,7 @@ export default function SettingsPage() {
         maxOpenPositions: settings.maxOpenPositions,
         maxDailyDrawdown: settings.maxDailyDrawdown,
         maxTotalExposure: settings.maxTotalExposure,
+        leverageMode: settings.leverageMode,  // 1x, 2x, 3x, 5x, 10x, auto
         useAiSignals: settings.useAiSignals,
         learnFromTrades: settings.learnFromTrades,
         enableRegimeDetection: settings.useRegimeDetection,
@@ -473,7 +490,7 @@ export default function SettingsPage() {
     }
   }
 
-  const applyRiskPreset = (mode: 'safe' | 'normal' | 'aggressive' | 'lock_profit') => {
+  const applyRiskPreset = (mode: 'safe' | 'normal' | 'aggressive' | 'lock_profit' | 'micro_profit') => {
     const preset = riskPresets[mode]
     setSettings(prev => ({
       ...prev,
@@ -801,7 +818,18 @@ export default function SettingsPage() {
             </div>
           </div>
           
-          <div className="grid grid-cols-4 gap-4 mt-4">
+          <div className="grid grid-cols-5 gap-4 mt-4">
+            <div className="p-4 rounded-xl bg-sentinel-bg-tertiary text-center">
+              <p className="text-xs text-sentinel-text-muted mb-1">Leverage</p>
+              <p className={`text-xl font-bold ${settings.leverageMode === 'auto' ? 'text-sentinel-accent-violet' : 'text-sentinel-accent-amber'}`}>
+                {settings.leverageMode === 'auto' ? (
+                  <span className="flex items-center justify-center gap-1">
+                    <Brain className="w-4 h-4" />
+                    AUTO
+                  </span>
+                ) : settings.leverageMode.toUpperCase()}
+              </p>
+            </div>
             <div className="p-4 rounded-xl bg-sentinel-bg-tertiary text-center">
               <p className="text-xs text-sentinel-text-muted mb-1">Min Edge</p>
               <p className="text-xl font-bold">{settings.minEdge}</p>
@@ -1151,6 +1179,67 @@ export default function SettingsPage() {
                   <p className="text-xs text-sentinel-text-muted mt-1">
                     Bot can invest up to {(equity * settings.maxTotalExposure / 100).toFixed(2)} USDT of your {equity.toFixed(2)} USDT budget
                   </p>
+                </div>
+              </div>
+
+              {/* Leverage Section */}
+              <div className="mt-6 pt-6 border-t border-sentinel-border">
+                <h3 className="text-md font-semibold mb-4 flex items-center gap-2">
+                  <Zap className="w-5 h-5 text-sentinel-accent-amber" />
+                  Leverage Settings
+                </h3>
+                <div>
+                  <label className="block text-sm font-medium text-sentinel-text-secondary mb-3">
+                    Leverage Mode
+                  </label>
+                  <div className="grid grid-cols-6 gap-2">
+                    {(['1x', '2x', '3x', '5x', '10x', 'auto'] as const).map((mode) => (
+                      <button
+                        key={mode}
+                        onClick={() => setSettings(prev => ({ ...prev, leverageMode: mode }))}
+                        className={`p-3 rounded-xl border-2 transition-all text-center font-mono font-bold ${
+                          settings.leverageMode === mode
+                            ? mode === 'auto' 
+                              ? 'border-sentinel-accent-violet bg-sentinel-accent-violet/20 text-sentinel-accent-violet'
+                              : 'border-sentinel-accent-amber bg-sentinel-accent-amber/20 text-sentinel-accent-amber'
+                            : 'border-sentinel-border hover:border-sentinel-border-hover text-sentinel-text-secondary'
+                        }`}
+                      >
+                        {mode === 'auto' ? (
+                          <span className="flex items-center justify-center gap-1">
+                            <Brain className="w-4 h-4" />
+                            AUTO
+                          </span>
+                        ) : mode}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="mt-3 p-3 rounded-xl bg-sentinel-bg-tertiary">
+                    {settings.leverageMode === 'auto' ? (
+                      <p className="text-xs text-sentinel-text-muted">
+                        <Brain className="inline w-3 h-3 mr-1 text-sentinel-accent-violet" />
+                        <strong>AUTO:</strong> AI decides leverage based on edge score and win probability. 
+                        Higher confidence = up to 3x leverage. Lower confidence = 1x (no leverage).
+                      </p>
+                    ) : settings.leverageMode === '1x' ? (
+                      <p className="text-xs text-sentinel-text-muted">
+                        <ShieldCheck className="inline w-3 h-3 mr-1 text-sentinel-accent-emerald" />
+                        <strong>NO LEVERAGE:</strong> Trade only with your actual balance. Safest option.
+                      </p>
+                    ) : (
+                      <p className="text-xs text-sentinel-text-muted">
+                        <AlertTriangle className="inline w-3 h-3 mr-1 text-sentinel-accent-amber" />
+                        <strong>{settings.leverageMode} LEVERAGE:</strong> Each trade uses {settings.leverageMode} of position value. 
+                        With {equity.toFixed(0)} USDT you can open positions worth up to{' '}
+                        <span className="text-sentinel-accent-amber font-bold">
+                          {(equity * parseInt(settings.leverageMode)).toFixed(0)} USDT
+                        </span>.
+                        {parseInt(settings.leverageMode) >= 5 && (
+                          <span className="text-sentinel-accent-crimson"> ⚠️ High risk!</span>
+                        )}
+                      </p>
+                    )}
+                  </div>
                 </div>
               </div>
             </section>
