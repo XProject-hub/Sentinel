@@ -35,10 +35,13 @@ export default function AdminPage() {
   const [activeTab, setActiveTab] = useState('overview')
   const [isLoading, setIsLoading] = useState(true)
   const [isRefreshing, setIsRefreshing] = useState(false)
+  const [initialLoadDone, setInitialLoadDone] = useState(false)
   const [user, setUser] = useState<any>(null)
   const [systemStats, setSystemStats] = useState<SystemStats | null>(null)
   const [users, setUsers] = useState<any[]>([])
   const [aiStats, setAiStats] = useState<any>(null)
+  const [serviceHealth, setServiceHealth] = useState<any>(null)
+  const [lastUpdate, setLastUpdate] = useState<Date>(new Date())
 
   useEffect(() => {
     // Check if admin
@@ -55,22 +58,20 @@ export default function AdminPage() {
       return
     }
     
-    loadData()
+    // Initial load
+    loadData(true)
     
-    // Auto-refresh every 5 seconds for real-time data
+    // Auto-refresh every 5 seconds - SILENT background update
     const interval = setInterval(() => {
-      loadData()
+      loadData(false)
     }, 5000)
     
     return () => clearInterval(interval)
   }, [])
-
-  const [serviceHealth, setServiceHealth] = useState<any>(null)
-  const [lastUpdate, setLastUpdate] = useState<Date>(new Date())
   
-  const loadData = async () => {
+  const loadData = async (showLoading: boolean = false) => {
     // Only show loading spinner on initial load
-    if (!systemStats) {
+    if (showLoading && !initialLoadDone) {
       setIsLoading(true)
     }
     
@@ -117,17 +118,18 @@ export default function AdminPage() {
       })
       
       setLastUpdate(new Date())
+      setInitialLoadDone(true)
     } catch (error) {
       console.error('Failed to load admin data:', error)
     } finally {
       setIsLoading(false)
+      setIsRefreshing(false)
     }
   }
 
   const refreshData = async () => {
     setIsRefreshing(true)
-    await loadData()
-    setIsRefreshing(false)
+    await loadData(false) // Silent refresh, no loading spinner
   }
 
   const handleLogout = () => {
