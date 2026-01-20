@@ -2,8 +2,8 @@
 
 // Version info - updated on each build
 const BUILD_DATE = '20012026'
-const GIT_COMMIT = '2609778'
-const VERSION = `v3.0.${BUILD_DATE}`
+const GIT_COMMIT = '6a8651f'
+const VERSION = 'v3.0'
 
 export default function Footer() {
   return (
