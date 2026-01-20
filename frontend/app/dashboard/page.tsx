@@ -1520,27 +1520,34 @@ export default function DashboardPage() {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               {/* Active Trades */}
               <div>
-                <h3 className="text-sm font-medium text-sentinel-text-secondary mb-3">Active Trades</h3>
-                {botActivity?.active_trades?.length === 0 ? (
+                <h3 className="text-sm font-medium text-sentinel-text-secondary mb-3">
+                  Active Trades ({botActivity?.active_trades?.length || 0})
+                </h3>
+                {!botActivity?.active_trades?.length ? (
                   <div className="text-sm text-sentinel-text-muted py-4">
-                    Analyzing markets...
+                    <span className="animate-pulse">🔍</span> Scanning for opportunities...
                   </div>
                 ) : (
-                  <div className="space-y-2">
+                  <div className="space-y-2 max-h-48 overflow-y-auto">
                     {botActivity?.active_trades?.slice(0, 5).map((trade: any, idx: number) => (
                       <div key={idx} className="p-3 rounded-lg bg-sentinel-bg-tertiary">
                         <div className="flex justify-between items-center">
-                          <span className="font-mono text-sm">{trade.symbol}</span>
-                          <span className={`text-xs px-2 py-0.5 rounded ${
-                            trade.side === 'buy' ? 'bg-sentinel-accent-emerald/20 text-sentinel-accent-emerald' : 
-                            'bg-sentinel-accent-crimson/20 text-sentinel-accent-crimson'
+                          <span className="font-mono text-sm font-medium">{trade.symbol}</span>
+                          <span className={`font-mono font-medium ${
+                            (trade.pnl_percent || 0) >= 0 ? 'text-sentinel-accent-emerald' : 'text-sentinel-accent-crimson'
                           }`}>
-                            {trade.side?.toUpperCase()}
+                            {(trade.pnl_percent || 0) >= 0 ? '+' : ''}{formatNum(trade.pnl_percent || 0)}%
                           </span>
                         </div>
-                        <div className="text-xs text-sentinel-text-muted mt-1">
-                          {trade.strategy} - {formatNum(trade.confidence, 0)}% confident
+                        <div className="flex justify-between text-xs text-sentinel-text-muted mt-1">
+                          <span>{trade.side?.toUpperCase()} ${formatNum(trade.value || 0, 0)}</span>
+                          <span>{trade.trailing_active ? '📈 Trailing' : `Edge: ${formatNum(trade.edge || 0)}`}</span>
                         </div>
+                        {trade.peak_pnl > 0 && (
+                          <div className="text-xs text-sentinel-accent-amber mt-1">
+                            Peak: +{formatNum(trade.peak_pnl)}%
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -1550,23 +1557,32 @@ export default function DashboardPage() {
               {/* Recent Actions */}
               <div>
                 <h3 className="text-sm font-medium text-sentinel-text-secondary mb-3">Recent Bot Actions</h3>
-                {botActivity?.bot_actions?.length === 0 ? (
+                {!botActivity?.bot_actions?.length ? (
                   <div className="text-sm text-sentinel-text-muted py-4">
-                    Waiting for trading signals...
+                    <span className="animate-pulse">⏳</span> Waiting for trading signals...
                   </div>
                 ) : (
                   <div className="space-y-2 max-h-48 overflow-y-auto">
                     {botActivity?.bot_actions?.slice(0, 8).map((action: any, idx: number) => (
-                      <div key={idx} className="text-xs py-1 border-b border-sentinel-border/30">
-                        <div className="flex justify-between">
-                          <span className="font-mono">{action.symbol}</span>
-                          <span className={action.side === 'buy' ? 'text-sentinel-accent-emerald' : 'text-sentinel-accent-crimson'}>
-                            {action.side?.toUpperCase()}
+                      <div key={idx} className="text-xs py-2 border-b border-sentinel-border/30">
+                        <div className="flex justify-between items-center">
+                          <span className="font-mono font-medium">{action.symbol}</span>
+                          <span className={`px-2 py-0.5 rounded text-xs ${
+                            action.action === 'opened' ? 'bg-sentinel-accent-cyan/20 text-sentinel-accent-cyan' :
+                            action.action === 'closed' ? (action.pnl_percent >= 0 ? 'bg-sentinel-accent-emerald/20 text-sentinel-accent-emerald' : 'bg-sentinel-accent-crimson/20 text-sentinel-accent-crimson') :
+                            'bg-sentinel-bg-tertiary text-sentinel-text-muted'
+                          }`}>
+                            {action.action?.toUpperCase() || 'SIGNAL'}
                           </span>
                         </div>
-                        <div className="text-sentinel-text-muted truncate">
-                          {action.reasoning || action.strategy}
+                        <div className="text-sentinel-text-muted mt-1">
+                          {action.reason || action.reasoning || action.strategy || '-'}
                         </div>
+                        {action.pnl_percent !== undefined && (
+                          <div className={`font-mono mt-1 ${action.pnl_percent >= 0 ? 'text-sentinel-accent-emerald' : 'text-sentinel-accent-crimson'}`}>
+                            P&L: {action.pnl_percent >= 0 ? '+' : ''}{formatNum(action.pnl_percent)}%
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -1575,25 +1591,34 @@ export default function DashboardPage() {
 
               {/* Completed Trades */}
               <div>
-                <h3 className="text-sm font-medium text-sentinel-text-secondary mb-3">Bot Completed Trades</h3>
-                {botActivity?.recent_completed?.length === 0 ? (
+                <h3 className="text-sm font-medium text-sentinel-text-secondary mb-3">
+                  Completed Trades ({botActivity?.recent_completed?.length || 0})
+                </h3>
+                {!botActivity?.recent_completed?.length ? (
                   <div className="text-sm text-sentinel-text-muted py-4">
-                    No completed trades yet. Bot is learning...
+                    <span className="animate-pulse">📊</span> No recent completed trades
                   </div>
                 ) : (
-                  <div className="space-y-2">
+                  <div className="space-y-2 max-h-48 overflow-y-auto">
                     {botActivity?.recent_completed?.slice(0, 5).map((trade: any, idx: number) => (
                       <div key={idx} className="p-3 rounded-lg bg-sentinel-bg-tertiary">
                         <div className="flex justify-between items-center">
-                          <span className="font-mono text-sm">{trade.symbol}</span>
-                          <span className={`font-mono font-medium ${
-                            trade.pnl >= 0 ? 'text-sentinel-accent-emerald' : 'text-sentinel-accent-crimson'
-                          }`}>
-                            {safeNum(trade.pnl) >= 0 ? '+' : ''}€{formatNum(trade.pnl)}
-                          </span>
+                          <span className="font-mono text-sm font-medium">{trade.symbol}</span>
+                          <div className="text-right">
+                            <span className={`font-mono font-medium ${
+                              (trade.pnl || trade.pnl_percent || 0) >= 0 ? 'text-sentinel-accent-emerald' : 'text-sentinel-accent-crimson'
+                            }`}>
+                              {(trade.pnl_percent || 0) >= 0 ? '+' : ''}{formatNum(trade.pnl_percent || 0)}%
+                            </span>
+                            {trade.pnl !== undefined && (
+                              <span className="text-xs text-sentinel-text-muted ml-1">
+                                (${formatNum(Math.abs(trade.pnl))})
+                              </span>
+                            )}
+                          </div>
                         </div>
                         <div className="text-xs text-sentinel-text-muted mt-1">
-                          {trade.close_reason}
+                          {trade.close_reason || 'Closed'}
                         </div>
                       </div>
                     ))}
@@ -1603,7 +1628,27 @@ export default function DashboardPage() {
             </div>
 
             <div className="mt-4 pt-4 border-t border-sentinel-border text-xs text-sentinel-text-muted">
-              Strategy: SMART AI | Trailing: -0.8% from PEAK | Emergency Stop: -2% | HOLD while rising | Auto-refresh 3s
+              {botActivity?.current_settings ? (
+                <>
+                  Mode: <span className="text-sentinel-accent-cyan font-medium">{botActivity.current_settings.risk_mode?.toUpperCase()}</span>
+                  {' | '}
+                  TP: <span className="text-sentinel-accent-emerald font-medium">
+                    {botActivity.current_settings.take_profit === 0 ? 'OFF' : `${botActivity.current_settings.take_profit}%`}
+                  </span>
+                  {' | '}
+                  SL: <span className="text-sentinel-accent-crimson font-medium">-{botActivity.current_settings.stop_loss}%</span>
+                  {' | '}
+                  Trail: <span className="text-sentinel-accent-amber font-medium">
+                    {botActivity.current_settings.min_profit_to_trail}%→{botActivity.current_settings.trailing_stop}%
+                  </span>
+                  {' | '}
+                  Max Pos: <span className="font-medium">
+                    {botActivity.current_settings.max_positions === 0 ? '∞' : botActivity.current_settings.max_positions}
+                  </span>
+                </>
+              ) : (
+                'Loading settings...'
+              )}
             </div>
           </motion.div>
         )}

@@ -603,13 +603,63 @@ async def get_live_activity(user_id: str = "default"):
         return {"success": True, "data": activity}
     
     try:
-        # Get active trades for this user
-        active_trades = await trader.redis_client.lrange(f"trades:active:{user_id}", 0, -1)
-        activity["active_trades"] = [json.loads(t) for t in active_trades]
+        # V2: Get active trades directly from trader's active_positions
+        if USE_V2_TRADER and hasattr(trader, 'active_positions'):
+            user_positions = trader.active_positions.get(user_id, {})
+            for symbol, pos in user_positions.items():
+                pnl_percent = 0
+                # Try to calculate current P&L
+                try:
+                    ticker_data = getattr(trader, '_last_ticker_data', {}).get(symbol, {})
+                    current_price = float(ticker_data.get('lastPrice', pos.entry_price))
+                    if pos.side == 'Buy':
+                        pnl_percent = ((current_price - pos.entry_price) / pos.entry_price) * 100
+                    else:
+                        pnl_percent = ((pos.entry_price - current_price) / pos.entry_price) * 100
+                except:
+                    pass
+                    
+                activity["active_trades"].append({
+                    "symbol": symbol,
+                    "side": pos.side.lower(),
+                    "entry_price": pos.entry_price,
+                    "size": pos.size,
+                    "value": pos.position_value,
+                    "pnl_percent": round(pnl_percent, 2),
+                    "confidence": pos.entry_confidence,
+                    "edge": pos.entry_edge,
+                    "regime": pos.entry_regime,
+                    "trailing_active": pos.trailing_active,
+                    "peak_pnl": round(pos.peak_pnl_percent, 2),
+                    "entry_time": pos.entry_time.isoformat() if pos.entry_time else None,
+                    "strategy": f"Edge: {pos.entry_edge:.2f}"
+                })
+        else:
+            # Fallback to Redis
+            active_trades = await trader.redis_client.lrange(f"trades:active:{user_id}", 0, -1)
+            activity["active_trades"] = [json.loads(t) for t in active_trades]
         
-        # Get recent completed trades
+        # Get recent completed trades from Redis
         completed = await trader.redis_client.lrange(f"trades:completed:{user_id}", 0, 9)
         activity["recent_completed"] = [json.loads(t) for t in completed]
+        
+        # Fallback: get from trading:events if no completed trades found
+        if not activity["recent_completed"]:
+            events = await trader.redis_client.lrange('trading:events', 0, 49)
+            for event in events:
+                try:
+                    e = json.loads(event)
+                    if e.get('action') == 'closed':
+                        activity["recent_completed"].append({
+                            "symbol": e.get('symbol'),
+                            "pnl": e.get('pnl_value', 0),
+                            "pnl_percent": e.get('pnl_percent', 0),
+                            "close_reason": e.get('reason', 'Unknown'),
+                            "closed_time": e.get('timestamp')
+                        })
+                except:
+                    pass
+            activity["recent_completed"] = activity["recent_completed"][:10]
         
         # Get last bot actions/decisions (from new v2 events list)
         bot_log = await trader.redis_client.lrange('trading:events', 0, 19)
@@ -629,10 +679,20 @@ async def get_live_activity(user_id: str = "default"):
                 k.decode(): v.decode() for k, v in trading_status.items()
             }
         
-        # V2 specific: Get trader stats
+        # V2 specific: Get trader stats and current settings
         if USE_V2_TRADER:
             stats = await trader.get_status()
             activity["trader_stats"] = stats.get('stats', {})
+            
+            # Add current settings for display
+            activity["current_settings"] = {
+                "risk_mode": getattr(trader, 'risk_mode', 'normal'),
+                "take_profit": getattr(trader, 'take_profit', 3.0),
+                "stop_loss": getattr(trader, 'emergency_stop_loss', 1.5),
+                "trailing_stop": getattr(trader, 'trail_from_peak', 0.14),
+                "min_profit_to_trail": getattr(trader, 'min_profit_to_trail', 0.5),
+                "max_positions": getattr(trader, 'max_open_positions', 0)
+            }
             
     except Exception as e:
         logger.error(f"Error getting activity: {e}")

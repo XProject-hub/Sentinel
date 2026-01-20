@@ -1446,17 +1446,37 @@ class AutonomousTraderV2:
         try:
             timestamp = datetime.utcnow().isoformat()
             
+            # Calculate PnL value if position available
+            pnl_value = 0
+            if position and position.position_value:
+                pnl_value = position.position_value * (pnl / 100)
+            
             event = {
                 'symbol': symbol,
                 'action': action,
-                'pnl_percent': pnl,
+                'pnl_percent': round(pnl, 2),
+                'pnl_value': round(pnl_value, 2),
                 'reason': reason,
-                'timestamp': timestamp
+                'timestamp': timestamp,
+                'side': position.side if position else None,
+                'entry_price': position.entry_price if position else None,
+                'value': position.position_value if position else None
             }
             
             # Push to Redis list for dashboard
             await self.redis_client.lpush('trading:events', json.dumps(event))
             await self.redis_client.ltrim('trading:events', 0, 99)  # Keep last 100
+            
+            # Also store completed trades separately for activity panel
+            if action == 'closed':
+                await self.redis_client.lpush('trades:completed:default', json.dumps({
+                    'symbol': symbol,
+                    'pnl': pnl_value,
+                    'pnl_percent': round(pnl, 2),
+                    'close_reason': reason,
+                    'closed_time': timestamp
+                }))
+                await self.redis_client.ltrim('trades:completed:default', 0, 49)  # Keep last 50
             
             # V3: Record to data collector for ML training
             if position:
