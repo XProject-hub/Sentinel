@@ -537,7 +537,7 @@ export default function SettingsPage() {
     <div className="min-h-screen bg-sentinel-bg-primary">
       {/* Header */}
       <nav className="sticky top-0 z-50 glass-card border-b border-sentinel-border">
-        <div className="max-w-[1800px] mx-auto px-6 py-4 flex items-center justify-between">
+        <div className="w-full max-w-[2000px] mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-4">
             <Link href="/dashboard" className="p-2 rounded-lg hover:bg-sentinel-bg-tertiary transition-colors">
               <ArrowLeft className="w-5 h-5" />
@@ -592,7 +592,7 @@ export default function SettingsPage() {
 
       {/* Sell All Status */}
       {sellAllStatus && (
-        <div className="max-w-[1800px] mx-auto px-6 pt-4">
+        <div className="w-full max-w-[2000px] mx-auto px-6 pt-4">
           <div className={`p-4 rounded-xl ${
             sellAllStatus.includes('Error') || sellAllStatus.includes('Failed') 
               ? 'bg-sentinel-accent-crimson/10 border border-sentinel-accent-crimson/30' 
@@ -603,7 +603,7 @@ export default function SettingsPage() {
         </div>
       )}
 
-      <main className="max-w-[1800px] mx-auto px-6 py-8 space-y-8">
+      <main className="w-full max-w-[2000px] mx-auto px-6 py-8 space-y-8">
         
         {/* Balance & Budget Card */}
         <div className="p-6 rounded-2xl glass-card">

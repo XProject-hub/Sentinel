@@ -158,7 +158,7 @@ export default function AdminPage() {
     <div className="min-h-screen bg-sentinel-bg-primary">
       {/* Top Navigation */}
       <nav className="sticky top-0 z-50 glass-card border-b border-sentinel-border">
-        <div className="max-w-[1600px] mx-auto px-6 py-4 flex items-center justify-between">
+        <div className="w-full max-w-[2000px] mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-4">
             <div>
               <div className="flex items-center gap-2">

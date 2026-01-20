@@ -694,7 +694,7 @@ export default function DashboardPage() {
       <div className="min-h-screen bg-sentinel-bg-primary">
         {/* Navigation */}
         <nav className="sticky top-0 z-50 glass-card border-b border-sentinel-border">
-          <div className="max-w-[1600px] mx-auto px-6 py-4 flex items-center justify-between">
+          <div className="w-full max-w-[2000px] mx-auto px-6 py-4 flex items-center justify-between">
             <div className="flex items-center gap-3">
               <span className="font-display font-bold text-xl text-white">SENTINEL</span>
               <div className="flex items-center gap-2">
@@ -719,7 +719,7 @@ export default function DashboardPage() {
         {/* AI Status Bar - Always visible */}
         {aiInsight && (
           <div className="bg-sentinel-bg-secondary border-b border-sentinel-border">
-            <div className="max-w-[1600px] mx-auto px-6 py-3 flex items-center justify-between">
+            <div className="w-full max-w-[2000px] mx-auto px-6 py-3 flex items-center justify-between">
               <div className="flex items-center gap-6">
                 <div className="flex items-center gap-2">
                   <Brain className="w-4 h-4 text-sentinel-accent-cyan" />
@@ -796,7 +796,7 @@ export default function DashboardPage() {
     <div className="min-h-screen bg-sentinel-bg-primary">
       {/* Top Navigation */}
       <nav className="sticky top-0 z-50 glass-card border-b border-sentinel-border">
-        <div className="max-w-[1600px] mx-auto px-6 py-4 flex items-center justify-between">
+        <div className="w-full max-w-[2000px] mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <span className="font-display font-bold text-xl text-white">SENTINEL</span>
             <div className="flex items-center gap-2">
@@ -837,7 +837,7 @@ export default function DashboardPage() {
       {/* AI Status Bar */}
       {aiInsight && (
         <div className="bg-sentinel-bg-secondary border-b border-sentinel-border">
-          <div className="max-w-[1600px] mx-auto px-6 py-3 flex items-center justify-between flex-wrap gap-4">
+          <div className="w-full max-w-[2000px] mx-auto px-6 py-3 flex items-center justify-between flex-wrap gap-4">
             <div className="flex items-center gap-6 flex-wrap">
               {/* AI Confidence */}
               <div className="flex items-center gap-2">
@@ -895,7 +895,7 @@ export default function DashboardPage() {
       )}
 
       {/* Trading Control Panel */}
-      <div className="max-w-[1600px] mx-auto px-6 pt-6">
+      <div className="w-full max-w-[2000px] mx-auto px-6 pt-6">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -1167,7 +1167,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Main Content */}
-      <main className="max-w-[1600px] mx-auto px-6 py-8">
+      <main className="w-full max-w-[2000px] mx-auto px-6 py-8">
         {/* Top Stats Row - REAL DATA */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
           {/* Balance Card */}

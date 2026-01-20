@@ -105,7 +105,7 @@ export default function LandingPage() {
     <div className="min-h-screen flex flex-col">
       {/* Navigation */}
       <nav className="fixed top-0 left-0 right-0 z-50 glass-card border-b border-sentinel-border">
-        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
+        <div className="w-full max-w-[2000px] mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <span className="font-display font-bold text-2xl tracking-tight text-white">SENTINEL</span>
           </div>
@@ -246,7 +246,7 @@ export default function LandingPage() {
 
       {/* Live Stats Bar */}
       <section className="border-t border-sentinel-border glass-card">
-        <div className="max-w-7xl mx-auto px-6 py-8">
+        <div className="w-full max-w-[2000px] mx-auto px-6 py-8">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-8">
             <LiveStatItem 
               label="Total Volume" 
