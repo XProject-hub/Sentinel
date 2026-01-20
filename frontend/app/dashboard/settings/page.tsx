@@ -1457,13 +1457,6 @@ export default function SettingsPage() {
           </button>
         </motion.section>
       </main>
-
-      {/* Footer */}
-      <footer className="border-t border-sentinel-border mt-12 py-6">
-        <div className="max-w-[1800px] mx-auto px-6 text-center text-sm text-sentinel-text-muted">
-          Developed by NoLimitDevelopments
-        </div>
-      </footer>
     </div>
   )
 }

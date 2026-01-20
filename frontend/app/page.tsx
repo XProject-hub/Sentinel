@@ -271,18 +271,6 @@ export default function LandingPage() {
           </div>
         </div>
       </section>
-
-      {/* Footer */}
-      <footer className="border-t border-sentinel-border bg-sentinel-bg-secondary/50">
-        <div className="max-w-7xl mx-auto px-6 py-6 flex items-center justify-between">
-          <span className="text-sentinel-text-muted text-sm">
-            SENTINEL AI - Autonomous Digital Trader
-          </span>
-          <span className="text-sentinel-text-muted text-sm">
-            Developed by NoLimitDevelopments
-          </span>
-        </div>
-      </footer>
     </div>
   )
 }

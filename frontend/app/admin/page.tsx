@@ -869,14 +869,6 @@ export default function AdminPage() {
           )}
         </main>
       </div>
-
-      {/* Footer */}
-      <footer className="border-t border-sentinel-border">
-        <div className="max-w-[1600px] mx-auto px-6 py-4 flex items-center justify-between text-sm text-sentinel-text-muted">
-          <span>SENTINEL Admin Panel</span>
-          <span>Developed by NoLimitDevelopments</span>
-        </div>
-      </footer>
     </div>
   )
 }

@@ -476,13 +476,6 @@ export default function ConnectExchangePage() {
           </motion.div>
         )}
       </main>
-
-      {/* Footer */}
-      <footer className="border-t border-sentinel-border mt-12">
-        <div className="max-w-4xl mx-auto px-6 py-4 text-center text-sm text-sentinel-text-muted">
-          Developed by NoLimitDevelopments
-        </div>
-      </footer>
     </div>
   )
 }

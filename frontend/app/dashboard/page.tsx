@@ -785,14 +785,6 @@ export default function DashboardPage() {
             </div>
           </motion.div>
         </main>
-
-        {/* Footer */}
-        <footer className="border-t border-sentinel-border mt-8">
-          <div className="max-w-[1600px] mx-auto px-6 py-4 flex items-center justify-between text-sm text-sentinel-text-muted">
-            <span>SENTINEL AI - Autonomous Digital Trader</span>
-            <span>Developed by NoLimitDevelopments</span>
-          </div>
-        </footer>
       </div>
     )
   }
@@ -2228,14 +2220,6 @@ export default function DashboardPage() {
           </motion.div>
         )}
       </main>
-
-      {/* Footer */}
-      <footer className="border-t border-sentinel-border mt-8">
-        <div className="max-w-[1600px] mx-auto px-6 py-4 flex items-center justify-between text-sm text-sentinel-text-muted">
-          <span>SENTINEL AI - Autonomous Digital Trader</span>
-          <span>Developed by NoLimitDevelopments</span>
-        </div>
-      </footer>
 
       {/* Trade Notifications - Bottom Right */}
       <div className="fixed bottom-6 right-6 z-50 flex flex-col gap-3">
