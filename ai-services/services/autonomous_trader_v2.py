@@ -564,13 +564,14 @@ class AutonomousTraderV2:
             exit_reason = ""
             
             # Log current state for EVERY position check - CRITICAL FOR DEBUGGING
-            logger.info(f"🔎 CHECK {position.symbol}: Side={position.side}, Price=${current_price:.6f}, Entry=${position.entry_price:.6f}, P&L={pnl_percent:+.2f}%, TP={self.take_profit}%, SL=-{self.emergency_stop_loss}%")
+            tp_status = f"TP={self.take_profit}%" if self.take_profit > 0 else "TP=OFF"
+            logger.info(f"🔎 CHECK {position.symbol}: Side={position.side}, Price=${current_price:.6f}, Entry=${position.entry_price:.6f}, P&L={pnl_percent:+.2f}%, {tp_status}, SL=-{self.emergency_stop_loss}%")
             
-            if pnl_percent >= self.take_profit:
+            if self.take_profit > 0 and pnl_percent >= self.take_profit:
                 logger.info(f"✅ {position.symbol}: P&L={pnl_percent:+.2f}% >= TP={self.take_profit}% - TRIGGERING TAKE PROFIT!")
             elif pnl_percent <= -self.emergency_stop_loss:
                 logger.info(f"❌ {position.symbol}: P&L={pnl_percent:+.2f}% <= SL=-{self.emergency_stop_loss}% - TRIGGERING STOP LOSS!")
-            elif pnl_percent >= self.take_profit * 0.7:
+            elif self.take_profit > 0 and pnl_percent >= self.take_profit * 0.7:
                 logger.info(f"⏳ {position.symbol}: P&L={pnl_percent:+.2f}% approaching TP={self.take_profit}%")
             
             # 1. STOP LOSS
@@ -579,8 +580,8 @@ class AutonomousTraderV2:
                 exit_reason = f"Stop loss hit ({pnl_percent:.2f}%)"
                 logger.info(f"🛑 STOP LOSS: {position.symbol} at {pnl_percent:+.2f}%")
                 
-            # 2. TAKE PROFIT - Exit when profit reaches target
-            elif pnl_percent >= self.take_profit:
+            # 2. TAKE PROFIT - Exit when profit reaches target (only if TP is enabled)
+            elif self.take_profit > 0 and pnl_percent >= self.take_profit:
                 should_exit = True
                 exit_reason = f"Take profit reached ({pnl_percent:.2f}% >= {self.take_profit}%)"
                 logger.info(f"🎯 TAKE PROFIT: {position.symbol} at {pnl_percent:+.2f}% >= TP {self.take_profit}% - SELLING NOW!")
@@ -1321,7 +1322,8 @@ class AutonomousTraderV2:
             exit_reason = ""
             
             # Only log positions near thresholds to reduce spam
-            if pnl_percent >= self.take_profit:
+            # Take Profit only triggers if TP > 0 (enabled)
+            if self.take_profit > 0 and pnl_percent >= self.take_profit:
                 logger.info(f"✅ {position.symbol}: P&L={pnl_percent:+.2f}% >= TP={self.take_profit}% - SELLING!")
                 await self._log_to_console(f"✅ SELLING {position.symbol}: +{pnl_percent:.2f}% (Take Profit)")
                 should_exit = True
@@ -1331,7 +1333,7 @@ class AutonomousTraderV2:
                 await self._log_to_console(f"❌ SELLING {position.symbol}: {pnl_percent:.2f}% (Stop Loss)")
                 should_exit = True
                 exit_reason = f"Stop loss ({pnl_percent:.2f}%)"
-            elif pnl_percent >= self.take_profit * 0.8:
+            elif self.take_profit > 0 and pnl_percent >= self.take_profit * 0.8:
                 logger.info(f"⏳ {position.symbol}: {pnl_percent:+.2f}% near TP")
             elif pnl_percent <= -self.emergency_stop_loss * 0.8:
                 logger.info(f"⚠️ {position.symbol}: {pnl_percent:+.2f}% near SL")
@@ -1560,12 +1562,15 @@ class AutonomousTraderV2:
                     self.market_scanner.set_risk_mode(self.risk_mode)
                 
                 # Only log on first load or when settings actually change
-                new_settings_str = f"Mode={self.risk_mode},SL={self.emergency_stop_loss}%,TP={self.take_profit}%,Trail={self.trail_from_peak}%,MinTrail={self.min_profit_to_trail}%"
+                tp_display = f"{self.take_profit}%" if self.take_profit > 0 else "OFF"
+                new_settings_str = f"Mode={self.risk_mode},SL={self.emergency_stop_loss}%,TP={tp_display},Trail={self.trail_from_peak}%,MinTrail={self.min_profit_to_trail}%"
                 if not hasattr(self, '_last_settings_str') or self._last_settings_str != new_settings_str:
-                    logger.info(f"⚙️ Settings [{mode_name}]: SL={self.emergency_stop_loss}%, TP={self.take_profit}%, "
+                    logger.info(f"⚙️ Settings [{mode_name}]: SL={self.emergency_stop_loss}%, TP={tp_display}, "
                                f"Trail={self.trail_from_peak}%, MinProfitToTrail={self.min_profit_to_trail}%, "
                                f"MinConf={self.min_confidence}%, MinEdge={self.min_edge}, "
                                f"MaxPos={'Unlimited' if self.max_open_positions == 0 else self.max_open_positions}")
+                    if self.take_profit == 0:
+                        logger.info(f"📊 TRAILING ONLY MODE: No Take Profit limit, sells only when trailing stop triggers")
                     if self.risk_mode == 'lock_profit':
                         logger.info(f"🔒 LOCK PROFIT MODE: Sells on {self.trail_from_peak}% drop from peak")
                     elif self.risk_mode == 'micro_profit':

@@ -777,7 +777,9 @@ export default function SettingsPage() {
           <div className="grid grid-cols-4 gap-4">
             <div className="p-4 rounded-xl bg-sentinel-bg-tertiary text-center">
               <p className="text-xs text-sentinel-text-muted mb-1">Take Profit</p>
-              <p className="text-xl font-bold text-sentinel-accent-emerald">+{settings.takeProfitPercent}%</p>
+              <p className="text-xl font-bold text-sentinel-accent-emerald">
+                {settings.takeProfitPercent === 0 ? 'OFF' : `+${settings.takeProfitPercent}%`}
+              </p>
             </div>
             <div className="p-4 rounded-xl bg-sentinel-bg-tertiary text-center">
               <p className="text-xs text-sentinel-text-muted mb-1">Stop Loss</p>
@@ -860,7 +862,7 @@ export default function SettingsPage() {
                   <div className="flex items-center gap-3">
                     <input
                       type="range"
-                      min="0.5"
+                      min="0"
                       max="15"
                       step="0.5"
                       value={settings.takeProfitPercent}
@@ -871,9 +873,15 @@ export default function SettingsPage() {
                       className="flex-1 accent-sentinel-accent-emerald"
                     />
                     <span className="w-16 text-right font-mono text-sentinel-accent-emerald">
-                      +{settings.takeProfitPercent}%
+                      {settings.takeProfitPercent === 0 ? 'OFF' : `+${settings.takeProfitPercent}%`}
                     </span>
                   </div>
+                  {settings.takeProfitPercent === 0 && (
+                    <p className="text-xs text-sentinel-text-muted mt-1">
+                      <Info className="inline w-3 h-3 mr-1" />
+                      Trailing stop only mode - no fixed TP limit
+                    </p>
+                  )}
                 </div>
 
                 {/* Stop Loss */}
