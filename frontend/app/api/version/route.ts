@@ -21,11 +21,12 @@ export async function GET() {
   // Fallback version info
   const now = new Date()
   const buildDate = `${now.getDate().toString().padStart(2, '0')}${(now.getMonth() + 1).toString().padStart(2, '0')}${now.getFullYear()}`
+  const gitCommit = process.env.NEXT_PUBLIC_GIT_COMMIT || process.env.GIT_COMMIT || ''
   
   return NextResponse.json({
     version: 'v3.0',
     build_date: buildDate,
-    git_commit: process.env.GIT_COMMIT || 'local',
+    git_commit: gitCommit !== 'unknown' ? gitCommit : '',
     full_version: `v3.0-${buildDate}`
   })
 }

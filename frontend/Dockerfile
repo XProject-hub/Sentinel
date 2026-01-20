@@ -2,6 +2,10 @@ FROM node:20-alpine
 
 WORKDIR /app
 
+# Git commit passed at build time
+ARG GIT_COMMIT=unknown
+ENV NEXT_PUBLIC_GIT_COMMIT=$GIT_COMMIT
+
 # Copy package files
 COPY package.json ./
 

@@ -94,11 +94,14 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        - GIT_COMMIT=${GIT_COMMIT:-unknown}
     container_name: sentinel_frontend
     environment:
       - NODE_ENV=production
       - NEXT_PUBLIC_API_URL=https://sentinel.xproject.live/api
       - NEXT_PUBLIC_WS_URL=wss://sentinel.xproject.live/ws
+      - NEXT_PUBLIC_GIT_COMMIT=${GIT_COMMIT:-unknown}
     depends_on:
       - backend
       - ai-services

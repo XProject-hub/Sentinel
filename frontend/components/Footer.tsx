@@ -18,26 +18,30 @@ export default function Footer() {
     const today = new Date()
     const dateStr = `${today.getDate().toString().padStart(2, '0')}${(today.getMonth() + 1).toString().padStart(2, '0')}${today.getFullYear()}`
     
-    // Fetch git commit from API
+    // Fetch git commit from API or use env variable
     const fetchVersion = async () => {
+      // First try environment variable (set at build time)
+      const envCommit = process.env.NEXT_PUBLIC_GIT_COMMIT
+      
       try {
         const response = await fetch('/api/version')
         if (response.ok) {
           const data = await response.json()
+          const commit = data.git_commit?.substring(0, 7) || envCommit?.substring(0, 7) || ''
           setVersionInfo({
             build_date: dateStr,
-            git_commit: data.git_commit?.substring(0, 7) || ''
+            git_commit: commit !== 'unknown' ? commit : ''
           })
         } else {
           setVersionInfo({
             build_date: dateStr,
-            git_commit: ''
+            git_commit: envCommit?.substring(0, 7) || ''
           })
         }
       } catch (error) {
         setVersionInfo({
           build_date: dateStr,
-          git_commit: ''
+          git_commit: envCommit?.substring(0, 7) || ''
         })
       }
     }
