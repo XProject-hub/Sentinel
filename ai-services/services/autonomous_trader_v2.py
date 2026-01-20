@@ -155,6 +155,14 @@ class AutonomousTraderV2:
         self.max_exposure_percent = 100  # 100% = can use entire budget
         self.max_daily_drawdown = 3.0
         
+        # AI Model toggles
+        self.use_dynamic_sizing = True
+        self.use_regime_detection = True
+        self.use_edge_estimation = True
+        self.use_crypto_bert = True
+        self.use_xgboost_classifier = True
+        self.use_price_predictor = True
+        
         # Risk mode tracking
         self.risk_mode = "normal"
         
@@ -1111,18 +1119,35 @@ class AutonomousTraderV2:
         # 8. Risk check via position sizer
         if not opp.edge_data:
             return False, "No edge data"
-            
-        position_size = await self.position_sizer.calculate_position_size(
-            symbol=opp.symbol,
-            direction=opp.direction,
-            edge_score=opp.edge_score,
-            win_probability=opp.edge_data.win_probability,
-            risk_reward=opp.edge_data.risk_reward_ratio,
-            kelly_fraction=opp.edge_data.kelly_fraction,
-            regime_action=opp.regime_action,
-            current_price=opp.current_price,
-            wallet_balance=wallet['total_equity']
-        )
+        
+        # Calculate position size (dynamic or fixed)
+        if self.use_dynamic_sizing:
+            # Dynamic sizing using Kelly Criterion
+            position_size = await self.position_sizer.calculate_position_size(
+                symbol=opp.symbol,
+                direction=opp.direction,
+                edge_score=opp.edge_score,
+                win_probability=opp.edge_data.win_probability,
+                risk_reward=opp.edge_data.risk_reward_ratio,
+                kelly_fraction=opp.edge_data.kelly_fraction,
+                regime_action=opp.regime_action,
+                current_price=opp.current_price,
+                wallet_balance=wallet['total_equity']
+            )
+        else:
+            # Fixed sizing - use maxPositionPercent of wallet
+            position_size = await self.position_sizer.calculate_position_size(
+                symbol=opp.symbol,
+                direction=opp.direction,
+                edge_score=opp.edge_score,
+                win_probability=50,  # Neutral - no edge adjustment
+                risk_reward=1.5,     # Standard R/R
+                kelly_fraction=0.0,  # No Kelly adjustment
+                regime_action='normal',
+                current_price=opp.current_price,
+                wallet_balance=wallet['total_equity'],
+                force_fixed=True  # Force fixed percentage sizing
+            )
         
         if not position_size.is_within_limits:
             self.stats['trades_rejected_risk'] += 1
@@ -1611,6 +1636,14 @@ class AutonomousTraderV2:
                 self.time_stop_minutes = float(parsed.get('timeStopMinutes', 4))
                 self.time_stop_min_pnl = float(parsed.get('timeStopMinPnl', 0.15))
                 self.use_time_stop = self.risk_mode == 'micro_profit'  # Auto-enable for MICRO PROFIT
+                
+                # AI Model toggles
+                self.use_dynamic_sizing = parsed.get('useDynamicSizing', 'true').lower() == 'true'
+                self.use_regime_detection = parsed.get('useRegimeDetection', 'true').lower() == 'true'
+                self.use_edge_estimation = parsed.get('useEdgeEstimation', 'true').lower() == 'true'
+                self.use_crypto_bert = parsed.get('useCryptoBert', 'true').lower() == 'true'
+                self.use_xgboost_classifier = parsed.get('useXgboostClassifier', 'true').lower() == 'true'
+                self.use_price_predictor = parsed.get('usePricePredictor', 'true').lower() == 'true'
                 
                 # Mode display names
                 mode_names = {

@@ -160,7 +160,8 @@ class PositionSizer:
         kelly_fraction: float,
         regime_action: str,
         current_price: float,
-        wallet_balance: float
+        wallet_balance: float,
+        force_fixed: bool = False
     ) -> PositionSize:
         """
         Calculate optimal position size
@@ -175,6 +176,7 @@ class PositionSizer:
             regime_action: 'aggressive', 'normal', 'reduced', 'avoid'
             current_price: Current asset price
             wallet_balance: Total wallet in USDT
+            force_fixed: If True, ignore Kelly and use fixed maxPositionPercent
             
         Returns:
             PositionSize with all details
@@ -243,8 +245,13 @@ class PositionSizer:
             
         # === Calculate Base Position Size ===
         
-        # Start with Kelly-based size
-        if kelly_fraction > 0:
+        # Force fixed sizing (dynamic sizing disabled) or Kelly-based
+        if force_fixed:
+            # Fixed sizing - use full maxPositionPercent
+            base_fraction = self.MAX_RISK_PER_TRADE
+            sizing_method = 'fixed'
+            adjustments.append(f"Fixed sizing: {base_fraction*100:.1f}%")
+        elif kelly_fraction > 0:
             base_fraction = min(kelly_fraction, self.MAX_RISK_PER_TRADE)
             sizing_method = 'kelly'
         else:

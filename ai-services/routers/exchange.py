@@ -885,6 +885,10 @@ async def get_settings():
         "useRegimeDetection": True,
         "useEdgeEstimation": True,
         "useDynamicSizing": True,
+        # V3 AI Models
+        "useCryptoBert": True,
+        "useXgboostClassifier": True,
+        "usePricePredictor": True,
         # Smart exit (MICRO PROFIT)
         "breakevenTrigger": 0.3,
         "partialExitTrigger": 0.4,
@@ -927,6 +931,10 @@ async def get_settings():
                     "useRegimeDetection": parsed.get('useRegimeDetection', 'true') == 'true',
                     "useEdgeEstimation": parsed.get('useEdgeEstimation', 'true') == 'true',
                     "useDynamicSizing": parsed.get('useDynamicSizing', 'true') == 'true',
+                    # V3 AI Models
+                    "useCryptoBert": parsed.get('useCryptoBert', 'true') == 'true',
+                    "useXgboostClassifier": parsed.get('useXgboostClassifier', 'true') == 'true',
+                    "usePricePredictor": parsed.get('usePricePredictor', 'true') == 'true',
                     # Smart exit (MICRO PROFIT)
                     "breakevenTrigger": float(parsed.get('breakevenTrigger', defaults['breakevenTrigger'])),
                     "partialExitTrigger": float(parsed.get('partialExitTrigger', defaults['partialExitTrigger'])),
@@ -979,12 +987,17 @@ async def save_settings(request: Request):
             'enableCrypto': str(body.get('enableCrypto', True)).lower(),
             'enableTradFi': str(body.get('enableTradFi', False)).lower(),
             
-            # AI features
+            # AI features (accept both old and new field names)
             'useAiSignals': str(body.get('useAiSignals', True)).lower(),
             'learnFromTrades': str(body.get('learnFromTrades', True)).lower(),
-            'useRegimeDetection': str(body.get('useRegimeDetection', True)).lower(),
-            'useEdgeEstimation': str(body.get('useEdgeEstimation', True)).lower(),
-            'useDynamicSizing': str(body.get('useDynamicSizing', True)).lower(),
+            'useRegimeDetection': str(body.get('enableRegimeDetection', body.get('useRegimeDetection', True))).lower(),
+            'useEdgeEstimation': str(body.get('enableEdgeEstimation', body.get('useEdgeEstimation', True))).lower(),
+            'useDynamicSizing': str(body.get('enableDynamicSizing', body.get('useDynamicSizing', True))).lower(),
+            
+            # V3 AI Models
+            'useCryptoBert': str(body.get('enableFinbertSentiment', body.get('useCryptoBert', True))).lower(),
+            'useXgboostClassifier': str(body.get('enableXgboostClassifier', body.get('useXgboostClassifier', True))).lower(),
+            'usePricePredictor': str(body.get('enablePricePrediction', body.get('usePricePredictor', True))).lower(),
             
             # Smart exit (MICRO PROFIT)
             'breakevenTrigger': str(body.get('breakevenTrigger', 0.3)),
