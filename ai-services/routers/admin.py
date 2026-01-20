@@ -59,9 +59,26 @@ async def get_system_stats():
         except:
             memory_percent, memory_used, memory_total = await _get_docker_memory()
         
-        # Disk usage
+        # Disk usage - check 1.8TB data disk first, fallback to root
         try:
-            disk = psutil.disk_usage('/')
+            # Try the 1.8TB data disk mount point first
+            data_disk_paths = ['/mnt/sentinel-data', '/mnt/data', '/data']
+            disk = None
+            disk_path = '/'
+            
+            for path in data_disk_paths:
+                try:
+                    disk = psutil.disk_usage(path)
+                    if disk.total > 500 * (1024**3):  # More than 500GB = probably the big disk
+                        disk_path = path
+                        break
+                except:
+                    continue
+            
+            if disk is None:
+                disk = psutil.disk_usage('/')
+                disk_path = '/'
+            
             disk_percent = disk.percent
             disk_used = disk.used
             disk_total = disk.total
@@ -69,12 +86,22 @@ async def get_system_stats():
             disk_percent = 0
             disk_used = 0
             disk_total = 0
+            disk_path = '/'
         
         # Try to get network connections
         try:
             connections = len(psutil.net_connections())
         except:
             connections = 0
+        
+        # Also get root disk for comparison
+        try:
+            root_disk = psutil.disk_usage('/')
+            root_disk_used = root_disk.used
+            root_disk_total = root_disk.total
+        except:
+            root_disk_used = 0
+            root_disk_total = 0
         
         return {
             "success": True,
@@ -87,6 +114,9 @@ async def get_system_stats():
                 "diskUsage": round(disk_percent, 1),
                 "diskUsedGB": round(disk_used / (1024**3), 2),
                 "diskTotalGB": round(disk_total / (1024**3), 2),
+                "diskPath": disk_path,
+                "rootDiskUsedGB": round(root_disk_used / (1024**3), 2),
+                "rootDiskTotalGB": round(root_disk_total / (1024**3), 2),
                 "activeConnections": connections,
                 "timestamp": datetime.now().isoformat()
             }

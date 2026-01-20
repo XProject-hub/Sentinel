@@ -747,9 +747,17 @@ export default function AdminPage() {
                       <span className="text-sentinel-text-secondary">Memory</span>
                       <span>{systemStats?.memoryUsedGB?.toFixed(1) || 0} / {systemStats?.memoryTotalGB?.toFixed(0) || 0} GB</span>
                     </div>
+                    <div className="flex justify-between py-2 border-b border-sentinel-border/30">
+                      <span className="text-sentinel-text-secondary">Root Disk</span>
+                      <span>{systemStats?.rootDiskUsedGB?.toFixed(0) || systemStats?.diskUsedGB?.toFixed(0) || 0} / {systemStats?.rootDiskTotalGB?.toFixed(0) || systemStats?.diskTotalGB?.toFixed(0) || 0} GB</span>
+                    </div>
                     <div className="flex justify-between py-2">
-                      <span className="text-sentinel-text-secondary">Disk</span>
-                      <span>{systemStats?.diskUsedGB?.toFixed(0) || 0} / {systemStats?.diskTotalGB?.toFixed(0) || 0} GB</span>
+                      <span className="text-sentinel-text-secondary">Data Disk (1.8TB)</span>
+                      <span className="text-sentinel-accent-cyan font-medium">
+                        {systemStats?.diskPath === '/mnt/sentinel-data' 
+                          ? `${systemStats?.diskUsedGB?.toFixed(0) || 0} / ${systemStats?.diskTotalGB?.toFixed(0) || 0} GB`
+                          : 'Checking...'}
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -790,7 +798,7 @@ export default function AdminPage() {
 
               <div className="p-6 rounded-2xl glass-card">
                 <h3 className="text-lg font-semibold mb-4">Resource Usage</h3>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                   <div className="p-6 rounded-xl bg-sentinel-bg-tertiary text-center">
                     <Cpu className="w-8 h-8 text-sentinel-accent-cyan mx-auto mb-3" />
                     <div className="text-3xl font-bold">{systemStats?.cpuUsage?.toFixed(1) || 0}%</div>
@@ -805,7 +813,7 @@ export default function AdminPage() {
                   <div className="p-6 rounded-xl bg-sentinel-bg-tertiary text-center">
                     <Server className="w-8 h-8 text-sentinel-accent-emerald mx-auto mb-3" />
                     <div className="text-3xl font-bold">{systemStats?.memoryUsage?.toFixed(1) || 0}%</div>
-                    <div className="text-sentinel-text-muted">Memory Usage</div>
+                    <div className="text-sentinel-text-muted">Memory ({systemStats?.memoryTotalGB?.toFixed(0) || 0} GB)</div>
                     <div className="h-2 bg-sentinel-bg-secondary rounded-full mt-3 overflow-hidden">
                       <div 
                         className="h-full bg-sentinel-accent-emerald rounded-full transition-all duration-500"
@@ -815,14 +823,26 @@ export default function AdminPage() {
                   </div>
                   <div className="p-6 rounded-xl bg-sentinel-bg-tertiary text-center">
                     <HardDrive className="w-8 h-8 text-sentinel-accent-amber mx-auto mb-3" />
-                    <div className="text-3xl font-bold">{systemStats?.diskUsage?.toFixed(1) || 0}%</div>
-                    <div className="text-sentinel-text-muted">Disk Usage</div>
+                    <div className="text-3xl font-bold">{((systemStats?.rootDiskUsedGB || 0) / (systemStats?.rootDiskTotalGB || 1) * 100).toFixed(1)}%</div>
+                    <div className="text-sentinel-text-muted">Root Disk ({systemStats?.rootDiskTotalGB?.toFixed(0) || 0} GB)</div>
                     <div className="h-2 bg-sentinel-bg-secondary rounded-full mt-3 overflow-hidden">
                       <div 
                         className="h-full bg-sentinel-accent-amber rounded-full transition-all duration-500"
+                        style={{ width: `${((systemStats?.rootDiskUsedGB || 0) / (systemStats?.rootDiskTotalGB || 1) * 100)}%` }}
+                      />
+                    </div>
+                  </div>
+                  <div className="p-6 rounded-xl bg-sentinel-bg-tertiary text-center border-2 border-sentinel-accent-cyan/30">
+                    <Database className="w-8 h-8 text-sentinel-accent-cyan mx-auto mb-3" />
+                    <div className="text-3xl font-bold text-sentinel-accent-cyan">{systemStats?.diskUsage?.toFixed(1) || 0}%</div>
+                    <div className="text-sentinel-text-muted">Data Disk (1.8 TB)</div>
+                    <div className="h-2 bg-sentinel-bg-secondary rounded-full mt-3 overflow-hidden">
+                      <div 
+                        className="h-full bg-sentinel-accent-cyan rounded-full transition-all duration-500"
                         style={{ width: `${systemStats?.diskUsage || 0}%` }}
                       />
                     </div>
+                    <div className="text-xs text-sentinel-text-muted mt-2">{systemStats?.diskPath || '/mnt/sentinel-data'}</div>
                   </div>
                 </div>
               </div>
