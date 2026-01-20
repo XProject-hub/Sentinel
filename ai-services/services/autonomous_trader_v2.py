@@ -286,13 +286,15 @@ class AutonomousTraderV2:
                 except:
                     pass
                 
-                # Log every 5 cycles or first 10
+                # Log to file every 5 cycles
+                mode_icons = {'lock_profit': '🔒LOCK', 'micro_profit': '💎MICRO', 'safe': '🛡️SAFE', 'aggressive': '⚡AGG', 'normal': '📊NORM'}
+                mode_str = mode_icons.get(self.risk_mode, '📊NORM')
+                
                 if cycle % 5 == 0 or cycle <= 10:
-                    mode_icons = {'lock_profit': '🔒LOCK', 'micro_profit': '💎MICRO', 'safe': '🛡️SAFE', 'aggressive': '⚡AGG', 'normal': '📊NORM'}
-                    mode_str = mode_icons.get(self.risk_mode, '📊NORM')
                     logger.info(f"🔄 Cycle {cycle} | {mode_str} | Users: {connected_users} | Pos: {total_positions} | Trail={self.trail_from_peak}%")
-                    
-                    # Detailed console log for dashboard
+                
+                # Console log every 30 cycles (1 minute) to reduce spam
+                if cycle % 30 == 0 or cycle == 1:
                     tp_str = f"TP={self.take_profit}%" if self.take_profit > 0 else "TP=OFF"
                     console_msg = f"[{mode_str}] Positions: {total_positions} | {tp_str} | SL={self.emergency_stop_loss}% | Trail={self.trail_from_peak}% | Regime: {current_regime}"
                     try:
@@ -835,15 +837,23 @@ class AutonomousTraderV2:
             
             # Log opportunity search status and reset reject counter
             self._reject_count = 0
+            
+            # Only log to console every 30 seconds (15 cycles) to reduce spam
+            scan_log_interval = getattr(self, '_scan_log_counter', 0)
+            should_log_scan = scan_log_interval % 15 == 0
+            self._scan_log_counter = scan_log_interval + 1
+            
             if opportunities:
                 logger.info(f"🔍 Found {len(opportunities)} potential opportunities")
-                # Console log with top 3 opportunities
-                top_opps = opportunities[:3]
-                opp_str = ", ".join([f"{o.symbol}({o.edge_score:.2f})" for o in top_opps])
-                await self._log_to_console(f"🔍 Scanned: {len(opportunities)} opportunities | Top: {opp_str}", "SIGNAL")
+                # Console log only every 30 seconds
+                if should_log_scan:
+                    top_opps = opportunities[:3]
+                    opp_str = ", ".join([f"{o.symbol}({o.edge_score:.2f})" for o in top_opps])
+                    await self._log_to_console(f"🔍 {len(opportunities)} opportunities | Best: {opp_str}", "SIGNAL")
             else:
                 logger.debug("🔍 No opportunities found in this scan")
-                await self._log_to_console("🔍 Scanning... no strong signals", "INFO")
+                if should_log_scan:
+                    await self._log_to_console("🔍 Scanning... waiting for signals", "INFO")
             
             for opp in opportunities:
                 # Skip if we have max positions (0 = unlimited)
