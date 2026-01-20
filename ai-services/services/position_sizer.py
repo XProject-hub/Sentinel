@@ -329,13 +329,14 @@ class PositionSizer:
             
         # === Calculate Final Values ===
         
-        position_value = wallet_balance * adjusted_fraction
+        # Calculate base position value (this is the MARGIN/collateral)
+        margin_value = wallet_balance * adjusted_fraction
         
-        # Check minimum
-        if position_value < self.MIN_POSITION_VALUE:
+        # Check minimum margin
+        if margin_value < self.MIN_POSITION_VALUE:
             if wallet_balance > self.MIN_POSITION_VALUE * 20:  # Have at least $100
-                position_value = self.MIN_POSITION_VALUE
-                adjusted_fraction = position_value / wallet_balance
+                margin_value = self.MIN_POSITION_VALUE
+                adjusted_fraction = margin_value / wallet_balance
                 adjustments.append(f"Using minimum ${self.MIN_POSITION_VALUE}")
                 sizing_method = 'minimum'
             else:
@@ -343,14 +344,22 @@ class PositionSizer:
                     symbol, "Position too small", wallet_balance
                 )
                 
-        # Check doesn't exceed available after current exposure
+        # Check doesn't exceed available exposure (based on margin)
         available = (self.MAX_TOTAL_EXPOSURE * wallet_balance) - current_exposure
-        if position_value > available:
-            position_value = available
-            adjusted_fraction = position_value / wallet_balance
+        if margin_value > available:
+            margin_value = available
+            adjusted_fraction = margin_value / wallet_balance
             adjustments.append("Limited by available exposure")
+        
+        # Determine leverage
+        recommended_leverage = self._calculate_leverage(edge_score, win_probability)
+        
+        # Apply leverage to get actual position value
+        # margin_value is collateral, position_value is what we actually trade
+        position_value = margin_value * recommended_leverage
+        adjustments.append(f"Leverage {recommended_leverage}x applied: ${margin_value:.0f} margin → ${position_value:.0f} position")
             
-        # Calculate quantity
+        # Calculate quantity based on LEVERAGED position value
         quantity = position_value / current_price if current_price > 0 else 0
         
         # Calculate stop loss and take profit
@@ -361,20 +370,17 @@ class PositionSizer:
         else:
             stop_loss_pct = 2.0
             take_profit_pct = stop_loss_pct * max(1.5, risk_reward)
-            
-        # Determine leverage
-        recommended_leverage = self._calculate_leverage(edge_score, win_probability)
         
         return PositionSize(
             symbol=symbol,
-            position_value_usdt=round(position_value, 2),
-            wallet_fraction=round(adjusted_fraction, 4),
-            quantity=quantity,
+            position_value_usdt=round(position_value, 2),  # This is now the LEVERAGED position value
+            wallet_fraction=round(adjusted_fraction, 4),   # This is still % of wallet (margin)
+            quantity=quantity,  # Quantity is based on leveraged position
             recommended_leverage=recommended_leverage,
-            risk_per_trade_pct=round(adjusted_fraction * 100, 2),
+            risk_per_trade_pct=round(adjusted_fraction * 100, 2),  # Risk is based on margin, not position
             stop_loss_pct=stop_loss_pct,
             take_profit_pct=take_profit_pct,
-            kelly_fraction=kelly_fraction,  # Pass through the kelly fraction
+            kelly_fraction=kelly_fraction,
             sizing_method=sizing_method,
             adjustments=adjustments,
             is_within_limits=True,
