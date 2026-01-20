@@ -129,10 +129,10 @@ export default function ConnectExchangePrompt() {
       {/* Logout Button - Top Right */}
       <button
         onClick={handleLogout}
-        className="fixed top-4 right-4 px-4 py-2 glass-card border border-sentinel-border rounded-lg text-sentinel-text-secondary hover:text-white hover:border-sentinel-accent-crimson/50 transition-all flex items-center gap-2 z-50"
+        className="fixed top-4 right-4 p-2 rounded-lg hover:bg-sentinel-bg-tertiary transition-colors z-50"
+        title="Logout"
       >
-        <LogOut className="w-4 h-4" />
-        <span className="hidden sm:inline">Logout</span>
+        <LogOut className="w-5 h-5 text-sentinel-text-secondary" />
       </button>
       
       <div className="max-w-2xl w-full">

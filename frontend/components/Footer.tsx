@@ -3,37 +3,39 @@
 import { useEffect, useState } from 'react'
 
 interface VersionInfo {
-  version: string
   build_date: string
   git_commit: string
 }
 
 export default function Footer() {
   const [versionInfo, setVersionInfo] = useState<VersionInfo>({
-    version: 'v3.0',
-    build_date: new Date().toLocaleDateString('en-GB').replace(/\//g, ''),
+    build_date: '',
     git_commit: '...'
   })
 
   useEffect(() => {
-    // Fetch version info from API
+    // Get current date
+    const today = new Date()
+    const dateStr = `${today.getDate().toString().padStart(2, '0')}${(today.getMonth() + 1).toString().padStart(2, '0')}${today.getFullYear()}`
+    
+    // Fetch git commit from API
     const fetchVersion = async () => {
       try {
         const response = await fetch('/api/version')
         if (response.ok) {
           const data = await response.json()
           setVersionInfo({
-            version: data.version || 'v3.0',
-            build_date: data.build_date || new Date().toLocaleDateString('en-GB').replace(/\//g, ''),
+            build_date: dateStr,
             git_commit: data.git_commit || '...'
+          })
+        } else {
+          setVersionInfo({
+            build_date: dateStr,
+            git_commit: '...'
           })
         }
       } catch (error) {
-        // Use fallback - current date
-        const today = new Date()
-        const dateStr = `${today.getDate().toString().padStart(2, '0')}${(today.getMonth() + 1).toString().padStart(2, '0')}${today.getFullYear()}`
         setVersionInfo({
-          version: 'v3.0',
           build_date: dateStr,
           git_commit: '...'
         })
@@ -51,9 +53,8 @@ export default function Footer() {
           <span className="hidden sm:inline">Autonomous Trading Intelligence</span>
         </div>
         <div className="flex items-center gap-2">
-          <span className="font-mono text-sentinel-text-secondary">{versionInfo.version}</span>
-          <span className="text-sentinel-border">|</span>
-          <span className="font-mono text-sentinel-accent-cyan/60">{versionInfo.build_date}-{versionInfo.git_commit}</span>
+          <span className="text-sentinel-text-secondary">Version:</span>
+          <span className="font-mono text-sentinel-accent-cyan">{versionInfo.build_date}-{versionInfo.git_commit}</span>
         </div>
       </div>
     </footer>

@@ -32,10 +32,14 @@ import {
   ExternalLink,
   Clock,
   Coins,
-  DollarSign
+  DollarSign,
+  Waves,
+  Search,
+  Timer,
+  LineChart as LineChartIcon,
+  CheckCircle
 } from 'lucide-react'
 import Link from 'next/link'
-import Image from 'next/image'
 import { 
   LineChart, 
   Line, 
@@ -691,20 +695,11 @@ export default function DashboardPage() {
         {/* Navigation */}
         <nav className="sticky top-0 z-50 glass-card border-b border-sentinel-border">
           <div className="max-w-[1600px] mx-auto px-6 py-4 flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <Image 
-                src="/logo.png" 
-                alt="Sentinel Logo" 
-                width={40} 
-                height={40} 
-                className="rounded-lg"
-              />
-              <div>
-                <span className="font-display font-bold text-lg">SENTINEL</span>
-                <div className="flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-sentinel-accent-amber" />
-                  <span className="text-xs text-sentinel-text-muted">Not Connected</span>
-                </div>
+            <div className="flex items-center gap-3">
+              <span className="font-display font-bold text-xl text-white">SENTINEL</span>
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-sentinel-accent-amber" />
+                <span className="text-xs text-sentinel-text-muted">Not Connected</span>
               </div>
             </div>
 
@@ -714,7 +709,7 @@ export default function DashboardPage() {
                   Admin
                 </Link>
               )}
-              <button onClick={handleLogout} className="p-2 rounded-lg hover:bg-sentinel-bg-tertiary transition-colors">
+              <button onClick={handleLogout} className="p-2 rounded-lg hover:bg-sentinel-bg-tertiary transition-colors" title="Logout">
                 <LogOut className="w-5 h-5 text-sentinel-text-secondary" />
               </button>
             </div>
@@ -810,20 +805,11 @@ export default function DashboardPage() {
       {/* Top Navigation */}
       <nav className="sticky top-0 z-50 glass-card border-b border-sentinel-border">
         <div className="max-w-[1600px] mx-auto px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <Image 
-              src="/logo.png" 
-              alt="Sentinel Logo" 
-              width={40} 
-              height={40} 
-              className="rounded-lg"
-            />
-            <div>
-              <span className="font-display font-bold text-lg">SENTINEL</span>
-              <div className="flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-sentinel-accent-emerald live-pulse" />
-                <span className="text-xs text-sentinel-text-muted">Connected to {exchangeStatus?.exchange}</span>
-              </div>
+          <div className="flex items-center gap-3">
+            <span className="font-display font-bold text-xl text-white">SENTINEL</span>
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-sentinel-accent-emerald live-pulse" />
+              <span className="text-xs text-sentinel-text-muted">Connected to {exchangeStatus?.exchange}</span>
             </div>
           </div>
 
@@ -849,7 +835,7 @@ export default function DashboardPage() {
               <Settings className="w-5 h-5 text-sentinel-text-secondary" />
             </Link>
             <div className="w-px h-8 bg-sentinel-border" />
-            <button onClick={handleLogout} className="p-2 rounded-lg hover:bg-sentinel-bg-tertiary transition-colors">
+            <button onClick={handleLogout} className="p-2 rounded-lg hover:bg-sentinel-bg-tertiary transition-colors" title="Logout">
               <LogOut className="w-5 h-5 text-sentinel-text-secondary" />
             </button>
           </div>
@@ -1622,7 +1608,7 @@ export default function DashboardPage() {
           >
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold flex items-center gap-2">
-                <span className="text-xl">🐋</span>
+                <Waves className="w-5 h-5 text-sentinel-accent-cyan" />
                 Whale Activity
               </h2>
               <span className="text-xs text-sentinel-text-muted">Large orders & OI changes</span>
@@ -1705,8 +1691,8 @@ export default function DashboardPage() {
                   Active Trades ({botActivity?.active_trades?.length || 0})
                 </h3>
                 {!botActivity?.active_trades?.length ? (
-                  <div className="text-sm text-sentinel-text-muted py-4">
-                    <span className="animate-pulse">🔍</span> Scanning for opportunities...
+                  <div className="text-sm text-sentinel-text-muted py-4 flex items-center gap-2">
+                    <Search className="w-4 h-4 animate-pulse" /> Scanning for opportunities...
                   </div>
                 ) : (
                   <div className="space-y-2 max-h-48 overflow-y-auto">
@@ -1722,7 +1708,7 @@ export default function DashboardPage() {
                         </div>
                         <div className="flex justify-between text-xs text-sentinel-text-muted mt-1">
                           <span>{trade.side?.toUpperCase()} ${formatNum(trade.value || 0, 0)}</span>
-                          <span>{trade.trailing_active ? '📈 Trailing' : `Edge: ${formatNum(trade.edge || 0)}`}</span>
+                          <span className="flex items-center gap-1">{trade.trailing_active ? <><TrendingUp className="w-3 h-3 text-sentinel-accent-emerald" /> Trailing</> : `Edge: ${formatNum(trade.edge || 0)}`}</span>
                         </div>
                         {trade.peak_pnl > 0 && (
                           <div className="text-xs text-sentinel-accent-amber mt-1">
@@ -1739,8 +1725,8 @@ export default function DashboardPage() {
               <div>
                 <h3 className="text-sm font-medium text-sentinel-text-secondary mb-3">Recent Bot Actions</h3>
                 {!botActivity?.bot_actions?.length ? (
-                  <div className="text-sm text-sentinel-text-muted py-4">
-                    <span className="animate-pulse">⏳</span> Waiting for trading signals...
+                  <div className="text-sm text-sentinel-text-muted py-4 flex items-center gap-2">
+                    <Timer className="w-4 h-4 animate-pulse" /> Waiting for trading signals...
                   </div>
                 ) : (
                   <div className="space-y-2 max-h-48 overflow-y-auto">
@@ -1776,8 +1762,8 @@ export default function DashboardPage() {
                   Completed Trades ({botActivity?.recent_completed?.length || 0})
                 </h3>
                 {!botActivity?.recent_completed?.length ? (
-                  <div className="text-sm text-sentinel-text-muted py-4">
-                    <span className="animate-pulse">📊</span> No recent completed trades
+                  <div className="text-sm text-sentinel-text-muted py-4 flex items-center gap-2">
+                    <BarChart3 className="w-4 h-4" /> No recent completed trades
                   </div>
                 ) : (
                   <div className="space-y-2 max-h-48 overflow-y-auto">
