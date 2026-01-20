@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server'
 export async function GET() {
   try {
     // Try to fetch from AI services
-    const response = await fetch('http://ai-services:8000/admin/version', {
+    const response = await fetch('http://ai-services:8000/ai/admin/version', {
       cache: 'no-store',
       headers: {
         'Content-Type': 'application/json',
