@@ -8,6 +8,7 @@ from typing import Optional
 import psutil
 import os
 import asyncio
+import subprocess
 from datetime import datetime, timedelta
 from loguru import logger
 import redis.asyncio as redis
@@ -16,6 +17,39 @@ import json
 from config import settings
 
 router = APIRouter()
+
+
+def get_git_commit() -> str:
+    """Get current git commit hash"""
+    try:
+        result = subprocess.run(
+            ['git', 'rev-parse', '--short', 'HEAD'],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()
+    except Exception:
+        pass
+    return "unknown"
+
+
+def get_build_date() -> str:
+    """Get current date in DDMMYYYY format"""
+    now = datetime.utcnow()
+    return f"{now.day:02d}{now.month:02d}{now.year}"
+
+
+@router.get("/version")
+async def get_version():
+    """Get application version information"""
+    return {
+        "version": "v3.0",
+        "build_date": get_build_date(),
+        "git_commit": get_git_commit(),
+        "full_version": f"v3.0-{get_build_date()}-{get_git_commit()}"
+    }
 
 
 def get_uptime() -> str:

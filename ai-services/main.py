@@ -73,7 +73,7 @@ from services.autonomous_trader import autonomous_trader  # Legacy v1
 from services.autonomous_trader_v2 import autonomous_trader_v2  # Ultimate v2
 
 # === ROUTERS ===
-from routers import market, sentiment, strategy, risk, trading, exchange, admin, data
+from routers import market, sentiment, strategy, risk, trading, exchange, admin, data, backtest
 
 # Initialize services
 market_intelligence = MarketIntelligenceService()
@@ -334,6 +334,7 @@ app.include_router(trading.router, prefix="/ai/trading", tags=["Trading"])
 app.include_router(exchange.router, prefix="/ai/exchange", tags=["Exchange Connection"])
 app.include_router(admin.router, prefix="/ai/admin", tags=["Admin"])
 app.include_router(data.router, tags=["Data & News"])
+app.include_router(backtest.router, prefix="/ai/backtest", tags=["Backtesting"])
 
 
 # ============================================
