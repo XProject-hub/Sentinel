@@ -17,7 +17,8 @@ import {
   AlertCircle,
   Loader2,
   Info,
-  ExternalLink
+  ExternalLink,
+  Copy
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 
@@ -259,13 +260,36 @@ export default function ConnectExchangePrompt() {
                       Add this IP address to your Bybit API whitelist:
                     </p>
                     <div className="flex items-center gap-2 bg-sentinel-bg-primary rounded-lg p-3">
-                      <code className="text-white font-mono text-lg flex-1">{SERVER_IP}</code>
+                      <input 
+                        type="text" 
+                        value={SERVER_IP} 
+                        readOnly 
+                        id="server-ip-input"
+                        className="bg-transparent text-white font-mono text-lg flex-1 outline-none cursor-text select-all"
+                        onClick={(e) => (e.target as HTMLInputElement).select()}
+                      />
                       <button
                         type="button"
-                        onClick={() => {
-                          navigator.clipboard.writeText(SERVER_IP)
-                          setIpCopied(true)
-                          setTimeout(() => setIpCopied(false), 2000)
+                        onClick={async () => {
+                          try {
+                            // Try modern clipboard API first
+                            if (navigator.clipboard && window.isSecureContext) {
+                              await navigator.clipboard.writeText(SERVER_IP)
+                            } else {
+                              // Fallback for HTTP
+                              const input = document.getElementById('server-ip-input') as HTMLInputElement
+                              input.select()
+                              document.execCommand('copy')
+                            }
+                            setIpCopied(true)
+                            setTimeout(() => setIpCopied(false), 2000)
+                          } catch (err) {
+                            // Final fallback - select text for manual copy
+                            const input = document.getElementById('server-ip-input') as HTMLInputElement
+                            input.select()
+                            setIpCopied(true)
+                            setTimeout(() => setIpCopied(false), 2000)
+                          }
                         }}
                         className="px-3 py-1.5 bg-sentinel-accent-amber/20 text-sentinel-accent-amber rounded-lg text-xs font-medium hover:bg-sentinel-accent-amber/30 transition-colors flex items-center gap-1"
                       >
@@ -275,7 +299,10 @@ export default function ConnectExchangePrompt() {
                             Copied
                           </>
                         ) : (
-                          'Copy'
+                          <>
+                            <Copy className="w-3 h-3" />
+                            Copy
+                          </>
                         )}
                       </button>
                     </div>
