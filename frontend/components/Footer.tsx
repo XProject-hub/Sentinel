@@ -14,9 +14,9 @@ export default function Footer() {
   })
 
   useEffect(() => {
-    // Get current date
+    // Get current date in DDMMYYYY format (no separators)
     const today = new Date()
-    const dateStr = `${today.getDate().toString().padStart(2, '0')}.${(today.getMonth() + 1).toString().padStart(2, '0')}.${today.getFullYear()}`
+    const dateStr = `${today.getDate().toString().padStart(2, '0')}${(today.getMonth() + 1).toString().padStart(2, '0')}${today.getFullYear()}`
     
     // Fetch git commit from API
     const fetchVersion = async () => {
