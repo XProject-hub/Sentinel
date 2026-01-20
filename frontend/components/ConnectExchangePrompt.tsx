@@ -28,6 +28,9 @@ interface Exchange {
   description: string
 }
 
+// Server IP for API whitelist - configured in environment
+const SERVER_IP = process.env.NEXT_PUBLIC_SERVER_IP || '167.235.69.240'
+
 export default function ConnectExchangePrompt() {
   const router = useRouter()
   const [step, setStep] = useState<'select' | 'credentials' | 'verify'>('select')
@@ -37,6 +40,7 @@ export default function ConnectExchangePrompt() {
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
+  const [ipCopied, setIpCopied] = useState(false)
   
   const [formData, setFormData] = useState({
     name: 'My Bybit Account',
@@ -245,6 +249,40 @@ export default function ConnectExchangePrompt() {
                 Enter {selectedExchangeData?.name} API Credentials
               </h2>
 
+              {/* Server IP for Whitelist */}
+              <div className="bg-sentinel-accent-amber/10 border border-sentinel-accent-amber/30 rounded-xl p-4 mb-4">
+                <div className="flex items-start gap-3">
+                  <Shield className="w-5 h-5 text-sentinel-accent-amber flex-shrink-0 mt-0.5" />
+                  <div className="text-sm w-full">
+                    <p className="text-sentinel-accent-amber font-medium mb-2">IP Whitelist Required</p>
+                    <p className="text-sentinel-text-secondary mb-2">
+                      Add this IP address to your Bybit API whitelist:
+                    </p>
+                    <div className="flex items-center gap-2 bg-sentinel-bg-primary rounded-lg p-3">
+                      <code className="text-white font-mono text-lg flex-1">{SERVER_IP}</code>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard.writeText(SERVER_IP)
+                          setIpCopied(true)
+                          setTimeout(() => setIpCopied(false), 2000)
+                        }}
+                        className="px-3 py-1.5 bg-sentinel-accent-amber/20 text-sentinel-accent-amber rounded-lg text-xs font-medium hover:bg-sentinel-accent-amber/30 transition-colors flex items-center gap-1"
+                      >
+                        {ipCopied ? (
+                          <>
+                            <CheckCircle className="w-3 h-3" />
+                            Copied
+                          </>
+                        ) : (
+                          'Copy'
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               {/* Info Box */}
               <div className="bg-sentinel-accent-cyan/10 border border-sentinel-accent-cyan/30 rounded-xl p-4 mb-6">
                 <div className="flex items-start gap-3">
@@ -256,6 +294,7 @@ export default function ConnectExchangePrompt() {
                       <li>Go to API Management in settings</li>
                       <li>Create new API key with "Contract" permissions</li>
                       <li>Enable "Trade" permission only (read is automatic)</li>
+                      <li className="text-sentinel-accent-amber">Add the IP address above to whitelist</li>
                     </ol>
                     <a 
                       href="https://www.bybit.com/app/user/api-management" 
