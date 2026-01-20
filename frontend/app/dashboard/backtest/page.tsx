@@ -115,7 +115,8 @@ export default function BacktestPage() {
 
   const loadStrategies = async () => {
     try {
-      const response = await fetch('/api/ai/backtest/strategies')
+      // Call AI services directly via nginx /ai route
+      const response = await fetch('/ai/backtest/strategies')
       if (response.ok) {
         const data = await response.json()
         if (data.strategies && data.strategies.length > 0) {
@@ -129,7 +130,8 @@ export default function BacktestPage() {
 
   const loadSymbols = async () => {
     try {
-      const response = await fetch('/api/ai/backtest/symbols')
+      // Call AI services directly via nginx /ai route
+      const response = await fetch('/ai/backtest/symbols')
       if (response.ok) {
         const data = await response.json()
         if (data.symbols && data.symbols.length > 0) {
@@ -147,7 +149,8 @@ export default function BacktestPage() {
     setResult(null)
 
     try {
-      const response = await fetch('/api/ai/backtest/run', {
+      // Call AI services directly via nginx /ai route
+      const response = await fetch('/ai/backtest/run', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(config)
