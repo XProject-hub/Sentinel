@@ -195,6 +195,23 @@ interface TradeNotification {
   timestamp: number
 }
 
+interface WhaleAlert {
+  symbol: string
+  type: string
+  size_usd: number
+  price: number
+  timestamp: string
+  impact: 'bullish' | 'bearish' | 'neutral'
+  confidence: number
+  description: string
+}
+
+interface FundingRateData {
+  symbol: string
+  funding_rate: number
+  next_funding_time?: string
+}
+
 // Safe number formatting helper
 const safeNum = (val: any, fallback: number = 0): number => {
   if (val === null || val === undefined || isNaN(val)) return fallback
@@ -231,6 +248,8 @@ export default function DashboardPage() {
   const [usdtEurRate, setUsdtEurRate] = useState<number>(0.86) // Default approximate rate
   const [hasExchangeConnection, setHasExchangeConnection] = useState<boolean | null>(null)
   const [isAdmin, setIsAdmin] = useState<boolean>(false)
+  const [whaleAlerts, setWhaleAlerts] = useState<WhaleAlert[]>([])
+  const [fundingRates, setFundingRates] = useState<Record<string, FundingRateData>>({})
 
   useEffect(() => {
     // Check if user is logged in
@@ -524,24 +543,28 @@ export default function DashboardPage() {
 
       if (statusData.connected) {
         // Load all data in parallel for faster refresh
-        const [balanceRes, posRes, pnlRes, tradingRes, activityRes, insightRes, consoleRes] = await Promise.all([
+        const [balanceRes, posRes, pnlRes, tradingRes, activityRes, insightRes, consoleRes, whaleRes, fundingRes] = await Promise.all([
           fetch('/ai/exchange/balance'),
           fetch('/ai/exchange/positions'),
           fetch('/ai/exchange/pnl'),
           fetch('/ai/exchange/trading/status'),
           fetch('/ai/exchange/trading/activity'),
           fetch('/ai/insight'),
-          fetch('/ai/exchange/trading/console')
+          fetch('/ai/exchange/trading/console'),
+          fetch('/ai/market/whale-alerts'),
+          fetch('/ai/market/funding-rates')
         ])
 
-        const [balanceData, posData, pnlDataResult, tradingData, activityData, insightData, consoleDataRes] = await Promise.all([
+        const [balanceData, posData, pnlDataResult, tradingData, activityData, insightData, consoleDataRes, whaleData, fundingData] = await Promise.all([
           balanceRes.json(),
           posRes.json(),
           pnlRes.json(),
           tradingRes.json(),
           activityRes.json(),
           insightRes.json(),
-          consoleRes.json()
+          consoleRes.json(),
+          whaleRes.json().catch(() => ({ alerts: [] })),
+          fundingRes.json().catch(() => ({ rates: {} }))
         ])
 
         if (balanceData.success) setBalance(balanceData.data)
@@ -551,6 +574,8 @@ export default function DashboardPage() {
         if (activityData.success) setBotActivity(activityData.data)
         if (insightData.success) setAiInsight(insightData.data)
         if (consoleDataRes.success) setConsoleData(consoleDataRes.data)
+        if (whaleData.alerts) setWhaleAlerts(whaleData.alerts)
+        if (fundingData.rates) setFundingRates(fundingData.rates)
       }
     } catch (error) {
       console.error('Silent refresh failed:', error)
@@ -1453,6 +1478,7 @@ export default function DashboardPage() {
                         <th className="pb-4 font-medium text-right">Invested</th>
                         <th className="pb-4 font-medium text-right">Entry</th>
                         <th className="pb-4 font-medium text-right">Mark</th>
+                        <th className="pb-4 font-medium text-right">Funding</th>
                         <th className="pb-4 font-medium text-right">P&L</th>
                         <th className="pb-4 font-medium text-right">Age</th>
                       </tr>
@@ -1503,6 +1529,22 @@ export default function DashboardPage() {
                             </td>
                             <td className="py-4 text-right font-mono">
                               €{formatNum(position.markPrice)}
+                            </td>
+                            <td className="py-4 text-right">
+                              {fundingRates[position.symbol] ? (
+                                <span className={`font-mono text-xs px-2 py-1 rounded ${
+                                  fundingRates[position.symbol].funding_rate > 0 
+                                    ? 'bg-sentinel-accent-crimson/10 text-sentinel-accent-crimson' 
+                                    : fundingRates[position.symbol].funding_rate < 0
+                                    ? 'bg-sentinel-accent-emerald/10 text-sentinel-accent-emerald'
+                                    : 'bg-sentinel-bg-tertiary text-sentinel-text-muted'
+                                }`}>
+                                  {fundingRates[position.symbol].funding_rate > 0 ? '+' : ''}
+                                  {(fundingRates[position.symbol].funding_rate * 100).toFixed(4)}%
+                                </span>
+                              ) : (
+                                <span className="text-sentinel-text-muted text-xs">-</span>
+                              )}
                             </td>
                             <td className="py-4 text-right">
                               <div className={`font-mono font-medium ${
@@ -1564,6 +1606,72 @@ export default function DashboardPage() {
                       trade.closedPnl >= 0 ? 'text-sentinel-accent-emerald' : 'text-sentinel-accent-crimson'
                     }`}>
                       {safeNum(trade.closedPnl) >= 0 ? '+' : ''}€{formatNum(trade.closedPnl)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </motion.div>
+
+          {/* Whale Alerts */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.45 }}
+            className="p-6 rounded-2xl glass-card"
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold flex items-center gap-2">
+                <span className="text-xl">🐋</span>
+                Whale Activity
+              </h2>
+              <span className="text-xs text-sentinel-text-muted">Large orders & OI changes</span>
+            </div>
+
+            {whaleAlerts.length === 0 ? (
+              <div className="text-center py-6 text-sentinel-text-muted">
+                <p className="text-sm">No whale alerts detected</p>
+                <p className="text-xs mt-1">Monitoring BTC, ETH, SOL, XRP, DOGE</p>
+              </div>
+            ) : (
+              <div className="space-y-2 max-h-64 overflow-y-auto">
+                {whaleAlerts.slice(0, 8).map((alert, idx) => (
+                  <div 
+                    key={idx} 
+                    className={`p-3 rounded-lg ${
+                      alert.impact === 'bullish' 
+                        ? 'bg-sentinel-accent-emerald/10 border border-sentinel-accent-emerald/20' 
+                        : alert.impact === 'bearish'
+                        ? 'bg-sentinel-accent-crimson/10 border border-sentinel-accent-crimson/20'
+                        : 'bg-sentinel-bg-tertiary border border-sentinel-border'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono font-medium text-sm">{alert.symbol}</span>
+                          <span className={`text-xs px-2 py-0.5 rounded ${
+                            alert.type === 'buy_wall' ? 'bg-sentinel-accent-emerald/20 text-sentinel-accent-emerald' :
+                            alert.type === 'sell_wall' ? 'bg-sentinel-accent-crimson/20 text-sentinel-accent-crimson' :
+                            'bg-sentinel-accent-amber/20 text-sentinel-accent-amber'
+                          }`}>
+                            {alert.type.replace('_', ' ').toUpperCase()}
+                          </span>
+                        </div>
+                        <p className="text-xs text-sentinel-text-secondary mt-1">{alert.description}</p>
+                      </div>
+                      <div className="text-right">
+                        <span className={`text-xs font-medium ${
+                          alert.impact === 'bullish' ? 'text-sentinel-accent-emerald' :
+                          alert.impact === 'bearish' ? 'text-sentinel-accent-crimson' :
+                          'text-sentinel-text-muted'
+                        }`}>
+                          {alert.impact.toUpperCase()}
+                        </span>
+                        <div className="text-xs text-sentinel-text-muted mt-1">
+                          {alert.confidence.toFixed(0)}% conf
+                        </div>
+                      </div>
                     </div>
                   </div>
                 ))}
