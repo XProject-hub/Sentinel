@@ -170,6 +170,10 @@ class AutonomousTraderV2:
         # Risk mode tracking
         self.risk_mode = "normal"
         
+        # COOLDOWN: Prevent reopening same symbol immediately after close
+        self._cooldown_symbols: Dict[str, datetime] = {}
+        self.cooldown_seconds = 60  # Wait 60 seconds before reopening same symbol
+        
         # Statistics
         self.stats = {
             'total_trades': 0,
@@ -753,6 +757,10 @@ class AutonomousTraderV2:
                 if user_id in self.active_positions:
                     if position.symbol in self.active_positions[user_id]:
                         del self.active_positions[user_id][position.symbol]
+                
+                # ADD COOLDOWN: Prevent reopening this symbol for 60 seconds
+                self._cooldown_symbols[position.symbol] = datetime.utcnow()
+                logger.debug(f"⏱️ {position.symbol} on cooldown for {self.cooldown_seconds}s")
                         
                 # Store trade for dashboard and data collection (V3)
                 await self._store_trade_event(position.symbol, 'closed', pnl_percent, reason, position)
@@ -876,6 +884,17 @@ class AutonomousTraderV2:
                 # Skip if already in position
                 if opp.symbol in self.active_positions.get(user_id, {}):
                     continue
+                
+                # Skip if symbol is on cooldown (recently closed)
+                if opp.symbol in self._cooldown_symbols:
+                    cooldown_time = self._cooldown_symbols[opp.symbol]
+                    elapsed = (datetime.utcnow() - cooldown_time).total_seconds()
+                    if elapsed < self.cooldown_seconds:
+                        logger.debug(f"⏱️ {opp.symbol} on cooldown ({int(self.cooldown_seconds - elapsed)}s remaining)")
+                        continue
+                    else:
+                        # Cooldown expired, remove from dict
+                        del self._cooldown_symbols[opp.symbol]
                     
                 # Validate the opportunity
                 should_trade, reason = await self._validate_opportunity(opp, wallet, client)
