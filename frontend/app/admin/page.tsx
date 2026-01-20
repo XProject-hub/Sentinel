@@ -350,10 +350,11 @@ export default function AdminPage() {
                   <table className="w-full">
                     <thead>
                       <tr className="text-left text-sm text-sentinel-text-muted border-b border-sentinel-border">
-                        <th className="px-6 py-4 font-medium">User ID</th>
+                        <th className="px-6 py-4 font-medium">User</th>
                         <th className="px-6 py-4 font-medium">Exchange</th>
                         <th className="px-6 py-4 font-medium">Status</th>
-                        <th className="px-6 py-4 font-medium">Total Trades</th>
+                        <th className="px-6 py-4 font-medium">Trades</th>
+                        <th className="px-6 py-4 font-medium">Win Rate</th>
                         <th className="px-6 py-4 font-medium">P&L</th>
                         <th className="px-6 py-4 font-medium">Created</th>
                       </tr>
@@ -362,9 +363,17 @@ export default function AdminPage() {
                       {users.map((user, idx) => (
                         <tr key={idx} className="border-b border-sentinel-border/50 last:border-0 hover:bg-sentinel-bg-tertiary/30 transition-colors">
                           <td className="px-6 py-4">
-                            <div className="flex items-center gap-3">
-                              <div className={`w-2 h-2 rounded-full ${user.isActive ? 'bg-sentinel-accent-emerald live-pulse' : 'bg-sentinel-text-muted'}`} />
-                              <span className="font-mono text-sm">{user.id}</span>
+                            <div className="flex flex-col gap-1">
+                              <div className="flex items-center gap-2">
+                                <div className={`w-2 h-2 rounded-full ${user.isActive ? 'bg-sentinel-accent-emerald live-pulse' : 'bg-sentinel-text-muted'}`} />
+                                <span className="font-medium">{user.name || user.id}</span>
+                                {user.isAdmin && (
+                                  <span className="px-2 py-0.5 rounded text-xs bg-sentinel-accent-amber/20 text-sentinel-accent-amber border border-sentinel-accent-amber/30">
+                                    ADMIN
+                                  </span>
+                                )}
+                              </div>
+                              <span className="text-xs text-sentinel-text-muted">{user.email}</span>
                             </div>
                           </td>
                           <td className="px-6 py-4">
@@ -386,10 +395,24 @@ export default function AdminPage() {
                             </span>
                           </td>
                           <td className="px-6 py-4">
-                            <span className="font-mono">{user.totalTrades?.toLocaleString() || 0}</span>
+                            <div className="flex flex-col">
+                              <span className="font-mono font-medium">{user.totalTrades?.toLocaleString() || 0}</span>
+                              {user.winningTrades > 0 && (
+                                <span className="text-xs text-sentinel-text-muted">{user.winningTrades} wins</span>
+                              )}
+                            </div>
                           </td>
                           <td className="px-6 py-4">
-                            <span className={`font-mono ${(user.totalPnl || 0) >= 0 ? 'text-sentinel-accent-emerald' : 'text-sentinel-accent-crimson'}`}>
+                            <span className={`font-mono font-medium ${
+                              (user.winRate || 0) >= 60 ? 'text-sentinel-accent-emerald' :
+                              (user.winRate || 0) >= 50 ? 'text-sentinel-accent-amber' :
+                              'text-sentinel-text-secondary'
+                            }`}>
+                              {(user.winRate || 0).toFixed(1)}%
+                            </span>
+                          </td>
+                          <td className="px-6 py-4">
+                            <span className={`font-mono font-medium ${(user.totalPnl || 0) >= 0 ? 'text-sentinel-accent-emerald' : 'text-sentinel-accent-crimson'}`}>
                               {(user.totalPnl || 0) >= 0 ? '+' : ''}€{(user.totalPnl || 0).toFixed(2)}
                             </span>
                           </td>

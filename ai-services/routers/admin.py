@@ -216,32 +216,66 @@ async def get_users():
                 for k, v in creds.items()
             }
             
-            # Get user settings
+            # Get user settings - try both global and user-specific
             user_settings = await r.hgetall(f'settings:{user_id}')
+            if not user_settings and user_id == 'default':
+                user_settings = await r.hgetall('settings:global')
             settings_dict = {
                 k.decode() if isinstance(k, bytes) else k:
                 v.decode() if isinstance(v, bytes) else v
                 for k, v in user_settings.items()
             } if user_settings else {}
             
-            # Get user stats
+            # Get user stats - try multiple possible keys
+            stats = {}
+            # Try user-specific stats first
             user_stats = await r.get(f'trader:stats:{user_id}')
-            stats = json.loads(user_stats) if user_stats else {}
+            if user_stats:
+                try:
+                    stats = json.loads(user_stats)
+                except:
+                    pass
+            
+            # For default user, also try the global trader:stats
+            if not stats and user_id == 'default':
+                global_stats = await r.get('trader:stats')
+                if global_stats:
+                    try:
+                        stats = json.loads(global_stats)
+                    except:
+                        pass
+            
+            # Get completed trades count from list
+            completed_key = f'trades:completed:{user_id}'
+            completed_count = await r.llen(completed_key)
+            if completed_count == 0 and user_id == 'default':
+                completed_count = await r.llen('trades:completed:default')
+            
+            # Use completed count if stats doesn't have total_trades
+            total_trades = stats.get('total_trades', completed_count) or completed_count
             
             # Check if trading is active
             is_active = settings_dict.get('tradingEnabled', 'false').lower() == 'true'
             
+            # Get email from credentials or settings
+            email = creds_dict.get('email') or settings_dict.get('email')
+            if not email:
+                email = f'{user_id}@sentinel.ai' if user_id != 'default' else 'admin@sentinel.ai'
+            
             # Build user object
             users.append({
                 'id': user_id,
-                'email': user_id if '@' in user_id else f'{user_id}@sentinel.ai',
-                'name': settings_dict.get('displayName', user_id),
-                'exchange': 'Bybit',  # Currently only Bybit supported
+                'email': email,
+                'name': settings_dict.get('displayName', 'Admin' if user_id == 'default' else user_id),
+                'exchange': 'Bybit',
                 'exchangeConnected': bool(creds_dict.get('api_key')),
                 'isActive': is_active,
+                'isAdmin': user_id == 'default',
                 'createdAt': creds_dict.get('created_at', datetime.now().isoformat()),
-                'totalTrades': stats.get('total_trades', 0),
-                'totalPnl': stats.get('total_pnl', 0),
+                'totalTrades': int(total_trades) if total_trades else 0,
+                'totalPnl': float(stats.get('total_pnl', 0)),
+                'winningTrades': int(stats.get('winning_trades', 0)),
+                'winRate': round((stats.get('winning_trades', 0) / total_trades * 100), 1) if total_trades else 0,
                 'lastActive': settings_dict.get('lastActive', 'N/A')
             })
         
