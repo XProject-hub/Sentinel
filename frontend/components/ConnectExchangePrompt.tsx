@@ -118,8 +118,8 @@ export default function ConnectExchangePrompt() {
   }
 
   return (
-    <div className="min-h-screen bg-sentinel-bg-primary p-6">
-      <div className="max-w-2xl mx-auto pt-10">
+    <div className="min-h-screen bg-sentinel-bg-primary p-6 flex items-center justify-center">
+      <div className="max-w-2xl w-full">
         
         {/* Step: Select Exchange */}
         {step === 'select' && (
