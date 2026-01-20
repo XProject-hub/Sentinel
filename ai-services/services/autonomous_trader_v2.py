@@ -43,6 +43,7 @@ from services.training_data_manager import training_data_manager
 from services.crypto_sentiment import crypto_sentiment
 from services.price_predictor import price_predictor
 from services.capital_allocator import capital_allocator, MarketOpportunity
+from services.whale_tracker import whale_tracker
 
 
 def safe_float(val, default=0.0):
@@ -215,6 +216,14 @@ class AutonomousTraderV2:
         
         # Load stats
         await self._load_stats()
+        
+        # Initialize whale tracker
+        try:
+            await whale_tracker.initialize()
+            await whale_tracker.start()
+            logger.info("Whale tracker started")
+        except Exception as e:
+            logger.warning(f"Whale tracker failed to start: {e}")
         
         logger.info("Ultimate Autonomous Trader v2.0 initialized!")
         logger.info(f"Components: RegimeDetector={self.regime_detector is not None}, "
@@ -911,6 +920,80 @@ class AutonomousTraderV2:
         except Exception as e:
             logger.error(f"Find opportunities error: {e}")
     
+    async def _check_funding_rate(self, symbol: str, direction: str, client: BybitV5Client) -> Tuple[bool, float, str]:
+        """
+        FUNDING RATE ANALYSIS
+        
+        Funding rates indicate market sentiment:
+        - Positive funding (>0.01%): Longs pay shorts = Market is overleveraged long = BEARISH signal
+        - Negative funding (<-0.01%): Shorts pay longs = Market is overleveraged short = BULLISH signal
+        - Extreme funding (>0.05%): Potential reversal incoming
+        
+        Returns: (is_favorable, funding_rate, reasoning)
+        - is_favorable: True if funding supports the trade direction
+        - funding_rate: Current funding rate as percentage
+        - reasoning: Human-readable explanation
+        """
+        try:
+            # Get funding rate from Bybit
+            funding_data = await client.get_funding_rate(symbol)
+            
+            if funding_data.get('retCode') != 0:
+                return True, 0, "Funding data unavailable"
+            
+            funding_list = funding_data.get('result', {}).get('list', [])
+            if not funding_list:
+                return True, 0, "No funding data"
+            
+            funding_rate = float(funding_list[0].get('fundingRate', 0)) * 100  # Convert to percentage
+            
+            reasoning = ""
+            is_favorable = True
+            
+            # Analyze funding rate
+            if funding_rate > 0.05:
+                # Extremely high positive funding - market very long, expect reversal down
+                if direction == 'long':
+                    is_favorable = False
+                    reasoning = f"EXTREME positive funding ({funding_rate:.3f}%) - market overleveraged long, risky for longs"
+                else:
+                    reasoning = f"EXTREME positive funding ({funding_rate:.3f}%) - shorts being paid, good for shorts"
+                    
+            elif funding_rate > 0.01:
+                # High positive funding - longs paying shorts
+                if direction == 'long':
+                    # Slightly unfavorable for longs but not blocking
+                    reasoning = f"Positive funding ({funding_rate:.3f}%) - longs paying, slight headwind"
+                else:
+                    reasoning = f"Positive funding ({funding_rate:.3f}%) - getting paid to short"
+                    
+            elif funding_rate < -0.05:
+                # Extremely negative funding - market very short, expect reversal up
+                if direction == 'short':
+                    is_favorable = False
+                    reasoning = f"EXTREME negative funding ({funding_rate:.3f}%) - market overleveraged short, risky for shorts"
+                else:
+                    reasoning = f"EXTREME negative funding ({funding_rate:.3f}%) - longs being paid, good for longs"
+                    
+            elif funding_rate < -0.01:
+                # Negative funding - shorts paying longs
+                if direction == 'short':
+                    reasoning = f"Negative funding ({funding_rate:.3f}%) - shorts paying, slight headwind"
+                else:
+                    reasoning = f"Negative funding ({funding_rate:.3f}%) - getting paid to go long"
+                    
+            else:
+                # Neutral funding
+                reasoning = f"Neutral funding ({funding_rate:.3f}%)"
+            
+            logger.debug(f"💰 Funding {symbol}: {funding_rate:.4f}% | {direction} | {reasoning}")
+            
+            return is_favorable, funding_rate, reasoning
+            
+        except Exception as e:
+            logger.debug(f"Funding rate check failed for {symbol}: {e}")
+            return True, 0, f"Funding check error: {e}"
+    
     def _check_momentum_fast(self, symbol: str) -> Tuple[bool, Optional[float]]:
         """
         FAST MOMENTUM CHECK using cached ticker data
@@ -1045,6 +1128,32 @@ class AutonomousTraderV2:
                     logger.debug(f"Momentum OK for {opp.symbol}: score={momentum_score:.4f}%")
                 else:
                     logger.debug(f"Momentum data unavailable for {opp.symbol}, skipping threshold check")
+        
+        # 3.5 FUNDING RATE ANALYSIS - Check if funding supports the trade
+        if client:
+            funding_favorable, funding_rate, funding_reason = await self._check_funding_rate(opp.symbol, opp.direction, client)
+            
+            # Block trade if funding is extremely unfavorable (>0.05% against us)
+            if not funding_favorable:
+                self.stats['trades_rejected_regime'] += 1
+                return False, f"Funding unfavorable: {funding_reason}"
+            
+            # Store funding rate for position tracking
+            opp.funding_rate = funding_rate
+            opp.funding_reason = funding_reason
+        
+        # 3.6 WHALE TRACKING - Check if whale activity supports the trade
+        try:
+            whale_supports, whale_reason = await whale_tracker.check_whale_support(opp.symbol, opp.direction)
+            if not whale_supports:
+                self.stats['trades_rejected_regime'] += 1
+                return False, f"Whale activity against trade: {whale_reason}"
+            
+            # Log whale support
+            if 'supports' in whale_reason.lower():
+                logger.debug(f"🐋 Whale support for {opp.symbol}: {whale_reason}")
+        except Exception as e:
+            logger.debug(f"Whale check skipped for {opp.symbol}: {e}")
             
         # 4. XGBoost ML Classification
         try:

@@ -66,6 +66,10 @@ class TradingOpportunity:
     is_tradfi: bool = False  # True for stocks, forex, commodities, metals
     asset_category: str = 'crypto'  # 'crypto', 'stocks', 'forex', 'metals', 'commodities', 'indices'
     
+    # Funding rate (added during validation)
+    funding_rate: float = 0.0
+    funding_reason: str = ""
+    
     # Timing
     timestamp: str = ""
 
