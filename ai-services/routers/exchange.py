@@ -60,6 +60,186 @@ class TestConnectionRequest(BaseModel):
     apiSecret: str
 
 
+class UserCredentialsRequest(BaseModel):
+    """Request model for user-specific exchange credentials"""
+    user_id: str
+    exchange: str
+    api_key: str
+    api_secret: str
+    is_testnet: bool = False
+    is_active: bool = True
+
+
+class VerifyCredentialsRequest(BaseModel):
+    """Request model for verifying exchange credentials"""
+    exchange: str
+    api_key: str
+    api_secret: str
+    is_testnet: bool = False
+
+
+# Store for user-specific exchange connections
+user_exchange_connections = {}
+
+
+@router.post("/verify-credentials")
+async def verify_credentials(request: VerifyCredentialsRequest):
+    """Verify exchange API credentials without storing them"""
+    
+    if request.exchange.lower() != "bybit":
+        return {
+            "valid": False,
+            "error": "Only Bybit is currently supported"
+        }
+    
+    try:
+        client = BybitV5Client(
+            api_key=request.api_key,
+            api_secret=request.api_secret,
+            testnet=request.is_testnet
+        )
+        
+        # Test connection
+        result = await client.test_connection()
+        
+        if not result.get("success"):
+            await client.close()
+            return {
+                "valid": False,
+                "error": result.get("error", "Connection failed")
+            }
+        
+        # Get balance to verify permissions
+        balance_result = await client.get_wallet_balance(account_type="UNIFIED")
+        
+        balance = None
+        if balance_result.get("result", {}).get("list"):
+            account = balance_result["result"]["list"][0]
+            balance = {
+                "total_equity": float(account.get("totalEquity", 0)),
+                "currency": "USDT"
+            }
+        
+        await client.close()
+        
+        return {
+            "valid": True,
+            "permissions": ["read", "trade"],  # Bybit V5 API has these by default
+            "balance": balance
+        }
+        
+    except Exception as e:
+        logger.error(f"Credential verification failed: {e}")
+        return {
+            "valid": False,
+            "error": str(e)
+        }
+
+
+@router.post("/set-credentials")
+async def set_user_credentials(request: UserCredentialsRequest):
+    """Set exchange credentials for a specific user"""
+    
+    try:
+        r = await get_redis()
+        
+        # Store encrypted credentials in Redis
+        key = f"user:{request.user_id}:exchange:{request.exchange}"
+        await r.hset(key, mapping={
+            "api_key": simple_encrypt(request.api_key),
+            "api_secret": simple_encrypt(request.api_secret),
+            "is_testnet": "1" if request.is_testnet else "0",
+            "is_active": "1" if request.is_active else "0",
+            "updated_at": datetime.utcnow().isoformat(),
+        })
+        
+        # If active, create connection
+        if request.is_active:
+            client = BybitV5Client(
+                api_key=request.api_key,
+                api_secret=request.api_secret,
+                testnet=request.is_testnet
+            )
+            user_exchange_connections[f"{request.user_id}:{request.exchange}"] = client
+        
+        logger.info(f"Credentials set for user {request.user_id} on {request.exchange}")
+        
+        return {"success": True, "message": "Credentials saved"}
+        
+    except Exception as e:
+        logger.error(f"Failed to set credentials: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@router.delete("/remove-credentials")
+async def remove_user_credentials(user_id: str, exchange: str):
+    """Remove exchange credentials for a specific user"""
+    
+    try:
+        r = await get_redis()
+        
+        # Remove from Redis
+        key = f"user:{user_id}:exchange:{exchange}"
+        await r.delete(key)
+        
+        # Close and remove connection
+        conn_key = f"{user_id}:{exchange}"
+        if conn_key in user_exchange_connections:
+            await user_exchange_connections[conn_key].close()
+            del user_exchange_connections[conn_key]
+        
+        logger.info(f"Credentials removed for user {user_id} on {exchange}")
+        
+        return {"success": True, "message": "Credentials removed"}
+        
+    except Exception as e:
+        logger.error(f"Failed to remove credentials: {e}")
+        return {"success": False, "error": str(e)}
+
+
+async def get_user_client(user_id: str, exchange: str = "bybit") -> Optional[BybitV5Client]:
+    """Get or create exchange client for a specific user"""
+    
+    conn_key = f"{user_id}:{exchange}"
+    
+    # Return existing connection if available
+    if conn_key in user_exchange_connections:
+        return user_exchange_connections[conn_key]
+    
+    # Try to load from Redis
+    try:
+        r = await get_redis()
+        key = f"user:{user_id}:exchange:{exchange}"
+        data = await r.hgetall(key)
+        
+        if not data:
+            return None
+        
+        is_active = data.get(b"is_active", b"0").decode() == "1"
+        if not is_active:
+            return None
+        
+        api_key = simple_decrypt(data.get(b"api_key", b"").decode())
+        api_secret = simple_decrypt(data.get(b"api_secret", b"").decode())
+        is_testnet = data.get(b"is_testnet", b"0").decode() == "1"
+        
+        if not api_key or not api_secret:
+            return None
+        
+        client = BybitV5Client(
+            api_key=api_key,
+            api_secret=api_secret,
+            testnet=is_testnet
+        )
+        
+        user_exchange_connections[conn_key] = client
+        return client
+        
+    except Exception as e:
+        logger.error(f"Failed to get user client: {e}")
+        return None
+
+
 @router.post("/test")
 async def test_exchange_connection(request: TestConnectionRequest):
     """Test exchange API connection"""
@@ -127,6 +307,135 @@ async def connect_exchange(credentials: ExchangeCredentials):
         
     except Exception as e:
         logger.error(f"Connection failed: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@router.get("/user/{user_id}/balance")
+async def get_user_balance(user_id: str, exchange: str = "bybit"):
+    """Get wallet balance for a specific user"""
+    
+    client = await get_user_client(user_id, exchange)
+    if not client:
+        return {"success": False, "error": "No exchange connected for this user"}
+    
+    try:
+        result = await client.get_wallet_balance(account_type="UNIFIED")
+        
+        if not result.get("success"):
+            return {"success": False, "error": "Failed to fetch balance"}
+        
+        coins = []
+        total_equity = 0
+        
+        data = result.get("data", {})
+        for account in data.get("list", []):
+            eq = float(account.get("totalEquity", 0))
+            if eq > 0:
+                total_equity = eq
+                for coin in account.get("coin", []):
+                    if float(coin.get("walletBalance", 0)) > 0:
+                        coins.append({
+                            "coin": coin.get("coin"),
+                            "balance": float(coin.get("walletBalance", 0)),
+                            "equity": float(coin.get("equity", 0)),
+                            "usdValue": float(coin.get("usdValue", 0)),
+                            "unrealizedPnl": float(coin.get("unrealisedPnl", 0))
+                        })
+        
+        return {
+            "success": True,
+            "data": {
+                "totalEquity": total_equity,
+                "coins": coins,
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to get user balance: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@router.get("/user/{user_id}/positions")
+async def get_user_positions(user_id: str, exchange: str = "bybit"):
+    """Get open positions for a specific user"""
+    
+    client = await get_user_client(user_id, exchange)
+    if not client:
+        return {"success": False, "error": "No exchange connected for this user"}
+    
+    try:
+        result = await client.get_positions()
+        
+        if not result.get("success"):
+            return {"success": False, "error": "Failed to fetch positions"}
+        
+        positions = []
+        data = result.get("data", {})
+        
+        for pos in data.get("list", []):
+            size = float(pos.get("size", 0))
+            if size > 0:
+                positions.append({
+                    "symbol": pos.get("symbol"),
+                    "side": pos.get("side"),
+                    "size": size,
+                    "entryPrice": float(pos.get("avgPrice", 0)),
+                    "markPrice": float(pos.get("markPrice", 0)),
+                    "unrealizedPnl": float(pos.get("unrealisedPnl", 0)),
+                    "leverage": pos.get("leverage"),
+                })
+        
+        return {
+            "success": True,
+            "positions": positions,
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to get user positions: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@router.post("/sync")
+async def sync_user_exchange(user_id: str, exchange: str = "bybit"):
+    """Sync exchange data for a specific user"""
+    
+    client = await get_user_client(user_id, exchange)
+    if not client:
+        return {"success": False, "error": "No exchange connected for this user"}
+    
+    try:
+        # Get balance
+        balance_result = await client.get_wallet_balance(account_type="UNIFIED")
+        
+        # Get positions
+        positions_result = await client.get_positions()
+        
+        # Store in Redis for user
+        r = await get_redis()
+        
+        if balance_result.get("success"):
+            await r.set(
+                f"user:{user_id}:balance",
+                json.dumps(balance_result.get("data", {})),
+                ex=60  # Cache for 60 seconds
+            )
+        
+        if positions_result.get("success"):
+            await r.set(
+                f"user:{user_id}:positions",
+                json.dumps(positions_result.get("data", {})),
+                ex=60
+            )
+        
+        return {
+            "success": True,
+            "message": "Sync completed",
+            "balance": balance_result.get("data") if balance_result.get("success") else None,
+            "positions": positions_result.get("data") if positions_result.get("success") else None,
+        }
+        
+    except Exception as e:
+        logger.error(f"Sync failed for user {user_id}: {e}")
         return {"success": False, "error": str(e)}
 
 

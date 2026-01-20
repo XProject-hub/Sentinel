@@ -53,6 +53,7 @@ import {
   Area,
   AreaChart
 } from 'recharts'
+import ConnectExchangePrompt from '@/components/ConnectExchangePrompt'
 
 interface ExchangeStatus {
   connected: boolean
@@ -228,23 +229,66 @@ export default function DashboardPage() {
     ai_models: {regime: string; sentiment: number; edge_score: number}
   } | null>(null)
   const [usdtEurRate, setUsdtEurRate] = useState<number>(0.86) // Default approximate rate
+  const [hasExchangeConnection, setHasExchangeConnection] = useState<boolean | null>(null)
+  const [isAdmin, setIsAdmin] = useState<boolean>(false)
 
   useEffect(() => {
     // Check if user is logged in
     const storedUser = localStorage.getItem('sentinel_user')
+    const token = localStorage.getItem('token')
+    
     if (!storedUser) {
       // No session - redirect to login
       window.location.href = '/login'
       return
     }
-    setUser(JSON.parse(storedUser))
     
-    // Load real data
-    loadData()
+    const parsedUser = JSON.parse(storedUser)
+    setUser(parsedUser)
+    
+    // Check if admin user (has global access)
+    const adminEmail = 'admin@sentinel.ai' // Admin email
+    setIsAdmin(parsedUser.email === adminEmail || parsedUser.email === 'arnesa_85@hotmail.com')
+    
+    // Check if user has exchange connection
+    const checkExchangeConnection = async () => {
+      if (token) {
+        try {
+          const response = await fetch('/api/exchanges', {
+            headers: {
+              'Authorization': `Bearer ${token}`,
+            },
+          })
+          
+          if (response.ok) {
+            const data = await response.json()
+            const hasConnection = data.data && data.data.length > 0
+            setHasExchangeConnection(hasConnection)
+            
+            // If no connection and not admin, they'll see the connect prompt
+            if (!hasConnection && !isAdmin) {
+              setIsLoading(false)
+              return
+            }
+          }
+        } catch (error) {
+          console.error('Failed to check exchange connection:', error)
+          // If API fails, assume no connection for non-admin
+          setHasExchangeConnection(false)
+        }
+      }
+      
+      // Load real data (for admin or users with connection)
+      loadData()
+    }
+    
+    checkExchangeConnection()
     
     // Auto-refresh every 3 seconds for real-time updates
     const interval = setInterval(() => {
-      refreshDataSilent()
+      if (hasExchangeConnection || isAdmin) {
+        refreshDataSilent()
+      }
     }, 3000)
     
     return () => clearInterval(interval)
@@ -589,8 +633,14 @@ export default function DashboardPage() {
     )
   }
 
-  // Show connect exchange prompt if not connected
-  if (!exchangeStatus?.connected) {
+  // For regular users: Show connect exchange prompt if they haven't connected their own exchange
+  // Admin users bypass this check and see the global dashboard
+  if (!isAdmin && hasExchangeConnection === false) {
+    return <ConnectExchangePrompt />
+  }
+
+  // Show connect exchange prompt if not connected (admin/global connection)
+  if (isAdmin && !exchangeStatus?.connected) {
     return (
       <div className="min-h-screen bg-sentinel-bg-primary">
         {/* Navigation */}
@@ -665,7 +715,7 @@ export default function DashboardPage() {
             </p>
 
             <Link
-              href="/dashboard/connect"
+              href="/dashboard/connect-exchange"
               className="inline-flex items-center gap-3 px-8 py-4 rounded-xl bg-gradient-to-r from-sentinel-accent-cyan to-sentinel-accent-emerald text-sentinel-bg-primary font-bold text-lg hover:shadow-glow-cyan transition-all"
             >
               Connect Bybit Account
