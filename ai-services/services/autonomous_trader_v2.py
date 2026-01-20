@@ -614,19 +614,21 @@ class AutonomousTraderV2:
                         logger.info(f"🔒 LOCK PROFIT SELL: {position.symbol} | Peak was {position.peak_pnl_percent:+.2f}%, dropped {drop_from_peak:.3f}% >= {self.trail_from_peak:.3f}%")
             else:
                 # NORMAL MODE: Standard trailing stop
+                # Activate trailing when profit reaches min_profit_to_trail (e.g., 0.5%)
                 if pnl_percent >= self.min_profit_to_trail:
                     position.trailing_active = True
-                    
-                    if drop_from_peak >= self.trail_from_peak * 0.5:
-                        logger.info(f"📈 TRAILING {position.symbol}: Peak={position.peak_pnl_percent:+.3f}%, Now={pnl_percent:+.3f}%, Drop={drop_from_peak:.3f}%")
-                    
-                    if drop_from_peak >= self.trail_from_peak:
-                        if position.peak_pnl_percent >= self.take_profit:
-                            should_exit = True
-                            exit_reason = f"Trailing from TP (peak: {position.peak_pnl_percent:.2f}%, now: {pnl_percent:.2f}%)"
-                        elif pnl_percent >= self.min_profit_to_trail:
-                            should_exit = True
-                            exit_reason = f"Trailing stop (peak: {position.peak_pnl_percent:.2f}%, now: {pnl_percent:.2f}%)"
+                
+                # Log trailing status when approaching trigger
+                if position.trailing_active and drop_from_peak >= self.trail_from_peak * 0.5:
+                    logger.info(f"📈 TRAILING {position.symbol}: Peak={position.peak_pnl_percent:+.3f}%, Now={pnl_percent:+.3f}%, Drop={drop_from_peak:.3f}%")
+                
+                # Once trailing is active, sell when price drops from peak
+                if position.trailing_active and drop_from_peak >= self.trail_from_peak:
+                    # Only sell if we're still in profit (or minimal loss due to spread)
+                    if pnl_percent >= -0.05:
+                        should_exit = True
+                        exit_reason = f"Trailing stop (peak: +{position.peak_pnl_percent:.2f}%, dropped {drop_from_peak:.2f}%)"
+                        logger.info(f"📉 TRAILING SELL {position.symbol}: Peak=+{position.peak_pnl_percent:.2f}%, Now={pnl_percent:+.2f}%")
                     
             # 4. REGIME CHANGED TO AVOID
             if not should_exit:
@@ -1367,13 +1369,19 @@ class AutonomousTraderV2:
                                 logger.debug(f"⏸️ {position.symbol}: Dropped but P&L negative ({pnl_percent:+.2f}%), waiting for recovery")
                 else:
                     # === NORMAL TRAILING MODE ===
+                    # Activate trailing when profit reaches min_profit_to_trail (e.g., 0.5%)
                     if pnl_percent >= self.min_profit_to_trail:
                         position.trailing_active = True
-                        
-                        if drop_from_peak >= self.trail_from_peak and position.peak_pnl_percent >= self.take_profit:
+                    
+                    # Once trailing is active, sell when price drops from peak
+                    if position.trailing_active and drop_from_peak >= self.trail_from_peak:
+                        # Only sell if we're still in profit (or minimal loss)
+                        if pnl_percent >= -0.05:  # Allow tiny loss due to spread
                             should_exit = True
-                            exit_reason = f"Trailing stop (peak: {position.peak_pnl_percent:.2f}%)"
-                            logger.info(f"📉 {position.symbol}: Trailing exit at {pnl_percent:+.2f}%")
+                            exit_reason = f"Trailing stop (peak: +{position.peak_pnl_percent:.2f}%, dropped {drop_from_peak:.2f}%)"
+                            logger.info(f"📉 TRAILING SELL {position.symbol}: Peak=+{position.peak_pnl_percent:.2f}%, Now={pnl_percent:+.2f}%, Drop={drop_from_peak:.2f}% >= {self.trail_from_peak}%")
+                        else:
+                            logger.debug(f"⏸️ {position.symbol}: Trailing triggered but P&L too negative ({pnl_percent:+.2f}%), holding")
                     
             # === EXECUTE EXIT ===
             if should_exit:
