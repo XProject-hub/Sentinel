@@ -248,7 +248,7 @@ export default function DashboardPage() {
     
     // Check if admin user (has global access)
     const adminEmail = 'admin@sentinel.ai' // Admin email
-    setIsAdmin(parsedUser.email === adminEmail || parsedUser.email === 'arnesa_85@hotmail.com')
+    setIsAdmin(parsedUser.email === adminEmail)
     
     // Check if user has exchange connection
     const checkExchangeConnection = async () => {
