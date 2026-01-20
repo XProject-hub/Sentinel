@@ -88,11 +88,16 @@ export default function AdminPage() {
       const eventsRes = await fetch('/ai/learning/events?limit=10')
       const eventsData = await eventsRes.json()
       
+      // Load detailed learning status from new endpoint
+      const learningStatusRes = await fetch('/ai/exchange/learning/status')
+      const learningStatusData = await learningStatusRes.json()
+      
       // Combine all AI data
       setAiStats({
         ...(aiData.success ? aiData.data : {}),
         ...(aiAdminData.success ? aiAdminData.data : {}),
-        recentDecisions: eventsData.success ? eventsData.data : []
+        recentDecisions: eventsData.success ? eventsData.data : [],
+        learningStatus: learningStatusData.success ? learningStatusData.data : null
       })
     } catch (error) {
       console.error('Failed to load admin data:', error)
@@ -405,6 +410,109 @@ export default function AdminPage() {
                 </div>
               </div>
               
+              {/* DETAILED LEARNING PROGRESS */}
+              {aiStats?.learningStatus && (
+                <div className="p-6 rounded-2xl glass-card mb-8 border-2 border-sentinel-accent-violet/30">
+                  <div className="flex items-center justify-between mb-6">
+                    <div className="flex items-center gap-3">
+                      <div className="p-3 rounded-xl bg-sentinel-accent-violet/10">
+                        <Brain className="w-6 h-6 text-sentinel-accent-violet" />
+                      </div>
+                      <div>
+                        <h3 className="text-lg font-semibold">AI Learning Progress</h3>
+                        <p className="text-sm text-sentinel-text-muted">{aiStats.learningStatus.expert_level}</p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-3xl font-bold text-sentinel-accent-violet">
+                        {aiStats.learningStatus.overall_progress?.toFixed(0) || 0}%
+                      </div>
+                      <div className="text-xs text-sentinel-text-muted">Overall Progress</div>
+                    </div>
+                  </div>
+
+                  {/* Overall Progress Bar */}
+                  <div className="mb-6">
+                    <div className="h-4 rounded-full bg-sentinel-bg-tertiary overflow-hidden">
+                      <div 
+                        className="h-full bg-gradient-to-r from-sentinel-accent-crimson via-sentinel-accent-amber via-sentinel-accent-cyan to-sentinel-accent-emerald transition-all duration-500"
+                        style={{ width: `${aiStats.learningStatus.overall_progress || 0}%` }}
+                      />
+                    </div>
+                    <div className="flex justify-between text-xs text-sentinel-text-muted mt-1">
+                      <span>Beginner</span>
+                      <span>Learning</span>
+                      <span>Expert</span>
+                    </div>
+                  </div>
+
+                  {/* Individual Model Progress */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {aiStats.learningStatus.models && Object.entries(aiStats.learningStatus.models).map(([key, model]: [string, any]) => (
+                      <div key={key} className="p-4 rounded-xl bg-sentinel-bg-tertiary">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="font-medium">{model.name}</span>
+                          <span className={`text-xs px-2 py-0.5 rounded ${
+                            model.status === 'expert' ? 'bg-sentinel-accent-emerald/20 text-sentinel-accent-emerald' :
+                            model.status === 'learning' || model.status === 'active' ? 'bg-sentinel-accent-amber/20 text-sentinel-accent-amber' :
+                            'bg-sentinel-accent-crimson/20 text-sentinel-accent-crimson'
+                          }`}>
+                            {model.status?.toUpperCase()}
+                          </span>
+                        </div>
+                        <div className="h-2 rounded-full bg-sentinel-bg-secondary overflow-hidden mb-2">
+                          <div 
+                            className={`h-full rounded-full transition-all ${
+                              model.status === 'expert' ? 'bg-sentinel-accent-emerald' :
+                              model.status === 'learning' || model.status === 'active' ? 'bg-sentinel-accent-amber' :
+                              'bg-sentinel-accent-crimson'
+                            }`}
+                            style={{ width: `${model.progress || 0}%` }}
+                          />
+                        </div>
+                        <div className="flex justify-between text-xs text-sentinel-text-muted">
+                          <span>{model.description || '-'}</span>
+                          <span className="font-mono">{model.progress?.toFixed(0) || 0}%</span>
+                        </div>
+                        {model.needed_for_expert > 0 && (
+                          <div className="text-xs text-sentinel-accent-amber mt-1">
+                            Need {model.needed_for_expert.toLocaleString()} more for expert
+                          </div>
+                        )}
+                        {/* Specific stats */}
+                        {model.total_trades !== undefined && (
+                          <div className="text-xs text-sentinel-text-muted mt-1">
+                            Trades: {model.total_trades.toLocaleString()} | Win Rate: {model.win_rate}%
+                          </div>
+                        )}
+                        {model.trades_collected !== undefined && (
+                          <div className="text-xs text-sentinel-text-muted mt-1">
+                            Collected: {model.trades_collected.toLocaleString()} trades
+                          </div>
+                        )}
+                        {model.episodes_completed !== undefined && (
+                          <div className="text-xs text-sentinel-text-muted mt-1">
+                            Episodes: {model.episodes_completed.toLocaleString()} | Strategies: {model.strategies_learned || 0}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Recommendations */}
+                  {aiStats.learningStatus.recommendations?.length > 0 && (
+                    <div className="mt-4 p-4 rounded-xl bg-sentinel-accent-amber/10 border border-sentinel-accent-amber/30">
+                      <h4 className="font-medium text-sentinel-accent-amber mb-2">📋 Recommendations</h4>
+                      <ul className="text-sm text-sentinel-text-secondary space-y-1">
+                        {aiStats.learningStatus.recommendations.map((rec: string, idx: number) => (
+                          <li key={idx}>• {rec}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Learning Stats */}
               <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-8">
                 <div className="p-4 rounded-2xl glass-card text-center">
