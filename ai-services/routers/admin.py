@@ -165,23 +165,68 @@ async def _get_docker_memory() -> tuple:
 
 @router.get("/users")
 async def get_users():
-    """Get registered users from database"""
+    """Get registered users from Redis (users who connected exchanges)"""
     try:
-        # In production, query PostgreSQL
-        # For now, return empty list
-        # Real implementation would query:
-        # SELECT id, email, name, created_at, is_active FROM users
+        r = await redis.from_url(settings.REDIS_URL)
+        
+        users = []
+        
+        # Get all users with exchange credentials
+        keys = await r.keys('exchange:credentials:*')
+        
+        for key in keys:
+            key_str = key.decode() if isinstance(key, bytes) else key
+            user_id = key_str.replace('exchange:credentials:', '')
+            
+            # Get credentials info
+            creds = await r.hgetall(key)
+            creds_dict = {
+                k.decode() if isinstance(k, bytes) else k:
+                v.decode() if isinstance(v, bytes) else v
+                for k, v in creds.items()
+            }
+            
+            # Get user settings
+            user_settings = await r.hgetall(f'settings:{user_id}')
+            settings_dict = {
+                k.decode() if isinstance(k, bytes) else k:
+                v.decode() if isinstance(v, bytes) else v
+                for k, v in user_settings.items()
+            } if user_settings else {}
+            
+            # Get user stats
+            user_stats = await r.get(f'trader:stats:{user_id}')
+            stats = json.loads(user_stats) if user_stats else {}
+            
+            # Check if trading is active
+            is_active = settings_dict.get('tradingEnabled', 'false').lower() == 'true'
+            
+            # Build user object
+            users.append({
+                'id': user_id,
+                'email': user_id if '@' in user_id else f'{user_id}@sentinel.ai',
+                'name': settings_dict.get('displayName', user_id),
+                'exchange': 'Bybit',  # Currently only Bybit supported
+                'exchangeConnected': bool(creds_dict.get('api_key')),
+                'isActive': is_active,
+                'createdAt': creds_dict.get('created_at', datetime.now().isoformat()),
+                'totalTrades': stats.get('total_trades', 0),
+                'totalPnl': stats.get('total_pnl', 0),
+                'lastActive': settings_dict.get('lastActive', 'N/A')
+            })
+        
+        await r.close()
         
         return {
             "success": True,
             "data": {
-                "users": [],  # Will be populated from real database
-                "total": 0
+                "users": users,
+                "total": len(users)
             }
         }
     except Exception as e:
         logger.error(f"Failed to get users: {e}")
-        return {"success": False, "error": str(e)}
+        return {"success": False, "error": str(e), "data": {"users": [], "total": 0}}
 
 
 @router.get("/ai-stats")
@@ -299,32 +344,88 @@ async def get_ai_stats():
 
 @router.get("/services")
 async def get_service_health():
-    """Check health of all services"""
+    """Check health of all services with real status"""
+    import socket
+    import subprocess
+    
     services = {}
     
     # Check Redis
     try:
-        r = await redis.from_url(settings.REDIS_URL)
+        r = await redis.from_url(settings.REDIS_URL, socket_timeout=2)
         await r.ping()
-        services["redis"] = "healthy"
+        services["Redis"] = {"status": "healthy", "details": "Connected"}
         await r.close()
-    except Exception:
-        services["redis"] = "unhealthy"
+    except Exception as e:
+        services["Redis"] = {"status": "unhealthy", "details": str(e)[:50]}
     
-    # Check PostgreSQL (via connection test)
-    services["postgres"] = "healthy"  # Will be checked via SQLAlchemy
+    # Check PostgreSQL
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(2)
+        result = sock.connect_ex(('sentinel_postgres', 5432))
+        sock.close()
+        if result == 0:
+            services["PostgreSQL"] = {"status": "healthy", "details": "Port 5432 open"}
+        else:
+            services["PostgreSQL"] = {"status": "unhealthy", "details": "Connection refused"}
+    except Exception as e:
+        services["PostgreSQL"] = {"status": "unknown", "details": str(e)[:50]}
     
-    # Kafka health would be checked here
-    services["kafka"] = "healthy"
+    # Check Kafka
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(2)
+        result = sock.connect_ex(('sentinel_kafka', 9092))
+        sock.close()
+        if result == 0:
+            services["Kafka"] = {"status": "healthy", "details": "Port 9092 open"}
+        else:
+            services["Kafka"] = {"status": "stopped", "details": "Not running"}
+    except Exception as e:
+        services["Kafka"] = {"status": "stopped", "details": "Not required"}
     
-    # AI Services are obviously healthy if we're responding
-    services["ai_services"] = "healthy"
+    # Check Frontend (Nginx)
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(2)
+        result = sock.connect_ex(('sentinel_nginx', 80))
+        sock.close()
+        if result == 0:
+            services["Frontend"] = {"status": "healthy", "details": "Nginx running"}
+        else:
+            services["Frontend"] = {"status": "unhealthy", "details": "Connection refused"}
+    except Exception as e:
+        services["Frontend"] = {"status": "unknown", "details": str(e)[:50]}
+    
+    # Check Backend PHP
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(2)
+        result = sock.connect_ex(('sentinel_backend', 9000))
+        sock.close()
+        if result == 0:
+            services["Backend"] = {"status": "healthy", "details": "PHP-FPM running"}
+        else:
+            services["Backend"] = {"status": "restarting", "details": "Initializing"}
+    except Exception as e:
+        services["Backend"] = {"status": "unknown", "details": str(e)[:50]}
+    
+    # AI Services (this is us, we're healthy if responding)
+    services["AI Services"] = {"status": "healthy", "details": "FastAPI running"}
+    
+    # Count healthy services
+    healthy_count = sum(1 for s in services.values() if s["status"] == "healthy")
+    total_count = len(services)
     
     return {
         "success": True,
         "data": {
             "services": services,
-            "allHealthy": all(v == "healthy" for v in services.values())
+            "healthyCount": healthy_count,
+            "totalCount": total_count,
+            "allHealthy": healthy_count == total_count,
+            "timestamp": datetime.now().isoformat()
         }
     }
 

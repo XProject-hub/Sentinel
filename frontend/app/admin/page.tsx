@@ -56,41 +56,57 @@ export default function AdminPage() {
     }
     
     loadData()
+    
+    // Auto-refresh every 5 seconds for real-time data
+    const interval = setInterval(() => {
+      loadData()
+    }, 5000)
+    
+    return () => clearInterval(interval)
   }, [])
 
+  const [serviceHealth, setServiceHealth] = useState<any>(null)
+  const [lastUpdate, setLastUpdate] = useState<Date>(new Date())
+  
   const loadData = async () => {
-    setIsLoading(true)
+    // Only show loading spinner on initial load
+    if (!systemStats) {
+      setIsLoading(true)
+    }
     
     try {
-      // Load real system stats from AI service
-      const statsRes = await fetch('/ai/admin/system')
-      const statsData = await statsRes.json()
+      // Load all data in parallel for speed
+      const [statsRes, usersRes, aiAdminRes, aiRes, eventsRes, learningStatusRes, servicesRes] = await Promise.all([
+        fetch('/ai/admin/system'),
+        fetch('/ai/admin/users'),
+        fetch('/ai/admin/ai-stats'),
+        fetch('/ai/learning/stats'),
+        fetch('/ai/learning/events?limit=10'),
+        fetch('/ai/exchange/learning/status'),
+        fetch('/ai/admin/services')
+      ])
+      
+      const [statsData, usersData, aiAdminData, aiData, eventsData, learningStatusData, servicesData] = await Promise.all([
+        statsRes.json(),
+        usersRes.json(),
+        aiAdminRes.json(),
+        aiRes.json(),
+        eventsRes.json(),
+        learningStatusRes.json(),
+        servicesRes.json()
+      ])
+      
       if (statsData.success) {
         setSystemStats(statsData.data)
       }
 
-      // Load users
-      const usersRes = await fetch('/ai/admin/users')
-      const usersData = await usersRes.json()
       if (usersData.success) {
         setUsers(usersData.data.users || [])
       }
-
-      // Load AI stats from admin endpoint (for modelsLoaded count)
-      const aiAdminRes = await fetch('/ai/admin/ai-stats')
-      const aiAdminData = await aiAdminRes.json()
       
-      // Load AI learning stats from real learning engine
-      const aiRes = await fetch('/ai/learning/stats')
-      const aiData = await aiRes.json()
-      
-      // Load recent learning events
-      const eventsRes = await fetch('/ai/learning/events?limit=10')
-      const eventsData = await eventsRes.json()
-      
-      // Load detailed learning status from new endpoint
-      const learningStatusRes = await fetch('/ai/exchange/learning/status')
-      const learningStatusData = await learningStatusRes.json()
+      if (servicesData.success) {
+        setServiceHealth(servicesData.data)
+      }
       
       // Combine all AI data
       setAiStats({
@@ -99,6 +115,8 @@ export default function AdminPage() {
         recentDecisions: eventsData.success ? eventsData.data : [],
         learningStatus: learningStatusData.success ? learningStatusData.data : null
       })
+      
+      setLastUpdate(new Date())
     } catch (error) {
       console.error('Failed to load admin data:', error)
     } finally {
@@ -206,7 +224,13 @@ export default function AdminPage() {
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
             >
-              <h1 className="text-2xl font-bold mb-8">Overview</h1>
+              <div className="flex items-center justify-between mb-8">
+                <h1 className="text-2xl font-bold">Overview</h1>
+                <div className="flex items-center gap-2 text-sm text-sentinel-text-muted">
+                  <span className="w-2 h-2 rounded-full bg-sentinel-accent-emerald live-pulse" />
+                  Real-time • {lastUpdate.toLocaleTimeString()}
+                </div>
+              </div>
               
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
                 <div className="p-6 rounded-2xl glass-card">
@@ -299,47 +323,75 @@ export default function AdminPage() {
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
             >
-              <h1 className="text-2xl font-bold mb-8">Users</h1>
+              <div className="flex items-center justify-between mb-8">
+                <h1 className="text-2xl font-bold">Users</h1>
+                <div className="flex items-center gap-4">
+                  <span className="text-sentinel-text-muted">Total: {users.length}</span>
+                  <span className="w-2 h-2 rounded-full bg-sentinel-accent-emerald live-pulse" />
+                </div>
+              </div>
               
               {users.length === 0 ? (
                 <div className="p-12 rounded-2xl glass-card text-center">
                   <Users className="w-16 h-16 mx-auto mb-4 text-sentinel-text-muted opacity-30" />
                   <h3 className="text-xl font-semibold mb-2">No Users Yet</h3>
-                  <p className="text-sentinel-text-secondary">Users will appear here when they register.</p>
+                  <p className="text-sentinel-text-secondary mb-4">Users will appear here when they register and connect an exchange.</p>
+                  <div className="p-4 rounded-xl bg-sentinel-bg-tertiary max-w-md mx-auto">
+                    <p className="text-sm text-sentinel-text-muted">
+                      <strong>Note:</strong> You (admin) are currently using the default trading account.
+                      New users will appear here once they sign up at <span className="text-sentinel-accent-cyan">sentinel.xproject.live/register</span>
+                    </p>
+                  </div>
                 </div>
               ) : (
                 <div className="rounded-2xl glass-card overflow-hidden">
                   <table className="w-full">
                     <thead>
                       <tr className="text-left text-sm text-sentinel-text-muted border-b border-sentinel-border">
-                        <th className="px-6 py-4 font-medium">Email</th>
-                        <th className="px-6 py-4 font-medium">Name</th>
+                        <th className="px-6 py-4 font-medium">User ID</th>
                         <th className="px-6 py-4 font-medium">Exchange</th>
                         <th className="px-6 py-4 font-medium">Status</th>
+                        <th className="px-6 py-4 font-medium">Total Trades</th>
+                        <th className="px-6 py-4 font-medium">P&L</th>
                         <th className="px-6 py-4 font-medium">Created</th>
                       </tr>
                     </thead>
                     <tbody>
                       {users.map((user, idx) => (
-                        <tr key={idx} className="border-b border-sentinel-border/50 last:border-0">
-                          <td className="px-6 py-4">{user.email}</td>
-                          <td className="px-6 py-4">{user.name || 'N/A'}</td>
+                        <tr key={idx} className="border-b border-sentinel-border/50 last:border-0 hover:bg-sentinel-bg-tertiary/30 transition-colors">
+                          <td className="px-6 py-4">
+                            <div className="flex items-center gap-3">
+                              <div className={`w-2 h-2 rounded-full ${user.isActive ? 'bg-sentinel-accent-emerald live-pulse' : 'bg-sentinel-text-muted'}`} />
+                              <span className="font-mono text-sm">{user.id}</span>
+                            </div>
+                          </td>
                           <td className="px-6 py-4">
                             {user.exchangeConnected ? (
-                              <span className="text-sentinel-accent-emerald">{user.exchange}</span>
+                              <span className="flex items-center gap-2 text-sentinel-accent-emerald">
+                                <span className="w-2 h-2 rounded-full bg-sentinel-accent-emerald" />
+                                {user.exchange}
+                              </span>
                             ) : (
                               <span className="text-sentinel-text-muted">Not connected</span>
                             )}
                           </td>
                           <td className="px-6 py-4">
-                            <span className={`px-2 py-1 rounded text-xs font-medium ${
-                              user.isActive ? 'bg-sentinel-accent-emerald/10 text-sentinel-accent-emerald' :
-                              'bg-sentinel-text-muted/10 text-sentinel-text-muted'
+                            <span className={`px-3 py-1 rounded-full text-xs font-medium ${
+                              user.isActive ? 'bg-sentinel-accent-emerald/10 text-sentinel-accent-emerald border border-sentinel-accent-emerald/30' :
+                              'bg-sentinel-text-muted/10 text-sentinel-text-muted border border-sentinel-text-muted/30'
                             }`}>
-                              {user.isActive ? 'Active' : 'Inactive'}
+                              {user.isActive ? '🟢 Trading' : '⏸️ Paused'}
                             </span>
                           </td>
-                          <td className="px-6 py-4 text-sentinel-text-secondary">
+                          <td className="px-6 py-4">
+                            <span className="font-mono">{user.totalTrades?.toLocaleString() || 0}</span>
+                          </td>
+                          <td className="px-6 py-4">
+                            <span className={`font-mono ${(user.totalPnl || 0) >= 0 ? 'text-sentinel-accent-emerald' : 'text-sentinel-accent-crimson'}`}>
+                              {(user.totalPnl || 0) >= 0 ? '+' : ''}€{(user.totalPnl || 0).toFixed(2)}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 text-sentinel-text-secondary text-sm">
                             {user.createdAt ? new Date(user.createdAt).toLocaleDateString() : 'N/A'}
                           </td>
                         </tr>
@@ -356,7 +408,13 @@ export default function AdminPage() {
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
             >
-              <h1 className="text-2xl font-bold mb-8">AI Learning Statistics</h1>
+              <div className="flex items-center justify-between mb-8">
+                <h1 className="text-2xl font-bold">AI Learning Statistics</h1>
+                <div className="flex items-center gap-2 text-sm text-sentinel-text-muted">
+                  <span className="w-2 h-2 rounded-full bg-sentinel-accent-emerald live-pulse" />
+                  Auto-updating • {lastUpdate.toLocaleTimeString()}
+                </div>
+              </div>
               
               {/* AI Models Status */}
               <div className="p-6 rounded-2xl glass-card mb-8">
@@ -659,7 +717,13 @@ export default function AdminPage() {
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
             >
-              <h1 className="text-2xl font-bold mb-8">System Status</h1>
+              <div className="flex items-center justify-between mb-8">
+                <h1 className="text-2xl font-bold">System Status</h1>
+                <div className="flex items-center gap-2 text-sm text-sentinel-text-muted">
+                  <span className="w-2 h-2 rounded-full bg-sentinel-accent-emerald live-pulse" />
+                  Last update: {lastUpdate.toLocaleTimeString()}
+                </div>
+              </div>
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
                 <div className="p-6 rounded-2xl glass-card">
@@ -671,31 +735,53 @@ export default function AdminPage() {
                     </div>
                     <div className="flex justify-between py-2 border-b border-sentinel-border/30">
                       <span className="text-sentinel-text-secondary">Uptime</span>
-                      <span>{systemStats?.uptime || 'N/A'}</span>
+                      <span className="font-medium text-sentinel-accent-emerald">{systemStats?.uptime || 'N/A'}</span>
                     </div>
                     <div className="flex justify-between py-2 border-b border-sentinel-border/30">
                       <span className="text-sentinel-text-secondary">OS</span>
                       <span>Ubuntu 22.04 LTS</span>
                     </div>
+                    <div className="flex justify-between py-2 border-b border-sentinel-border/30">
+                      <span className="text-sentinel-text-secondary">Memory</span>
+                      <span>{systemStats?.memoryUsedGB?.toFixed(1) || 0} / {systemStats?.memoryTotalGB?.toFixed(0) || 0} GB</span>
+                    </div>
                     <div className="flex justify-between py-2">
-                      <span className="text-sentinel-text-secondary">Docker Status</span>
-                      <span className="text-sentinel-accent-emerald">Running</span>
+                      <span className="text-sentinel-text-secondary">Disk</span>
+                      <span>{systemStats?.diskUsedGB?.toFixed(0) || 0} / {systemStats?.diskTotalGB?.toFixed(0) || 0} GB</span>
                     </div>
                   </div>
                 </div>
 
                 <div className="p-6 rounded-2xl glass-card">
-                  <h3 className="text-lg font-semibold mb-4">Service Health</h3>
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-lg font-semibold">Service Health</h3>
+                    <span className={`text-sm font-medium ${serviceHealth?.allHealthy ? 'text-sentinel-accent-emerald' : 'text-sentinel-accent-amber'}`}>
+                      {serviceHealth?.healthyCount || 0}/{serviceHealth?.totalCount || 0} Healthy
+                    </span>
+                  </div>
                   <div className="space-y-3">
-                    {['Frontend', 'Backend', 'AI Services', 'PostgreSQL', 'Redis', 'Kafka'].map((service) => (
-                      <div key={service} className="flex items-center justify-between py-2 border-b border-sentinel-border/30 last:border-0">
-                        <span className="text-sentinel-text-secondary">{service}</span>
+                    {serviceHealth?.services && Object.entries(serviceHealth.services).map(([name, info]: [string, any]) => (
+                      <div key={name} className="flex items-center justify-between py-2 border-b border-sentinel-border/30 last:border-0">
+                        <span className="text-sentinel-text-secondary">{name}</span>
                         <div className="flex items-center gap-2">
-                          <span className="w-2 h-2 rounded-full bg-sentinel-accent-emerald" />
-                          <span className="text-sm">Healthy</span>
+                          <span className={`w-2 h-2 rounded-full ${
+                            info.status === 'healthy' ? 'bg-sentinel-accent-emerald' :
+                            info.status === 'restarting' ? 'bg-sentinel-accent-amber animate-pulse' :
+                            info.status === 'stopped' ? 'bg-sentinel-text-muted' :
+                            'bg-sentinel-accent-crimson'
+                          }`} />
+                          <span className={`text-sm capitalize ${
+                            info.status === 'healthy' ? 'text-sentinel-accent-emerald' :
+                            info.status === 'restarting' ? 'text-sentinel-accent-amber' :
+                            info.status === 'stopped' ? 'text-sentinel-text-muted' :
+                            'text-sentinel-accent-crimson'
+                          }`}>{info.status}</span>
                         </div>
                       </div>
                     ))}
+                    {!serviceHealth?.services && (
+                      <div className="text-center py-4 text-sentinel-text-muted">Loading services...</div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -707,16 +793,34 @@ export default function AdminPage() {
                     <Cpu className="w-8 h-8 text-sentinel-accent-cyan mx-auto mb-3" />
                     <div className="text-3xl font-bold">{systemStats?.cpuUsage?.toFixed(1) || 0}%</div>
                     <div className="text-sentinel-text-muted">CPU Usage</div>
+                    <div className="h-2 bg-sentinel-bg-secondary rounded-full mt-3 overflow-hidden">
+                      <div 
+                        className="h-full bg-sentinel-accent-cyan rounded-full transition-all duration-500"
+                        style={{ width: `${systemStats?.cpuUsage || 0}%` }}
+                      />
+                    </div>
                   </div>
                   <div className="p-6 rounded-xl bg-sentinel-bg-tertiary text-center">
                     <Server className="w-8 h-8 text-sentinel-accent-emerald mx-auto mb-3" />
                     <div className="text-3xl font-bold">{systemStats?.memoryUsage?.toFixed(1) || 0}%</div>
                     <div className="text-sentinel-text-muted">Memory Usage</div>
+                    <div className="h-2 bg-sentinel-bg-secondary rounded-full mt-3 overflow-hidden">
+                      <div 
+                        className="h-full bg-sentinel-accent-emerald rounded-full transition-all duration-500"
+                        style={{ width: `${systemStats?.memoryUsage || 0}%` }}
+                      />
+                    </div>
                   </div>
                   <div className="p-6 rounded-xl bg-sentinel-bg-tertiary text-center">
                     <HardDrive className="w-8 h-8 text-sentinel-accent-amber mx-auto mb-3" />
                     <div className="text-3xl font-bold">{systemStats?.diskUsage?.toFixed(1) || 0}%</div>
                     <div className="text-sentinel-text-muted">Disk Usage</div>
+                    <div className="h-2 bg-sentinel-bg-secondary rounded-full mt-3 overflow-hidden">
+                      <div 
+                        className="h-full bg-sentinel-accent-amber rounded-full transition-all duration-500"
+                        style={{ width: `${systemStats?.diskUsage || 0}%` }}
+                      />
+                    </div>
                   </div>
                 </div>
               </div>
