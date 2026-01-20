@@ -817,7 +817,10 @@ export default function DashboardPage() {
                 Admin
               </Link>
             )}
-            <Link href="/dashboard/settings" className="p-2 rounded-lg hover:bg-sentinel-bg-tertiary transition-colors">
+            <Link href="/dashboard/backtest" className="p-2 rounded-lg hover:bg-sentinel-bg-tertiary transition-colors" title="Backtest Strategies">
+              <BarChart3 className="w-5 h-5 text-sentinel-text-secondary" />
+            </Link>
+            <Link href="/dashboard/settings" className="p-2 rounded-lg hover:bg-sentinel-bg-tertiary transition-colors" title="Settings">
               <Settings className="w-5 h-5 text-sentinel-text-secondary" />
             </Link>
             <div className="w-px h-8 bg-sentinel-border" />
