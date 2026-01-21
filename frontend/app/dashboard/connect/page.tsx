@@ -3,19 +3,15 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
 import { 
-  Shield, Key, Eye, EyeOff, Server, Copy, Check,
+  Shield, Key, Eye, EyeOff, Copy, Check,
   AlertTriangle, ExternalLink, ArrowRight, ArrowLeft,
   Zap, Bot, TrendingUp
 } from 'lucide-react'
 import Link from 'next/link'
 
-// Server IP for API whitelisting - Dedicated Server
-const SERVER_IP = '217.147.172.2'
-
 export default function ConnectExchangePage() {
   const [step, setStep] = useState(1)
   const [showSecret, setShowSecret] = useState(false)
-  const [copied, setCopied] = useState(false)
   const [isConnecting, setIsConnecting] = useState(false)
   const [isEnablingTrading, setIsEnablingTrading] = useState(false)
   const [connectionStatus, setConnectionStatus] = useState<'idle' | 'success' | 'error'>('idle')
@@ -27,12 +23,6 @@ export default function ConnectExchangePage() {
     apiKey: '',
     apiSecret: '',
   })
-
-  const copyServerIP = () => {
-    navigator.clipboard.writeText(SERVER_IP)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
-  }
 
   const testConnection = async () => {
     setIsConnecting(true)
@@ -199,7 +189,7 @@ export default function ConnectExchangePage() {
                 </li>
                 <li className="flex gap-3">
                   <span className="w-6 h-6 rounded-full bg-sentinel-bg-tertiary flex items-center justify-center text-sm font-bold">5</span>
-                  <span>Leave IP whitelist <strong>empty</strong> (for unrestricted access)</span>
+                  <span>Copy your <strong>API Key</strong> and <strong>Secret</strong></span>
                 </li>
               </ol>
 
@@ -211,20 +201,6 @@ export default function ConnectExchangePage() {
               >
                 Open Bybit API Management <ExternalLink className="w-4 h-4" />
               </a>
-            </div>
-
-            {/* Optional IP Info */}
-            <div className="p-4 rounded-xl bg-sentinel-bg-tertiary/50 border border-sentinel-bg-tertiary flex gap-3">
-              <Server className="w-5 h-5 text-gray-400 flex-shrink-0 mt-0.5" />
-              <div className="text-sm">
-                <p className="text-gray-400">
-                  <strong className="text-gray-300">Optional:</strong> If you prefer IP restrictions, add: 
-                  <code className="ml-2 px-2 py-0.5 bg-black/30 rounded text-gray-300">{SERVER_IP}</code>
-                  <button onClick={copyServerIP} className="ml-2 text-sentinel-accent-cyan hover:underline">
-                    {copied ? 'Copied!' : 'Copy'}
-                  </button>
-                </p>
-              </div>
             </div>
 
             {/* Warning */}

@@ -18,8 +18,8 @@ class ExchangeConnection extends Model
         'user_id',
         'exchange',
         'name',
-        'api_key',
-        'api_secret',
+        'api_key_encrypted',
+        'api_secret_encrypted',
         'is_testnet',
         'is_active',
         'last_sync_at',
@@ -27,8 +27,8 @@ class ExchangeConnection extends Model
     ];
 
     protected $hidden = [
-        'api_key',
-        'api_secret',
+        'api_key_encrypted',
+        'api_secret_encrypted',
     ];
 
     protected function casts(): array
@@ -41,27 +41,29 @@ class ExchangeConnection extends Model
         ];
     }
 
-    // Encrypt API key before saving
+    // Encrypt API key before saving (maps api_key to api_key_encrypted column)
     public function setApiKeyAttribute($value)
     {
-        $this->attributes['api_key'] = $value ? Crypt::encryptString($value) : null;
+        $this->attributes['api_key_encrypted'] = $value ? Crypt::encryptString($value) : null;
     }
 
     // Decrypt API key when retrieving
-    public function getApiKeyAttribute($value)
+    public function getApiKeyAttribute()
     {
+        $value = $this->attributes['api_key_encrypted'] ?? null;
         return $value ? Crypt::decryptString($value) : null;
     }
 
-    // Encrypt API secret before saving
+    // Encrypt API secret before saving (maps api_secret to api_secret_encrypted column)
     public function setApiSecretAttribute($value)
     {
-        $this->attributes['api_secret'] = $value ? Crypt::encryptString($value) : null;
+        $this->attributes['api_secret_encrypted'] = $value ? Crypt::encryptString($value) : null;
     }
 
     // Decrypt API secret when retrieving
-    public function getApiSecretAttribute($value)
+    public function getApiSecretAttribute()
     {
+        $value = $this->attributes['api_secret_encrypted'] ?? null;
         return $value ? Crypt::decryptString($value) : null;
     }
 

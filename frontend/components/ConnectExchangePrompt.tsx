@@ -13,14 +13,10 @@ import {
   CheckCircle,
   AlertCircle,
   Loader2,
-  Info,
   ExternalLink,
-  Copy,
   LogOut
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
-
-const SERVER_IP = process.env.NEXT_PUBLIC_SERVER_IP || '167.235.69.240'
 
 export default function ConnectExchangePrompt() {
   const router = useRouter()
@@ -29,7 +25,6 @@ export default function ConnectExchangePrompt() {
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
-  const [ipCopied, setIpCopied] = useState(false)
   
   const [formData, setFormData] = useState({
     name: 'My Bybit Account',
@@ -42,27 +37,6 @@ export default function ConnectExchangePrompt() {
     localStorage.removeItem('token')
     localStorage.removeItem('sentinel_user')
     window.location.href = '/login'
-  }
-
-  const copyIP = async () => {
-    try {
-      if (navigator.clipboard && window.isSecureContext) {
-        await navigator.clipboard.writeText(SERVER_IP)
-      } else {
-        const textArea = document.createElement('textarea')
-        textArea.value = SERVER_IP
-        textArea.style.position = 'fixed'
-        textArea.style.left = '-999999px'
-        document.body.appendChild(textArea)
-        textArea.select()
-        document.execCommand('copy')
-        document.body.removeChild(textArea)
-      }
-      setIpCopied(true)
-      setTimeout(() => setIpCopied(false), 2000)
-    } catch (err) {
-      console.error('Failed to copy:', err)
-    }
   }
 
   const handleConnect = async () => {
@@ -167,35 +141,6 @@ export default function ConnectExchangePrompt() {
               ))}
             </div>
 
-            {/* Optional IP Info */}
-            <div className="p-4 bg-gray-500/5 border border-gray-500/20 rounded-xl mb-8 text-left">
-              <div className="flex items-start gap-3">
-                <Info className="w-5 h-5 text-gray-400 flex-shrink-0 mt-0.5" />
-                <div>
-                  <p className="text-sm text-gray-400 mb-2">
-                    <span className="text-gray-300">Optional:</span> If you enabled IP restrictions on your API key, add this IP:
-                  </p>
-                  <div className="flex items-center gap-2">
-                    <code className="px-3 py-1.5 bg-black/30 rounded-lg text-gray-400 font-mono text-sm">
-                      {SERVER_IP}
-                    </code>
-                    <button
-                      onClick={copyIP}
-                      className="p-2 rounded-lg bg-white/5 hover:bg-white/10 transition-colors"
-                    >
-                      {ipCopied ? (
-                        <CheckCircle className="w-4 h-4 text-emerald-400" />
-                      ) : (
-                        <Copy className="w-4 h-4 text-gray-400" />
-                      )}
-                    </button>
-                  </div>
-                  <p className="text-xs text-gray-500 mt-2">
-                    Tip: Leave IP whitelist empty on Bybit for unrestricted access
-                  </p>
-                </div>
-              </div>
-            </div>
 
             <button
               onClick={() => setStep('credentials')}
