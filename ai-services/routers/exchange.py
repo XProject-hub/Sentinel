@@ -900,6 +900,17 @@ async def get_positions():
             if position_value == 0 and mark_price > 0:
                 position_value = size * mark_price
             
+            # Get unrealized P&L (gross, before fees)
+            unrealized_pnl_gross = float(pos.get("unrealisedPnl", 0))
+            
+            # Calculate estimated exit fee (taker: 0.055% of position value)
+            # Entry fee was already paid, exit fee will be paid when closing
+            estimated_exit_fee = position_value * 0.00055
+            
+            # Estimated NET P&L = Gross - Exit Fee
+            # Note: Entry fee was already deducted when position was opened
+            estimated_net_pnl = unrealized_pnl_gross - estimated_exit_fee
+            
             positions.append({
                 "symbol": pos.get("symbol"),
                 "side": pos.get("side"),
@@ -907,7 +918,9 @@ async def get_positions():
                 "entryPrice": entry_price,
                 "markPrice": mark_price,
                 "positionValue": position_value,
-                "unrealisedPnl": float(pos.get("unrealisedPnl", 0)),
+                "unrealisedPnl": unrealized_pnl_gross,  # Gross P&L (before exit fee)
+                "estimatedNetPnl": round(estimated_net_pnl, 4),  # NET P&L (after estimated exit fee)
+                "estimatedExitFee": round(estimated_exit_fee, 4),  # Estimated exit fee
                 "leverage": pos.get("leverage"),
                 "liquidationPrice": float(pos.get("liqPrice", 0)) if pos.get("liqPrice") else None,
                 "takeProfit": pos.get("takeProfit"),

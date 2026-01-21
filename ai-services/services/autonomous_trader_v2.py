@@ -747,25 +747,34 @@ class AutonomousTraderV2:
             logger.info(f"📤 Order result for {position.symbol}: {result}")
             
             if result.get('success'):
-                won = pnl_percent > 0
-                pnl_value = position.position_value * (pnl_percent / 100)
+                # Calculate GROSS P&L
+                gross_pnl = position.position_value * (pnl_percent / 100)
                 
-                logger.info(f"CLOSED {position.symbol}: {reason} | P&L: {pnl_percent:+.2f}% (${pnl_value:+.2f})")
+                # Calculate trading fees (Bybit taker fee: 0.055% entry + 0.055% exit = 0.11% total)
+                # Fee is charged on position VALUE (with leverage)
+                total_fees = position.position_value * 0.0011  # 0.11% round-trip
                 
-                # Console log for dashboard
-                emoji = "" if won else ""
+                # NET P&L = Gross - Fees
+                pnl_value = gross_pnl - total_fees
+                net_pnl_percent = (pnl_value / position.position_value) * 100 if position.position_value > 0 else 0
+                
+                won = pnl_value > 0  # Win/loss based on NET, not gross!
+                
+                logger.info(f"CLOSED {position.symbol}: {reason} | Gross: {pnl_percent:+.2f}% | Fees: ${total_fees:.2f} | NET: {net_pnl_percent:+.2f}% (${pnl_value:+.2f})")
+                
+                # Console log for dashboard - show NET P&L (after fees)
                 await self._log_to_console(
-                    f"{emoji} CLOSED {position.symbol}: {pnl_percent:+.2f}% (${pnl_value:+.2f}) | {reason}",
+                    f"CLOSED {position.symbol}: {net_pnl_percent:+.2f}% (${pnl_value:+.2f} NET) | {reason}",
                     "TRADE"
                 )
                 
-                # Update stats
+                # Update stats with NET values
                 self.stats['total_trades'] += 1
                 if won:
                     self.stats['winning_trades'] += 1
-                self.stats['total_pnl'] += pnl_value
+                self.stats['total_pnl'] += pnl_value  # NET P&L
                 
-                # Record in position sizer
+                # Record in position sizer (NET P&L)
                 await self.position_sizer.close_position(position.symbol, pnl_value)
                 
                 # Record in edge estimator for calibration
@@ -774,7 +783,7 @@ class AutonomousTraderV2:
                 # Record in market scanner
                 await self.market_scanner.record_trade_result(position.symbol, won, pnl_value)
                 
-                # Record in learning engine
+                # Record in learning engine with NET values
                 if self.learning_engine:
                     exit_price = position.entry_price * (1 + pnl_percent/100)
                     outcome = TradeOutcome(
@@ -784,12 +793,12 @@ class AutonomousTraderV2:
                         exit_price=exit_price,
                         quantity=position.size,
                         side='long' if position.side == 'Buy' else 'short',
-                        pnl=pnl_value,
-                        pnl_percent=pnl_percent,
+                        pnl=pnl_value,  # NET P&L
+                        pnl_percent=net_pnl_percent,  # NET %
                         hold_time_seconds=int((datetime.utcnow() - position.entry_time).total_seconds()),
                         market_regime=position.entry_regime,
-                        volatility_at_entry=0.0,  # Not tracked
-                        sentiment_at_entry=0.0,   # Not tracked
+                        volatility_at_entry=0.0,
+                        sentiment_at_entry=0.0,
                         timestamp=datetime.utcnow().isoformat()
                     )
                     await self.learning_engine.update_from_trade(outcome)
@@ -801,10 +810,10 @@ class AutonomousTraderV2:
                 
                 # ADD COOLDOWN: Prevent reopening this symbol for 60 seconds
                 self._cooldown_symbols[position.symbol] = datetime.utcnow()
-                logger.debug(f" {position.symbol} on cooldown for {self.cooldown_seconds}s")
+                logger.debug(f"{position.symbol} on cooldown for {self.cooldown_seconds}s")
                         
-                # Store trade for dashboard and data collection (V3)
-                await self._store_trade_event(position.symbol, 'closed', pnl_percent, reason, position)
+                # Store trade for dashboard with NET P&L
+                await self._store_trade_event(position.symbol, 'closed', net_pnl_percent, reason, position, pnl_value)
                 
             else:
                 logger.error(f"Failed to close {position.symbol}: {result}")
@@ -2052,21 +2061,30 @@ class AutonomousTraderV2:
             pass  # Don't break trading for console logging
         
     async def _store_trade_event(self, symbol: str, action: str, pnl: float, reason: str,
-                                  position: Optional[ActivePosition] = None):
-        """Store trade event for dashboard and data collection"""
+                                  position: Optional[ActivePosition] = None, 
+                                  net_pnl_value: Optional[float] = None):
+        """Store trade event for dashboard and data collection
+        
+        Args:
+            pnl: NET P&L percentage (after fees)
+            net_pnl_value: NET P&L value in USD (after fees)
+        """
         try:
             timestamp = datetime.utcnow().isoformat()
             
-            # Calculate PnL value if position available
-            pnl_value = 0
-            if position and position.position_value:
+            # Use provided net_pnl_value or calculate from percentage
+            if net_pnl_value is not None:
+                pnl_value = net_pnl_value
+            elif position and position.position_value:
                 pnl_value = position.position_value * (pnl / 100)
+            else:
+                pnl_value = 0
             
             event = {
                 'symbol': symbol,
                 'action': action,
-                'pnl_percent': round(pnl, 2),
-                'pnl_value': round(pnl_value, 2),
+                'pnl_percent': round(pnl, 2),  # NET %
+                'pnl_value': round(pnl_value, 2),  # NET value
                 'reason': reason,
                 'timestamp': timestamp,
                 'side': position.side if position else None,
@@ -2078,12 +2096,12 @@ class AutonomousTraderV2:
             await self.redis_client.lpush('trading:events', json.dumps(event))
             await self.redis_client.ltrim('trading:events', 0, 99)  # Keep last 100
             
-            # Also store completed trades separately for activity panel
+            # Also store completed trades separately for activity panel (NET P&L)
             if action == 'closed':
                 await self.redis_client.lpush('trades:completed:default', json.dumps({
                     'symbol': symbol,
-                    'pnl': pnl_value,
-                    'pnl_percent': round(pnl, 2),
+                    'pnl': round(pnl_value, 2),  # NET value
+                    'pnl_percent': round(pnl, 2),  # NET %
                     'close_reason': reason,
                     'closed_time': timestamp
                 }))

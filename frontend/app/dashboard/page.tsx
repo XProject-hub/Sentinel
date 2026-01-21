@@ -39,6 +39,8 @@ interface Position {
   entryPrice: string
   markPrice: string
   unrealisedPnl: string
+  estimatedNetPnl?: string  // NET P&L after estimated exit fees
+  estimatedExitFee?: string
   leverage: string
   positionValue: string
 }
@@ -678,8 +680,12 @@ export default function DashboardPage() {
                       // Calculate P&L in EUR
                       const pnlEUR = posValueEUR * (pnlPercent / 100)
                       
-                      // Use API unrealisedPnl if available
-                      const apiPnl = parseFloat(pos.unrealisedPnl || '0')
+                      // Use NET P&L (after fees) if available, otherwise gross
+                      const netPnl = parseFloat(pos.estimatedNetPnl || '0')
+                      const grossPnl = parseFloat(pos.unrealisedPnl || '0')
+                      
+                      // Prefer NET P&L (more accurate), fallback to gross
+                      const apiPnl = netPnl !== 0 ? netPnl : grossPnl
                       const finalPnlEUR = apiPnl !== 0 ? apiPnl * USDT_TO_EUR : pnlEUR
                       const finalPnlPercent = apiPnl !== 0 && posValueUSDT > 0 ? (apiPnl / posValueUSDT) * 100 : pnlPercent
                       
