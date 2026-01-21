@@ -1846,3 +1846,132 @@ async def get_learning_status():
         
     return {"success": True, "data": learning_status}
 
+
+@router.get("/trades/history")
+async def get_trade_history(user_id: str = "default", limit: int = 10):
+    """Get recent completed trades history"""
+    r = await redis.from_url(settings.REDIS_URL)
+    
+    try:
+        trades = []
+        
+        # Get completed trades from Redis
+        trades_data = await r.lrange(f"trades:completed:{user_id}", 0, limit - 1)
+        
+        for trade_json in trades_data:
+            try:
+                if isinstance(trade_json, bytes):
+                    trade_json = trade_json.decode()
+                trade = json.loads(trade_json)
+                trades.append({
+                    "symbol": trade.get("symbol", "UNKNOWN"),
+                    "pnl": float(trade.get("pnl", 0)),
+                    "pnl_percent": float(trade.get("pnl_percent", 0)),
+                    "close_reason": trade.get("close_reason", "Unknown"),
+                    "closed_time": trade.get("closed_time", datetime.utcnow().isoformat()),
+                    "side": trade.get("side", ""),
+                    "entry_price": trade.get("entry_price"),
+                    "exit_price": trade.get("exit_price")
+                })
+            except:
+                continue
+        
+        return {
+            "success": True,
+            "data": {
+                "trades": trades,
+                "total": len(trades)
+            }
+        }
+    finally:
+        await r.aclose()
+
+
+@router.get("/trading/stats")
+async def get_trading_stats(user_id: str = "default"):
+    """Get comprehensive trading statistics"""
+    r = await redis.from_url(settings.REDIS_URL)
+    
+    try:
+        # Get trader stats
+        stats_data = await r.get("trader:stats")
+        stats = {}
+        if stats_data:
+            try:
+                stats = json.loads(stats_data.decode() if isinstance(stats_data, bytes) else stats_data)
+            except:
+                pass
+        
+        total_trades = int(stats.get("total_trades", 0))
+        winning_trades = int(stats.get("winning_trades", 0))
+        total_pnl = float(stats.get("total_pnl", 0))
+        
+        # Calculate derived stats
+        losing_trades = total_trades - winning_trades
+        win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0
+        
+        # Get completed trades for more stats
+        trades_data = await r.lrange(f"trades:completed:{user_id}", 0, 99)
+        
+        profits = []
+        losses = []
+        best_trade = 0
+        worst_trade = 0
+        current_streak = 0
+        last_result = None
+        
+        for trade_json in trades_data:
+            try:
+                if isinstance(trade_json, bytes):
+                    trade_json = trade_json.decode()
+                trade = json.loads(trade_json)
+                pnl = float(trade.get("pnl", 0))
+                
+                if pnl > 0:
+                    profits.append(pnl)
+                    if pnl > best_trade:
+                        best_trade = pnl
+                    # Streak tracking
+                    if last_result == 'win':
+                        current_streak += 1
+                    else:
+                        current_streak = 1
+                    last_result = 'win'
+                elif pnl < 0:
+                    losses.append(pnl)
+                    if pnl < worst_trade:
+                        worst_trade = pnl
+                    # Streak tracking
+                    if last_result == 'loss':
+                        current_streak -= 1
+                    else:
+                        current_streak = -1
+                    last_result = 'loss'
+            except:
+                continue
+        
+        avg_profit = sum(profits) / len(profits) if profits else 0
+        avg_loss = abs(sum(losses) / len(losses)) if losses else 0
+        profit_factor = (sum(profits) / abs(sum(losses))) if losses and sum(losses) != 0 else 0
+        
+        return {
+            "success": True,
+            "data": {
+                "total_trades": total_trades,
+                "winning_trades": winning_trades,
+                "losing_trades": losing_trades,
+                "win_rate": round(win_rate, 1),
+                "total_pnl": round(total_pnl, 2),
+                "max_drawdown": float(stats.get("max_drawdown", 0)),
+                "opportunities_scanned": int(stats.get("opportunities_scanned", 0)),
+                "avg_profit": round(avg_profit, 2),
+                "avg_loss": round(avg_loss, 2),
+                "profit_factor": round(profit_factor, 2),
+                "current_streak": current_streak,
+                "best_trade": round(best_trade, 2),
+                "worst_trade": round(worst_trade, 2)
+            }
+        }
+    finally:
+        await r.aclose()
+

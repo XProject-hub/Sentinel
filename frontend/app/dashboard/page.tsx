@@ -29,10 +29,17 @@ import {
   Waves,
   Users,
   LineChart,
-  Cpu
+  Cpu,
+  Trophy,
+  Flame,
+  CheckCircle,
+  XCircle,
+  Timer,
+  Hash
 } from 'lucide-react'
 import Logo from '@/components/Logo'
 import ConnectExchangePrompt from '@/components/ConnectExchangePrompt'
+import { LineChart as RechartsLineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Area, AreaChart } from 'recharts'
 
 interface Position {
   symbol: string
@@ -88,6 +95,30 @@ interface NewsItem {
   time: string
 }
 
+interface TradeHistory {
+  symbol: string
+  pnl: number
+  pnl_percent: number
+  close_reason: string
+  closed_time: string
+  side?: string
+}
+
+interface TraderStats {
+  total_trades: number
+  winning_trades: number
+  total_pnl: number
+  max_drawdown: number
+  opportunities_scanned: number
+  win_rate: number
+  avg_profit: number
+  avg_loss: number
+  profit_factor: number
+  streak: number
+  best_trade: number
+  worst_trade: number
+}
+
 export default function DashboardPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [news, setNews] = useState<NewsItem[]>([])
@@ -104,6 +135,9 @@ export default function DashboardPage() {
   const [fearGreed, setFearGreed] = useState<number>(50)
   const [aiConfidence, setAiConfidence] = useState<number>(0)
   const [pairsScanned, setPairsScanned] = useState<number>(0)
+  const [recentTrades, setRecentTrades] = useState<TradeHistory[]>([])
+  const [traderStats, setTraderStats] = useState<TraderStats | null>(null)
+  const [pnlHistory, setPnlHistory] = useState<{time: string, pnl: number}[]>([])
   
   const consoleRef = useRef<HTMLDivElement>(null)
 
@@ -147,12 +181,14 @@ export default function DashboardPage() {
 
   const loadDashboardData = async () => {
     try {
-      const [walletRes, positionsRes, statusRes, consoleRes, whaleRes] = await Promise.all([
+      const [walletRes, positionsRes, statusRes, consoleRes, whaleRes, tradesRes, statsRes] = await Promise.all([
         fetch('/ai/exchange/balance?user_id=default'),
         fetch('/ai/exchange/positions?user_id=default'),
         fetch('/ai/exchange/trading/status?user_id=default'),
         fetch('/ai/exchange/trading/console?user_id=default&limit=20'),
-        fetch('/ai/market/whale-alerts?limit=5')
+        fetch('/ai/market/whale-alerts?limit=5'),
+        fetch('/ai/exchange/trades/history?user_id=default&limit=10'),
+        fetch('/ai/exchange/trading/stats?user_id=default')
       ])
 
       if (walletRes.ok) {
@@ -181,6 +217,48 @@ export default function DashboardPage() {
       if (whaleRes.ok) {
         const data = await whaleRes.json()
         setWhaleAlerts(data.alerts || [])
+      }
+
+      if (tradesRes.ok) {
+        const data = await tradesRes.json()
+        const trades = data.data?.trades || data.trades || []
+        setRecentTrades(trades)
+        
+        // Build P&L history from trades
+        if (trades.length > 0) {
+          let runningPnl = 0
+          const history = trades.slice().reverse().map((t: TradeHistory, i: number) => {
+            runningPnl += t.pnl
+            return {
+              time: new Date(t.closed_time).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+              pnl: runningPnl
+            }
+          })
+          setPnlHistory(history)
+        }
+      }
+
+      if (statsRes.ok) {
+        const data = await statsRes.json()
+        const stats = data.data || data
+        const totalTrades = stats.total_trades || 0
+        const winningTrades = stats.winning_trades || 0
+        const totalPnl = stats.total_pnl || 0
+        
+        setTraderStats({
+          total_trades: totalTrades,
+          winning_trades: winningTrades,
+          total_pnl: totalPnl,
+          max_drawdown: stats.max_drawdown || 0,
+          opportunities_scanned: stats.opportunities_scanned || 0,
+          win_rate: totalTrades > 0 ? (winningTrades / totalTrades) * 100 : 0,
+          avg_profit: stats.avg_profit || (winningTrades > 0 ? totalPnl / winningTrades : 0),
+          avg_loss: stats.avg_loss || 0,
+          profit_factor: stats.profit_factor || 0,
+          streak: stats.current_streak || 0,
+          best_trade: stats.best_trade || 0,
+          worst_trade: stats.worst_trade || 0
+        })
       }
 
       // Get AI insight
@@ -261,7 +339,7 @@ export default function DashboardPage() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-[#0a0f1a] flex items-center justify-center">
+      <div className="min-h-screen bg-[#060a13] flex items-center justify-center">
         <Loader2 className="w-8 h-8 text-cyan-400 animate-spin" />
       </div>
     )
@@ -274,11 +352,18 @@ export default function DashboardPage() {
   const totalPnl = wallet?.totalPnL || 0
   const dailyPnl = wallet?.dailyPnL || 0
   const isTrading = tradingStatus?.is_autonomous_trading && !tradingStatus?.is_paused
+  const winRate = traderStats?.win_rate || 0
 
   return (
-    <div className="min-h-screen bg-[#0a0f1a]">
+    <div className="min-h-screen bg-[#060a13]">
+      {/* Background Effects */}
+      <div className="fixed inset-0 pointer-events-none">
+        <div className="absolute inset-0 bg-[linear-gradient(rgba(6,182,212,0.02)_1px,transparent_1px),linear-gradient(90deg,rgba(6,182,212,0.02)_1px,transparent_1px)] bg-[size:44px_44px]" />
+        <div className="absolute top-0 right-0 w-[600px] h-[600px] bg-cyan-500/5 rounded-full blur-[120px]" />
+      </div>
+
       {/* Navigation */}
-      <nav className="sticky top-0 z-50 bg-[#0a0f1a]/95 backdrop-blur-xl border-b border-white/5">
+      <nav className="sticky top-0 z-50 bg-[#060a13]/90 backdrop-blur-xl border-b border-white/5">
         <div className="w-full px-6 py-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-6">
@@ -385,7 +470,7 @@ export default function DashboardPage() {
       </nav>
 
       {/* Main Content */}
-      <main className="p-6">
+      <main className="p-6 relative">
         {/* AI Insight Banner */}
         {aiInsight && (
           <motion.div
@@ -398,193 +483,298 @@ export default function DashboardPage() {
           </motion.div>
         )}
 
-        {/* Stats Grid */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        {/* Top Stats Grid - 6 columns */}
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
           {/* Total Equity */}
-          <div className="p-5 bg-white/[0.02] rounded-2xl border border-white/5">
-            <div className="flex items-center gap-2 mb-3">
-              <Wallet className="w-4 h-4 text-gray-500" />
-              <span className="text-sm text-gray-500">Total Equity</span>
+          <div className="p-4 bg-white/[0.02] rounded-xl border border-white/5">
+            <div className="flex items-center gap-2 mb-2">
+              <Wallet className="w-4 h-4 text-cyan-400" />
+              <span className="text-xs text-gray-500">Equity</span>
             </div>
-            <div className="text-2xl font-bold text-white">
-              {(wallet?.totalEquityUSDT || wallet?.totalEquity || 0).toFixed(2)} USDT
+            <div className="text-xl font-bold text-white">
+              {(wallet?.totalEquityUSDT || 0).toFixed(2)}
             </div>
-            <div className="text-xs text-gray-500 mt-1">
-              ≈ {formatCurrency(wallet?.totalEquity || 0)}
+            <div className="text-[10px] text-gray-600 mt-0.5">USDT</div>
+          </div>
+
+          {/* Available Balance */}
+          <div className="p-4 bg-white/[0.02] rounded-xl border border-white/5">
+            <div className="flex items-center gap-2 mb-2">
+              <DollarSign className="w-4 h-4 text-emerald-400" />
+              <span className="text-xs text-gray-500">Available</span>
             </div>
-            <div className="text-xs text-gray-600 mt-0.5">
-              Available: {(wallet?.availableBalanceUSDT || wallet?.availableBalance || 0).toFixed(2)} USDT
+            <div className="text-xl font-bold text-white">
+              {(wallet?.availableBalanceUSDT || 0).toFixed(2)}
+            </div>
+            <div className="text-[10px] text-gray-600 mt-0.5">USDT</div>
+          </div>
+
+          {/* Daily P&L */}
+          <div className="p-4 bg-white/[0.02] rounded-xl border border-white/5">
+            <div className="flex items-center gap-2 mb-2">
+              <TrendingUp className="w-4 h-4 text-gray-400" />
+              <span className="text-xs text-gray-500">Daily P&L</span>
+            </div>
+            <div className={`text-xl font-bold ${dailyPnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+              {dailyPnl >= 0 ? '+' : ''}{dailyPnl.toFixed(2)}
+            </div>
+            <div className="text-[10px] text-gray-600 mt-0.5">EUR</div>
+          </div>
+
+          {/* Win Rate */}
+          <div className="p-4 bg-white/[0.02] rounded-xl border border-white/5">
+            <div className="flex items-center gap-2 mb-2">
+              <Trophy className="w-4 h-4 text-amber-400" />
+              <span className="text-xs text-gray-500">Win Rate</span>
+            </div>
+            <div className={`text-xl font-bold ${winRate >= 50 ? 'text-emerald-400' : 'text-red-400'}`}>
+              {winRate.toFixed(1)}%
+            </div>
+            <div className="text-[10px] text-gray-600 mt-0.5">
+              {traderStats?.winning_trades || 0}W / {(traderStats?.total_trades || 0) - (traderStats?.winning_trades || 0)}L
             </div>
           </div>
 
-          {/* Total P&L */}
-          <div className="p-5 bg-white/[0.02] rounded-2xl border border-white/5">
-            <div className="flex items-center gap-2 mb-3">
-              <TrendingUp className="w-4 h-4 text-gray-500" />
-              <span className="text-sm text-gray-500">Total P&L</span>
+          {/* Total Trades */}
+          <div className="p-4 bg-white/[0.02] rounded-xl border border-white/5">
+            <div className="flex items-center gap-2 mb-2">
+              <Hash className="w-4 h-4 text-violet-400" />
+              <span className="text-xs text-gray-500">Total Trades</span>
             </div>
-            <div className={`text-2xl font-bold ${totalPnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-              {totalPnl >= 0 ? '+' : ''}{formatCurrency(totalPnl)}
+            <div className="text-xl font-bold text-white">
+              {traderStats?.total_trades || 0}
             </div>
-            <div className="flex gap-3 mt-1">
-              <span className={`text-xs ${dailyPnl >= 0 ? 'text-emerald-400/70' : 'text-red-400/70'}`}>
-                Today: {dailyPnl >= 0 ? '+' : ''}{formatCurrency(dailyPnl)}
-              </span>
-              {wallet?.weeklyPnL !== undefined && (
-                <span className={`text-xs ${wallet.weeklyPnL >= 0 ? 'text-emerald-400/70' : 'text-red-400/70'}`}>
-                  Week: {wallet.weeklyPnL >= 0 ? '+' : ''}{formatCurrency(wallet.weeklyPnL)}
-                </span>
-              )}
+            <div className={`text-[10px] mt-0.5 ${
+              (traderStats?.streak || 0) > 0 ? 'text-emerald-400' : 
+              (traderStats?.streak || 0) < 0 ? 'text-red-400' : 'text-gray-600'
+            }`}>
+              {(traderStats?.streak || 0) > 0 ? `${traderStats?.streak} win streak` :
+               (traderStats?.streak || 0) < 0 ? `${Math.abs(traderStats?.streak || 0)} loss streak` : 'No streak'}
             </div>
-          </div>
-
-          {/* Active Positions */}
-          <div className="p-5 bg-white/[0.02] rounded-2xl border border-white/5">
-            <div className="flex items-center gap-2 mb-3">
-              <Target className="w-4 h-4 text-gray-500" />
-              <span className="text-sm text-gray-500">Active Positions</span>
-            </div>
-            <div className="text-2xl font-bold text-white">
-              {positions.length}
-              <span className="text-sm text-gray-500 font-normal ml-1">
-                / {tradingStatus?.max_positions || 10}
-              </span>
-            </div>
-            <div className="text-xs text-gray-500 mt-1">
-              Mode: {tradingStatus?.risk_mode?.toUpperCase() || 'NORMAL'}
-            </div>
-            {wallet?.unrealizedPnL !== undefined && (
-              <div className={`text-xs mt-0.5 ${wallet.unrealizedPnL >= 0 ? 'text-emerald-400/70' : 'text-red-400/70'}`}>
-                Unrealized: {wallet.unrealizedPnL >= 0 ? '+' : ''}{formatCurrency(wallet.unrealizedPnL)}
-              </div>
-            )}
           </div>
 
           {/* Trading Control */}
-          <div className="p-5 bg-white/[0.02] rounded-2xl border border-white/5">
-            <div className="flex items-center gap-2 mb-3">
-              <Zap className="w-4 h-4 text-gray-500" />
-              <span className="text-sm text-gray-500">Trading Control</span>
+          <div className="p-4 bg-white/[0.02] rounded-xl border border-white/5">
+            <div className="flex items-center gap-2 mb-2">
+              <Zap className="w-4 h-4 text-gray-400" />
+              <span className="text-xs text-gray-500">Control</span>
             </div>
             <button
               onClick={isTrading ? stopTrading : startTrading}
               disabled={isTogglingBot}
-              className={`w-full py-2.5 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 transition-all ${
+              className={`w-full py-2 rounded-lg font-semibold text-xs flex items-center justify-center gap-1.5 transition-all ${
                 isTrading 
                   ? 'bg-red-500/20 text-red-400 hover:bg-red-500/30 border border-red-500/30' 
                   : 'bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 border border-emerald-500/30'
               }`}
             >
               {isTogglingBot ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
+                <Loader2 className="w-3 h-3 animate-spin" />
               ) : isTrading ? (
                 <>
-                  <Square className="w-4 h-4" />
-                  Stop Trading
+                  <Square className="w-3 h-3" />
+                  Stop
                 </>
               ) : (
                 <>
-                  <Play className="w-4 h-4" />
-                  Start Trading
+                  <Play className="w-3 h-3" />
+                  Start
                 </>
               )}
             </button>
           </div>
         </div>
 
-        {/* Main Grid - 70/30 split */}
-        <div className="grid lg:grid-cols-4 gap-4">
-          {/* Positions Panel */}
-          <div className="lg:col-span-3 bg-white/[0.02] rounded-2xl border border-white/5 overflow-hidden">
-            <div className="p-5 border-b border-white/5 flex items-center justify-between">
+        {/* Main Grid */}
+        <div className="grid lg:grid-cols-3 gap-4 mb-6">
+          {/* P&L Chart */}
+          <div className="lg:col-span-2 bg-white/[0.02] rounded-xl border border-white/5 p-5">
+            <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
-                <Activity className="w-5 h-5 text-cyan-400" />
+                <LineChart className="w-5 h-5 text-cyan-400" />
+                <h2 className="font-semibold text-white">P&L Performance</h2>
+              </div>
+              <div className={`text-lg font-bold ${totalPnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                {totalPnl >= 0 ? '+' : ''}{formatCurrency(totalPnl)}
+              </div>
+            </div>
+            
+            <div className="h-48">
+              {pnlHistory.length > 1 ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={pnlHistory}>
+                    <defs>
+                      <linearGradient id="pnlGradient" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor={totalPnl >= 0 ? '#10b981' : '#ef4444'} stopOpacity={0.3} />
+                        <stop offset="100%" stopColor={totalPnl >= 0 ? '#10b981' : '#ef4444'} stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <XAxis 
+                      dataKey="time" 
+                      axisLine={false} 
+                      tickLine={false} 
+                      tick={{ fill: '#6b7280', fontSize: 10 }}
+                    />
+                    <YAxis 
+                      axisLine={false} 
+                      tickLine={false} 
+                      tick={{ fill: '#6b7280', fontSize: 10 }}
+                      tickFormatter={(v) => `€${v.toFixed(0)}`}
+                    />
+                    <Tooltip 
+                      contentStyle={{ 
+                        backgroundColor: '#0d1321', 
+                        border: '1px solid rgba(255,255,255,0.1)',
+                        borderRadius: '8px',
+                        fontSize: '12px'
+                      }}
+                      formatter={(value: any) => [`€${value.toFixed(2)}`, 'P&L']}
+                    />
+                    <Area 
+                      type="monotone" 
+                      dataKey="pnl" 
+                      stroke={totalPnl >= 0 ? '#10b981' : '#ef4444'} 
+                      strokeWidth={2}
+                      fill="url(#pnlGradient)"
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="h-full flex items-center justify-center text-gray-600 text-sm">
+                  <div className="text-center">
+                    <BarChart3 className="w-10 h-10 mx-auto mb-2 text-gray-700" />
+                    <p>No trade history yet</p>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Performance Stats */}
+          <div className="bg-white/[0.02] rounded-xl border border-white/5 p-5">
+            <div className="flex items-center gap-2 mb-4">
+              <BarChart3 className="w-5 h-5 text-cyan-400" />
+              <h2 className="font-semibold text-white">Performance</h2>
+            </div>
+            
+            <div className="space-y-4">
+              {/* Win Rate Visual */}
+              <div>
+                <div className="flex justify-between text-xs mb-1">
+                  <span className="text-gray-500">Win Rate</span>
+                  <span className={winRate >= 50 ? 'text-emerald-400' : 'text-red-400'}>{winRate.toFixed(1)}%</span>
+                </div>
+                <div className="h-2 bg-white/5 rounded-full overflow-hidden">
+                  <div 
+                    className={`h-full rounded-full transition-all ${winRate >= 50 ? 'bg-emerald-500' : 'bg-red-500'}`}
+                    style={{ width: `${Math.min(winRate, 100)}%` }}
+                  />
+                </div>
+              </div>
+
+              {/* Stats Grid */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="p-3 bg-white/[0.02] rounded-lg">
+                  <div className="text-[10px] text-gray-500 uppercase mb-1">Best Trade</div>
+                  <div className="text-sm font-semibold text-emerald-400">
+                    +{formatCurrency(traderStats?.best_trade || 0)}
+                  </div>
+                </div>
+                <div className="p-3 bg-white/[0.02] rounded-lg">
+                  <div className="text-[10px] text-gray-500 uppercase mb-1">Worst Trade</div>
+                  <div className="text-sm font-semibold text-red-400">
+                    {formatCurrency(traderStats?.worst_trade || 0)}
+                  </div>
+                </div>
+                <div className="p-3 bg-white/[0.02] rounded-lg">
+                  <div className="text-[10px] text-gray-500 uppercase mb-1">Max Drawdown</div>
+                  <div className="text-sm font-semibold text-amber-400">
+                    {(traderStats?.max_drawdown || 0).toFixed(2)}%
+                  </div>
+                </div>
+                <div className="p-3 bg-white/[0.02] rounded-lg">
+                  <div className="text-[10px] text-gray-500 uppercase mb-1">Scanned</div>
+                  <div className="text-sm font-semibold text-cyan-400">
+                    {((traderStats?.opportunities_scanned || 0) / 1000).toFixed(0)}K
+                  </div>
+                </div>
+              </div>
+
+              {/* Total P&L */}
+              <div className="pt-3 border-t border-white/5">
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-gray-400">Total P&L</span>
+                  <span className={`text-lg font-bold ${(traderStats?.total_pnl || 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                    {(traderStats?.total_pnl || 0) >= 0 ? '+' : ''}{formatCurrency(traderStats?.total_pnl || 0)}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Middle Row - Positions & Recent Trades */}
+        <div className="grid lg:grid-cols-2 gap-4 mb-6">
+          {/* Open Positions */}
+          <div className="bg-white/[0.02] rounded-xl border border-white/5 overflow-hidden">
+            <div className="p-4 border-b border-white/5 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Target className="w-5 h-5 text-cyan-400" />
                 <h2 className="font-semibold text-white">Open Positions</h2>
+                <span className="text-xs text-gray-500 ml-1">({positions.length})</span>
               </div>
               <button 
                 onClick={loadDashboardData}
-                className="p-2 rounded-lg hover:bg-white/5 transition-colors"
+                className="p-1.5 rounded-lg hover:bg-white/5 transition-colors"
               >
                 <RefreshCw className="w-4 h-4 text-gray-500" />
               </button>
             </div>
             
             {positions.length === 0 ? (
-              <div className="p-12 text-center">
-                <Target className="w-12 h-12 text-gray-600 mx-auto mb-4" />
-                <p className="text-gray-500">No open positions</p>
-                <p className="text-sm text-gray-600 mt-1">AI is scanning for opportunities...</p>
+              <div className="p-8 text-center">
+                <Target className="w-10 h-10 text-gray-700 mx-auto mb-3" />
+                <p className="text-gray-500 text-sm">No open positions</p>
+                <p className="text-gray-600 text-xs mt-1">AI is scanning...</p>
               </div>
             ) : (
-              <div className="overflow-x-auto">
+              <div className="overflow-x-auto max-h-64">
                 <table className="w-full">
-                  <thead>
+                  <thead className="sticky top-0 bg-[#060a13]">
                     <tr className="border-b border-white/5">
-                      <th className="text-left text-xs font-medium text-gray-500 px-5 py-3">Pair</th>
-                      <th className="text-left text-xs font-medium text-gray-500 px-5 py-3">Side</th>
-                      <th className="text-right text-xs font-medium text-gray-500 px-5 py-3">Size</th>
-                      <th className="text-right text-xs font-medium text-gray-500 px-5 py-3">Entry</th>
-                      <th className="text-right text-xs font-medium text-gray-500 px-5 py-3">Mark</th>
-                      <th className="text-right text-xs font-medium text-gray-500 px-5 py-3">P&L</th>
+                      <th className="text-left text-[10px] font-medium text-gray-500 px-4 py-2">PAIR</th>
+                      <th className="text-left text-[10px] font-medium text-gray-500 px-4 py-2">SIDE</th>
+                      <th className="text-right text-[10px] font-medium text-gray-500 px-4 py-2">SIZE</th>
+                      <th className="text-right text-[10px] font-medium text-gray-500 px-4 py-2">P&L</th>
                     </tr>
                   </thead>
                   <tbody>
                     {positions.map((pos, i) => {
-                      const entryPrice = parseFloat(pos.entryPrice || '0')
-                      const markPrice = parseFloat(pos.markPrice || '0')
-                      const size = parseFloat(pos.size || '0')
-                      const leverage = parseFloat(pos.leverage || '1')
-                      
-                      // Calculate P&L based on side
-                      let pnlPercent = 0
-                      let pnl = 0
-                      if (entryPrice > 0 && markPrice > 0) {
-                        if (pos.side === 'Buy') {
-                          pnlPercent = ((markPrice - entryPrice) / entryPrice) * 100 * leverage
-                        } else {
-                          pnlPercent = ((entryPrice - markPrice) / entryPrice) * 100 * leverage
-                        }
-                        pnl = (pnlPercent / 100) * parseFloat(pos.positionValue || '0')
-                      }
-                      
-                      // If API provides unrealisedPnl, use it
-                      if (pos.unrealisedPnl && parseFloat(pos.unrealisedPnl) !== 0) {
-                        pnl = parseFloat(pos.unrealisedPnl)
-                        if (parseFloat(pos.positionValue || '0') > 0) {
-                          pnlPercent = (pnl / parseFloat(pos.positionValue)) * 100
-                        }
-                      }
+                      const pnl = parseFloat(pos.unrealisedPnl || '0')
+                      const posValue = parseFloat(pos.positionValue || '0')
+                      const pnlPercent = posValue > 0 ? (pnl / posValue) * 100 : 0
                       
                       return (
                         <tr key={i} className="border-b border-white/5 hover:bg-white/[0.02]">
-                          <td className="px-5 py-4">
-                            <span className="font-medium text-white">{pos.symbol.replace('USDT', '')}</span>
-                            <span className="text-gray-500">/USDT</span>
+                          <td className="px-4 py-3">
+                            <span className="font-medium text-white text-sm">{pos.symbol.replace('USDT', '')}</span>
+                            <span className="text-gray-600 text-xs">/USDT</span>
                           </td>
-                          <td className="px-5 py-4">
-                            <span className={`px-2 py-1 rounded text-xs font-medium ${
-                              pos.side === 'Buy' 
-                                ? 'bg-emerald-500/10 text-emerald-400' 
-                                : 'bg-red-500/10 text-red-400'
+                          <td className="px-4 py-3">
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-medium ${
+                              pos.side === 'Buy' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'
                             }`}>
-                              {pos.side === 'Buy' ? 'LONG' : 'SHORT'}
+                              {pos.side === 'Buy' ? 'LONG' : 'SHORT'} {pos.leverage}x
                             </span>
                           </td>
-                          <td className="px-5 py-4 text-right">
-                            <span className="text-white">{parseFloat(pos.size).toFixed(4)}</span>
-                            <span className="text-gray-500 text-xs ml-1">{pos.leverage}x</span>
+                          <td className="px-4 py-3 text-right text-sm text-gray-400">
+                            €{posValue.toFixed(2)}
                           </td>
-                          <td className="px-5 py-4 text-right text-gray-400">
-                            €{parseFloat(pos.entryPrice).toFixed(4)}
-                          </td>
-                          <td className="px-5 py-4 text-right text-gray-400">
-                            €{parseFloat(pos.markPrice).toFixed(4)}
-                          </td>
-                          <td className="px-5 py-4 text-right">
-                            <div className={`font-medium ${pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                          <td className="px-4 py-3 text-right">
+                            <div className={`text-sm font-medium ${pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                               {pnl >= 0 ? '+' : ''}€{pnl.toFixed(2)}
                             </div>
-                            <div className={`text-xs ${pnl >= 0 ? 'text-emerald-400/70' : 'text-red-400/70'}`}>
+                            <div className={`text-[10px] ${pnl >= 0 ? 'text-emerald-400/60' : 'text-red-400/60'}`}>
                               {pnlPercent >= 0 ? '+' : ''}{pnlPercent.toFixed(2)}%
                             </div>
                           </td>
@@ -597,97 +787,153 @@ export default function DashboardPage() {
             )}
           </div>
 
-          {/* Right Sidebar - Compact */}
-          <div className="space-y-3">
-            {/* Console - Compact */}
-            <div className="bg-white/[0.02] rounded-xl border border-white/5 overflow-hidden">
-              <div className="px-3 py-2 border-b border-white/5 flex items-center gap-2">
-                <div className={`w-1.5 h-1.5 rounded-full ${isTrading ? 'bg-emerald-400 animate-pulse' : 'bg-gray-500'}`} />
-                <h2 className="font-medium text-white text-xs">AI Console</h2>
-              </div>
-              
-              <div ref={consoleRef} className="h-32 overflow-y-auto p-2 font-mono text-[10px] space-y-1">
-                {consoleLogs.length === 0 ? (
-                  <div className="text-gray-600">Waiting...</div>
-                ) : (
-                  consoleLogs.slice(0, 10).map((log, i) => (
-                    <div key={i} className="flex gap-1.5 leading-tight">
-                      <span className="text-gray-600 flex-shrink-0">{new Date(log.time).toLocaleTimeString()}</span>
-                      <span className={`truncate ${
-                        log.level === 'TRADE' ? 'text-emerald-400' :
-                        log.level === 'SIGNAL' ? 'text-cyan-400' :
-                        log.level === 'WARNING' ? 'text-amber-400' :
-                        log.level === 'ERROR' ? 'text-red-400' :
-                        'text-gray-400'
-                      }`}>
-                        {log.message}
-                      </span>
-                    </div>
-                  ))
-                )}
-              </div>
+          {/* Recent Trades (Last 10) */}
+          <div className="bg-white/[0.02] rounded-xl border border-white/5 overflow-hidden">
+            <div className="p-4 border-b border-white/5 flex items-center gap-2">
+              <Clock className="w-5 h-5 text-cyan-400" />
+              <h2 className="font-semibold text-white">Recent Trades</h2>
+              <span className="text-xs text-gray-500 ml-1">(Last 10)</span>
             </div>
-
-            {/* Whale Alerts - Compact */}
-            <div className="bg-white/[0.02] rounded-xl border border-white/5 overflow-hidden">
-              <div className="px-3 py-2 border-b border-white/5 flex items-center gap-2">
-                <Waves className="w-3 h-3 text-cyan-400" />
-                <h2 className="font-medium text-white text-xs">Whales</h2>
+            
+            {recentTrades.length === 0 ? (
+              <div className="p-8 text-center">
+                <Clock className="w-10 h-10 text-gray-700 mx-auto mb-3" />
+                <p className="text-gray-500 text-sm">No recent trades</p>
               </div>
-              
-              <div className="max-h-28 overflow-y-auto divide-y divide-white/5">
-                {whaleAlerts.length === 0 ? (
-                  <div className="p-2 text-gray-600 text-[10px]">No activity</div>
-                ) : (
-                  whaleAlerts.slice(0, 4).map((alert, i) => (
-                    <div key={i} className="px-2 py-1.5 hover:bg-white/[0.02]">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-white text-[11px] font-medium">{alert.symbol.replace('USDT', '')}</span>
-                          <span className={`text-[9px] px-1 py-0.5 rounded ${
-                            alert.type === 'buy_wall' ? 'bg-emerald-500/20 text-emerald-400' :
-                            'bg-red-500/20 text-red-400'
+            ) : (
+              <div className="overflow-y-auto max-h-64">
+                {recentTrades.slice(0, 10).map((trade, i) => (
+                  <div key={i} className="px-4 py-3 border-b border-white/5 hover:bg-white/[0.02] flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                        trade.pnl >= 0 ? 'bg-emerald-500/10' : 'bg-red-500/10'
+                      }`}>
+                        {trade.pnl >= 0 ? (
+                          <CheckCircle className="w-4 h-4 text-emerald-400" />
+                        ) : (
+                          <XCircle className="w-4 h-4 text-red-400" />
+                        )}
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium text-white text-sm">{trade.symbol.replace('USDT', '')}</span>
+                          <span className={`text-[9px] px-1.5 py-0.5 rounded ${
+                            trade.pnl >= 0 ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'
                           }`}>
-                            {alert.type === 'buy_wall' ? 'BUY' : 'SELL'}
+                            {trade.pnl >= 0 ? 'WIN' : 'LOSS'}
                           </span>
                         </div>
-                        <span className="text-[9px] text-gray-600">
-                          {new Date(alert.timestamp).toLocaleTimeString()}
-                        </span>
+                        <div className="text-[10px] text-gray-600 truncate max-w-[150px]">
+                          {trade.close_reason}
+                        </div>
                       </div>
                     </div>
-                  ))
-                )}
+                    <div className="text-right">
+                      <div className={`font-medium text-sm ${trade.pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                        {trade.pnl >= 0 ? '+' : ''}€{trade.pnl.toFixed(2)}
+                      </div>
+                      <div className={`text-[10px] ${trade.pnl >= 0 ? 'text-emerald-400/60' : 'text-red-400/60'}`}>
+                        {trade.pnl_percent >= 0 ? '+' : ''}{trade.pnl_percent.toFixed(2)}%
+                      </div>
+                    </div>
+                  </div>
+                ))}
               </div>
-            </div>
+            )}
+          </div>
+        </div>
 
-            {/* Market News - Compact */}
-            <div className="bg-white/[0.02] rounded-xl border border-white/5 overflow-hidden">
-              <div className="px-3 py-2 border-b border-white/5 flex items-center gap-2">
-                <Activity className="w-3 h-3 text-cyan-400" />
-                <h2 className="font-medium text-white text-xs">Market News</h2>
-              </div>
-              
-              <div className="max-h-36 overflow-y-auto divide-y divide-white/5">
-                {news.length === 0 ? (
-                  <div className="p-2 text-gray-600 text-[10px]">Loading...</div>
-                ) : (
-                  news.slice(0, 6).map((item, i) => (
-                    <div key={i} className="px-2 py-1.5 hover:bg-white/[0.02]">
-                      <div className="flex items-start gap-1.5">
-                        <span className={`text-[9px] px-1 py-0.5 rounded flex-shrink-0 mt-0.5 ${
-                          item.sentiment === 'bullish' ? 'bg-emerald-500/20 text-emerald-400' :
-                          item.sentiment === 'bearish' ? 'bg-red-500/20 text-red-400' :
-                          'bg-gray-500/20 text-gray-400'
+        {/* Bottom Row - Console, Whales, News */}
+        <div className="grid lg:grid-cols-3 gap-4">
+          {/* AI Console */}
+          <div className="bg-white/[0.02] rounded-xl border border-white/5 overflow-hidden">
+            <div className="px-4 py-3 border-b border-white/5 flex items-center gap-2">
+              <div className={`w-2 h-2 rounded-full ${isTrading ? 'bg-emerald-400 animate-pulse' : 'bg-gray-500'}`} />
+              <h2 className="font-medium text-white text-sm">AI Console</h2>
+            </div>
+            
+            <div ref={consoleRef} className="h-40 overflow-y-auto p-3 font-mono text-[10px] space-y-1">
+              {consoleLogs.length === 0 ? (
+                <div className="text-gray-600">Waiting for activity...</div>
+              ) : (
+                consoleLogs.slice(0, 15).map((log, i) => (
+                  <div key={i} className="flex gap-2 leading-tight">
+                    <span className="text-gray-600 flex-shrink-0">
+                      {new Date(log.time).toLocaleTimeString()}
+                    </span>
+                    <span className={`${
+                      log.level === 'TRADE' ? 'text-emerald-400' :
+                      log.level === 'SIGNAL' ? 'text-cyan-400' :
+                      log.level === 'WARNING' ? 'text-amber-400' :
+                      log.level === 'ERROR' ? 'text-red-400' :
+                      'text-gray-400'
+                    }`}>
+                      {log.message}
+                    </span>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
+          {/* Whale Activity */}
+          <div className="bg-white/[0.02] rounded-xl border border-white/5 overflow-hidden">
+            <div className="px-4 py-3 border-b border-white/5 flex items-center gap-2">
+              <Waves className="w-4 h-4 text-cyan-400" />
+              <h2 className="font-medium text-white text-sm">Whale Activity</h2>
+            </div>
+            
+            <div className="h-40 overflow-y-auto divide-y divide-white/5">
+              {whaleAlerts.length === 0 ? (
+                <div className="p-4 text-gray-600 text-xs text-center">No whale activity detected</div>
+              ) : (
+                whaleAlerts.slice(0, 6).map((alert, i) => (
+                  <div key={i} className="px-3 py-2 hover:bg-white/[0.02]">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="text-white text-xs font-medium">{alert.symbol.replace('USDT', '')}</span>
+                        <span className={`text-[9px] px-1.5 py-0.5 rounded ${
+                          alert.type === 'buy_wall' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'
                         }`}>
-                          {item.sentiment === 'bullish' ? '↑' : item.sentiment === 'bearish' ? '↓' : '•'}
+                          {alert.type === 'buy_wall' ? 'BUY' : 'SELL'}
                         </span>
-                        <p className="text-[10px] text-gray-300 leading-tight line-clamp-2">{item.title}</p>
                       </div>
+                      <span className="text-[9px] text-gray-600">
+                        {new Date(alert.timestamp).toLocaleTimeString()}
+                      </span>
                     </div>
-                  ))
-                )}
-              </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
+          {/* Market News */}
+          <div className="bg-white/[0.02] rounded-xl border border-white/5 overflow-hidden">
+            <div className="px-4 py-3 border-b border-white/5 flex items-center gap-2">
+              <Activity className="w-4 h-4 text-cyan-400" />
+              <h2 className="font-medium text-white text-sm">Market News</h2>
+            </div>
+            
+            <div className="h-40 overflow-y-auto divide-y divide-white/5">
+              {news.length === 0 ? (
+                <div className="p-4 text-gray-600 text-xs text-center">Loading news...</div>
+              ) : (
+                news.slice(0, 8).map((item, i) => (
+                  <div key={i} className="px-3 py-2 hover:bg-white/[0.02]">
+                    <div className="flex items-start gap-2">
+                      <span className={`text-[9px] px-1.5 py-0.5 rounded flex-shrink-0 mt-0.5 ${
+                        item.sentiment === 'bullish' ? 'bg-emerald-500/20 text-emerald-400' :
+                        item.sentiment === 'bearish' ? 'bg-red-500/20 text-red-400' :
+                        'bg-gray-500/20 text-gray-400'
+                      }`}>
+                        {item.sentiment === 'bullish' ? '↑' : item.sentiment === 'bearish' ? '↓' : '•'}
+                      </span>
+                      <p className="text-[10px] text-gray-300 leading-tight line-clamp-2">{item.title}</p>
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         </div>
