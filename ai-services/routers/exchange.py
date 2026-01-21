@@ -1361,8 +1361,51 @@ async def resume_autonomous_trading(user_id: str = "default"):
 async def get_trading_status(user_id: str = "default"):
     """Get autonomous trading status"""
     trader = get_trader()
-    is_trading = user_id in trader.user_clients
-    is_paused = trader.is_paused(user_id) if hasattr(trader, 'is_paused') else False
+    r = await get_redis()
+    
+    # Check if user SHOULD be trading (started before and not paused)
+    has_started = await r.exists(f'trading:started:{user_id}')
+    is_paused_in_redis = await r.exists(f'trading:paused:{user_id}')
+    
+    # User is currently connected to trader
+    is_connected = user_id in trader.user_clients
+    
+    # User SHOULD be actively trading if: started before AND not paused
+    should_be_trading = has_started and not is_paused_in_redis
+    
+    # If user should be trading but isn't connected, try to auto-reconnect
+    if should_be_trading and not is_connected:
+        logger.info(f"User {user_id} should be trading but not connected - attempting auto-reconnect")
+        try:
+            # Try to get credentials and reconnect
+            api_key = None
+            api_secret = None
+            is_testnet = False
+            
+            # Check various credential sources
+            user_creds = await r.hgetall(f'user:{user_id}:exchange:bybit')
+            if user_creds:
+                api_key = simple_decrypt(user_creds.get(b'api_key', b'').decode())
+                api_secret = simple_decrypt(user_creds.get(b'api_secret', b'').decode())
+                is_testnet = user_creds.get(b'testnet', b'0').decode() == '1'
+            
+            if not api_key:
+                enabled_creds = await r.hgetall(f'trading:enabled:{user_id}')
+                if enabled_creds:
+                    api_key = simple_decrypt(enabled_creds.get(b'api_key', b'').decode())
+                    api_secret = simple_decrypt(enabled_creds.get(b'api_secret', b'').decode())
+            
+            if api_key and api_secret:
+                connected = await trader.connect_user(user_id, api_key, api_secret, is_testnet)
+                if connected:
+                    is_connected = True
+                    logger.info(f"Auto-reconnected user {user_id} on status check")
+        except Exception as e:
+            logger.error(f"Failed to auto-reconnect {user_id}: {e}")
+    
+    # Final state
+    is_paused = trader.is_paused(user_id) if hasattr(trader, 'is_paused') else is_paused_in_redis
+    is_actively_trading = is_connected and not is_paused
     
     # Get recent trades
     trades = []
@@ -1423,10 +1466,11 @@ async def get_trading_status(user_id: str = "default"):
     return {
         "success": True,
         "data": {
-            "is_autonomous_trading": is_trading and not is_paused,
-            "is_connected": is_trading,
+            "is_autonomous_trading": is_actively_trading,
+            "is_connected": is_connected,
             "is_paused": is_paused,
-            "trading_pairs": trading_pairs if is_trading else [],
+            "should_be_trading": should_be_trading,  # For debugging
+            "trading_pairs": trading_pairs if is_connected else [],
             "total_pairs": total_pairs,
             "pairs_scanned": pairs_scanned,
             "max_positions": max_positions,
