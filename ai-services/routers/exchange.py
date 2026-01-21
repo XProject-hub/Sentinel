@@ -1616,8 +1616,13 @@ async def get_realtime_console(user_id: str = "default"):
         if not hasattr(trader, 'redis_client') or not trader.redis_client:
             return {"success": True, "data": console}
         
-        # Get recent log entries
-        log_entries = await trader.redis_client.lrange('bot:console:logs', 0, 49)
+        # Get user-specific log entries first, fall back to global
+        log_entries = await trader.redis_client.lrange(f'bot:console:logs:{user_id}', 0, 49)
+        
+        # If no user-specific logs, try global (for backwards compatibility)
+        if not log_entries:
+            log_entries = await trader.redis_client.lrange('bot:console:logs', 0, 49)
+            
         console["logs"] = [json.loads(l) for l in log_entries] if log_entries else []
         
         # Get current action

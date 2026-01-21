@@ -792,10 +792,11 @@ class AutonomousTraderV2:
                 
                 logger.info(f"CLOSED {position.symbol}: {reason} | Gross: {pnl_percent:+.2f}% | Fees: ${total_fees:.2f} | NET: {net_pnl_percent:+.2f}% (${pnl_value:+.2f})")
                 
-                # Console log for dashboard - show NET P&L (after fees)
+                # Console log for dashboard - show NET P&L (after fees) - PER USER
                 await self._log_to_console(
                     f"CLOSED {position.symbol}: {net_pnl_percent:+.2f}% (${pnl_value:+.2f} NET) | {reason}",
-                    "TRADE"
+                    "TRADE",
+                    user_id
                 )
                 
                 # Update USER-SPECIFIC stats
@@ -926,8 +927,8 @@ class AutonomousTraderV2:
                 # Save user stats
                 await self._save_user_stats(user_id)
                 
-                # Log to console
-                await self._log_to_console(f"PARTIAL: {position.symbol} +{pnl_percent:.2f}% (took {close_percent}%)", "TRADE")
+                # Log to console - PER USER
+                await self._log_to_console(f"PARTIAL: {position.symbol} +{pnl_percent:.2f}% (took {close_percent}%)", "TRADE", user_id)
                 
                 return True
             else:
@@ -1103,7 +1104,7 @@ class AutonomousTraderV2:
                 if breakout_limit > 0 and num_positions >= breakout_limit:
                     limit_info = f"{breakout_limit} (max {self.max_open_positions} + {extra_slots} breakout)" if extra_slots > 0 else str(self.max_open_positions)
                     logger.info(f"BREAKOUT {opp.symbol} skipped - position limit {limit_info} reached")
-                    await self._log_to_console(f"{opp.symbol} {opp.price_change_24h:+.1f}% skipped - position limit ({num_positions}/{limit_info})", "WARNING")
+                    await self._log_to_console(f"{opp.symbol} {opp.price_change_24h:+.1f}% skipped - position limit ({num_positions}/{limit_info})", "WARNING", user_id)
                     break
                 
                 # Limit breakout trades per cycle to avoid overtrading
@@ -1118,14 +1119,14 @@ class AutonomousTraderV2:
                 
                 # Breakouts skip most validation - they're already high-conviction
                 logger.info(f"BREAKOUT TRADE: {opp.symbol} | {opp.price_change_24h:+.1f}%")
-                await self._log_to_console(f"OPENING BREAKOUT: {opp.symbol} {opp.price_change_24h:+.1f}%", "TRADE")
+                await self._log_to_console(f"OPENING BREAKOUT: {opp.symbol} {opp.price_change_24h:+.1f}%", "TRADE", user_id)
                 try:
                     await self._execute_trade(user_id, client, opp, wallet)
                     breakout_trades_opened += 1
                     logger.info(f"BREAKOUT TRADE OPENED: {opp.symbol}")
                 except Exception as e:
                     logger.error(f"BREAKOUT TRADE FAILED: {opp.symbol} - {e}")
-                    await self._log_to_console(f"BREAKOUT FAILED: {opp.symbol} - {str(e)[:50]}", "ERROR")
+                    await self._log_to_console(f"BREAKOUT FAILED: {opp.symbol} - {str(e)[:50]}", "ERROR", user_id)
             
             # === NORMAL OPPORTUNITY SCAN ===
             # Get opportunities from scanner
@@ -1863,11 +1864,12 @@ class AutonomousTraderV2:
             if result.get('success'):
                 logger.info(f"ORDER SUCCESS: {opp.symbol} {side} {qty}")
                 
-                # Log to console for dashboard
+                # Log to console for dashboard - PER USER
                 leverage_display = f" | {leverage}x" if leverage > 1 else ""
                 await self._log_to_console(
                     f"OPENED {opp.symbol} {side} | ${position_value:.0f}{leverage_display} | Edge: {opp.edge_score:.2f} | Conf: {opp.confidence:.0f}%",
-                    "TRADE"
+                    "TRADE",
+                    user_id
                 )
                 
                 # Create position tracking
@@ -1917,11 +1919,11 @@ class AutonomousTraderV2:
             else:
                 error_msg = result.get('error', result.get('message', str(result)))
                 logger.error(f"ORDER FAILED: {opp.symbol} - {error_msg}")
-                await self._log_to_console(f"ORDER FAILED: {opp.symbol} - {error_msg[:50]}", "ERROR")
+                await self._log_to_console(f"ORDER FAILED: {opp.symbol} - {error_msg[:50]}", "ERROR", user_id)
                 
         except Exception as e:
             logger.error(f"Execute trade error for {opp.symbol}: {e}")
-            await self._log_to_console(f"TRADE ERROR: {opp.symbol} - {str(e)[:50]}", "ERROR")
+            await self._log_to_console(f"TRADE ERROR: {opp.symbol} - {str(e)[:50]}", "ERROR", user_id)
             
     async def _get_ticker(self, client: BybitV5Client, symbol: str) -> Optional[Dict]:
         """Get current ticker for a symbol"""
@@ -2056,12 +2058,12 @@ class AutonomousTraderV2:
             # Take Profit only triggers if TP > 0 (enabled)
             if self.take_profit > 0 and pnl_percent >= self.take_profit:
                 logger.info(f" {position.symbol}: P&L={pnl_percent:+.2f}% >= TP={self.take_profit}% - SELLING!")
-                await self._log_to_console(f"SOLD {position.symbol}: +{pnl_percent:.2f}% (Take Profit)", "TRADE")
+                await self._log_to_console(f"SOLD {position.symbol}: +{pnl_percent:.2f}% (Take Profit)", "TRADE", user_id)
                 should_exit = True
                 exit_reason = f"Take profit ({pnl_percent:.2f}%)"
             elif pnl_percent <= -self.emergency_stop_loss:
                 logger.info(f" {position.symbol}: P&L={pnl_percent:+.2f}% <= SL=-{self.emergency_stop_loss}% - SELLING!")
-                await self._log_to_console(f"SOLD {position.symbol}: {pnl_percent:.2f}% (Stop Loss)", "TRADE")
+                await self._log_to_console(f"SOLD {position.symbol}: {pnl_percent:.2f}% (Stop Loss)", "TRADE", user_id)
                 should_exit = True
                 exit_reason = f"Stop loss ({pnl_percent:.2f}%)"
             elif self.take_profit > 0 and pnl_percent >= self.take_profit * 0.8:
@@ -2123,8 +2125,12 @@ class AutonomousTraderV2:
         except Exception as e:
             logger.error(f"Fast exit check error for {position.symbol}: {e}")
             
-    async def _log_to_console(self, message: str, level: str = "INFO"):
-        """Log message to Redis for dashboard real-time console"""
+    async def _log_to_console(self, message: str, level: str = "INFO", user_id: str = None):
+        """Log message to Redis for dashboard real-time console
+        
+        If user_id is provided, logs to user-specific console.
+        Also logs to global console for admin visibility.
+        """
         try:
             if self.redis_client:
                 log_entry = {
@@ -2132,8 +2138,16 @@ class AutonomousTraderV2:
                     "level": level,
                     "message": message
                 }
-                await self.redis_client.lpush('bot:console:logs', json.dumps(log_entry))
-                await self.redis_client.ltrim('bot:console:logs', 0, 99)  # Keep last 100
+                log_json = json.dumps(log_entry)
+                
+                # Log to user-specific console if user_id provided
+                if user_id:
+                    await self.redis_client.lpush(f'bot:console:logs:{user_id}', log_json)
+                    await self.redis_client.ltrim(f'bot:console:logs:{user_id}', 0, 99)
+                
+                # Also log to global console (for admin/system view)
+                await self.redis_client.lpush('bot:console:logs', log_json)
+                await self.redis_client.ltrim('bot:console:logs', 0, 99)
         except Exception:
             pass  # Don't break trading for console logging
         
