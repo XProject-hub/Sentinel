@@ -222,7 +222,7 @@ class ExchangeController extends Controller
         // Trigger sync in AI services
         try {
             $response = Http::timeout(30)->post(
-                'http://ai-services:8000/exchange/sync',
+                'http://ai-services:8000/ai/exchange/sync',
                 [
                     'user_id' => $request->user()->id,
                     'exchange' => $connection->exchange,
@@ -273,7 +273,7 @@ class ExchangeController extends Controller
 
         try {
             $response = Http::timeout(15)->get(
-                'http://ai-services:8000/exchange/balance',
+                'http://ai-services:8000/ai/exchange/balance',
                 [
                     'user_id' => $request->user()->id,
                     'exchange' => $connection->exchange,
@@ -306,7 +306,7 @@ class ExchangeController extends Controller
     {
         try {
             $response = Http::timeout(15)->post(
-                'http://ai-services:8000/exchange/verify-credentials',
+                'http://ai-services:8000/ai/exchange/verify-credentials',
                 [
                     'exchange' => $exchange,
                     'api_key' => $apiKey,
@@ -349,7 +349,7 @@ class ExchangeController extends Controller
     {
         try {
             Http::timeout(10)->post(
-                'http://ai-services:8000/exchange/set-credentials',
+                'http://ai-services:8000/ai/exchange/set-credentials',
                 [
                     'user_id' => $userId,
                     'exchange' => $connection->exchange,
@@ -374,7 +374,7 @@ class ExchangeController extends Controller
     {
         try {
             Http::timeout(10)->delete(
-                'http://ai-services:8000/exchange/remove-credentials',
+                'http://ai-services:8000/ai/exchange/remove-credentials',
                 [
                     'user_id' => $userId,
                     'exchange' => $exchange,
