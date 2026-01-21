@@ -8,71 +8,78 @@ interface LogoProps {
 
 export default function Logo({ size = 'md', showText = true, className = '' }: LogoProps) {
   const sizes = {
-    sm: { icon: 32, text: 'text-lg' },
-    md: { icon: 40, text: 'text-xl' },
-    lg: { icon: 48, text: 'text-2xl' },
-    xl: { icon: 64, text: 'text-3xl' }
+    sm: { icon: 28, text: 'text-base', gap: 'gap-2' },
+    md: { icon: 36, text: 'text-xl', gap: 'gap-2.5' },
+    lg: { icon: 44, text: 'text-2xl', gap: 'gap-3' },
+    xl: { icon: 56, text: 'text-3xl', gap: 'gap-3' }
   }
 
-  const { icon, text } = sizes[size]
+  const { icon, text, gap } = sizes[size]
 
   return (
-    <div className={`flex items-center gap-3 ${className}`}>
-      {/* Custom Logo - Stylized S with circuit pattern */}
+    <div className={`flex items-center ${gap} ${className}`}>
+      {/* Professional hexagon logo with S */}
       <div 
-        className="relative flex items-center justify-center rounded-xl bg-gradient-to-br from-cyan-500 via-blue-500 to-violet-600 shadow-lg shadow-cyan-500/25"
+        className="relative flex items-center justify-center"
         style={{ width: icon, height: icon }}
       >
-        {/* Inner glow */}
-        <div className="absolute inset-1 rounded-lg bg-gradient-to-br from-cyan-400/20 to-transparent" />
-        
-        {/* S Letter with tech style */}
         <svg 
-          viewBox="0 0 24 24" 
+          viewBox="0 0 100 100" 
           fill="none" 
-          className="relative z-10"
-          style={{ width: icon * 0.6, height: icon * 0.6 }}
+          className="w-full h-full"
         >
-          {/* Circuit dots */}
-          <circle cx="4" cy="6" r="1" fill="rgba(255,255,255,0.4)" />
-          <circle cx="20" cy="18" r="1" fill="rgba(255,255,255,0.4)" />
-          <circle cx="4" cy="12" r="0.5" fill="rgba(255,255,255,0.3)" />
-          <circle cx="20" cy="12" r="0.5" fill="rgba(255,255,255,0.3)" />
+          {/* Hexagon background */}
+          <defs>
+            <linearGradient id="logoGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stopColor="#06b6d4" />
+              <stop offset="50%" stopColor="#3b82f6" />
+              <stop offset="100%" stopColor="#8b5cf6" />
+            </linearGradient>
+            <linearGradient id="innerGlow" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stopColor="#22d3ee" stopOpacity="0.3" />
+              <stop offset="100%" stopColor="#8b5cf6" stopOpacity="0" />
+            </linearGradient>
+          </defs>
           
-          {/* Stylized S */}
+          {/* Main hexagon */}
           <path
-            d="M17 6.5C17 6.5 15.5 4 12 4C8.5 4 6 6 6 8.5C6 11 8 12 12 12.5C16 13 18 14 18 16.5C18 19 15.5 20 12 20C8.5 20 7 17.5 7 17.5"
-            stroke="white"
-            strokeWidth="2.5"
-            strokeLinecap="round"
-            fill="none"
+            d="M50 5 L90 27.5 L90 72.5 L50 95 L10 72.5 L10 27.5 Z"
+            fill="url(#logoGradient)"
           />
           
-          {/* Tech accent lines */}
+          {/* Inner glow */}
           <path
-            d="M4 6 L6 8.5"
-            stroke="rgba(255,255,255,0.4)"
-            strokeWidth="1"
-            strokeLinecap="round"
+            d="M50 12 L82 31 L82 69 L50 88 L18 69 L18 31 Z"
+            fill="url(#innerGlow)"
           />
-          <path
-            d="M20 18 L18 16.5"
-            stroke="rgba(255,255,255,0.4)"
-            strokeWidth="1"
-            strokeLinecap="round"
-          />
+          
+          {/* Bold S letter */}
+          <text
+            x="50"
+            y="68"
+            textAnchor="middle"
+            fill="white"
+            fontSize="52"
+            fontWeight="700"
+            fontFamily="system-ui, -apple-system, sans-serif"
+          >
+            S
+          </text>
         </svg>
-        
-        {/* Pulse effect */}
-        <div className="absolute inset-0 rounded-xl bg-cyan-400/20 animate-pulse" style={{ animationDuration: '3s' }} />
       </div>
       
       {showText && (
-        <span className={`font-bold text-white tracking-tight ${text}`}>
-          SENTINEL
-        </span>
+        <div className="flex flex-col leading-none">
+          <span className={`font-bold text-white tracking-wide ${text}`}>
+            SENTINEL
+          </span>
+          {size !== 'sm' && (
+            <span className="text-[10px] text-cyan-400/70 tracking-[0.2em] uppercase mt-0.5">
+              AI Trading
+            </span>
+          )}
+        </div>
       )}
     </div>
   )
 }
-

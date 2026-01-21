@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import './globals.css'
+import Footer from '@/components/Footer'
 
 export const metadata: Metadata = {
   title: 'SENTINEL AI | Autonomous Trading Intelligence',
@@ -16,8 +17,9 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className="dark">
-      <body className="min-h-screen bg-[#0a0f1a] antialiased">
+      <body className="min-h-screen bg-[#0a0f1a] antialiased pb-10">
         {children}
+        <Footer />
       </body>
     </html>
   )
