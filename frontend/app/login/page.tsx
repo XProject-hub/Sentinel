@@ -64,9 +64,9 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#0a0f1a] flex">
+    <div className="min-h-screen bg-[#0a0f1a] flex flex-col lg:flex-row">
       {/* Left Side - Form */}
-      <div className="w-full lg:w-1/2 flex items-center justify-center p-8">
+      <div className="w-full lg:w-1/2 flex items-center justify-center p-4 sm:p-8">
         <motion.div
           initial={{ opacity: 0, x: -20 }}
           animate={{ opacity: 1, x: 0 }}
@@ -74,8 +74,9 @@ export default function LoginPage() {
           className="w-full max-w-md"
         >
           {/* Logo */}
-          <Link href="/" className="inline-block mb-12">
-            <Logo size="lg" />
+          <Link href="/" className="inline-block mb-6 sm:mb-12">
+            <div className="hidden sm:block"><Logo size="lg" /></div>
+            <div className="sm:hidden"><Logo size="md" /></div>
           </Link>
 
           {/* Header */}
