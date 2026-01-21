@@ -812,42 +812,38 @@ async def get_public_stats():
         if best_win_rate == 0 and total_trades > 0:
             best_win_rate = (total_wins / total_trades * 100)
         
-        # === COUNT ACTIVE USERS ===
-        active_users = 0
-        unique_users = set()
+        # === COUNT ACTIVE USERS FROM DATABASE ===
+        active_users = 1  # Default minimum
         
-        # Count users with exchange credentials (new format: user:{id}:exchange:*)
-        user_cred_keys = await r.keys('user:*:exchange:*')
-        if user_cred_keys:
-            for key in user_cred_keys:
-                key_str = key.decode() if isinstance(key, bytes) else key
-                parts = key_str.split(':')
-                if len(parts) >= 2:
-                    unique_users.add(parts[1])
+        # Query Laravel backend for actual user count
+        try:
+            import httpx
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                response = await client.get("http://backend:9000/api/internal/users")
+                if response.status_code == 200:
+                    data = response.json()
+                    backend_users = data.get('users', [])
+                    active_users = len(backend_users)
+                    logger.debug(f"Got {active_users} users from database")
+        except Exception as e:
+            logger.warning(f"Could not get user count from database: {e}")
+            # Fallback: count from Redis
+            unique_users = set()
+            user_cred_keys = await r.keys('user:*:exchange:*')
+            if user_cred_keys:
+                for key in user_cred_keys:
+                    key_str = key.decode() if isinstance(key, bytes) else key
+                    parts = key_str.split(':')
+                    if len(parts) >= 2:
+                        unique_users.add(parts[1])
+            if user_stats_keys:
+                for key in user_stats_keys:
+                    key_str = key.decode() if isinstance(key, bytes) else key
+                    user_id = key_str.replace('trader:stats:', '')
+                    unique_users.add(user_id)
+            active_users = max(1, len(unique_users))
         
-        # Count users with trading started
-        trading_started_keys = await r.keys('trading:started:*')
-        if trading_started_keys:
-            for key in trading_started_keys:
-                key_str = key.decode() if isinstance(key, bytes) else key
-                user_id = key_str.replace('trading:started:', '')
-                unique_users.add(user_id)
-        
-        # Count users with stats
-        if user_stats_keys:
-            for key in user_stats_keys:
-                key_str = key.decode() if isinstance(key, bytes) else key
-                user_id = key_str.replace('trader:stats:', '')
-                unique_users.add(user_id)
-        
-        # Also count legacy format
-        legacy_keys = await r.keys('exchange:credentials:*')
-        if legacy_keys:
-            unique_users.add('default')  # Legacy admin user
-        
-        active_users = len(unique_users)
-        
-        # Minimum 1 user
+        # Ensure minimum 1 user
         active_users = max(1, active_users)
         
         # Get system uptime

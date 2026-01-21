@@ -177,10 +177,11 @@ export default function DashboardPage() {
 
     try {
       const user = JSON.parse(storedUser)
-      // Set the actual user ID for API calls
-      const currentUserId = user.id || user.userId || user.user_id || 'default'
+      // Admin uses 'default' as user_id in trading system
+      const isAdminUser = user.email === 'admin@sentinel.ai'
+      const currentUserId = isAdminUser ? 'default' : (user.id || user.userId || user.user_id || 'default')
       setUserId(currentUserId)
-      setIsAdmin(user.email === 'admin@sentinel.ai')
+      setIsAdmin(isAdminUser)
       
       const response = await fetch('/api/exchanges', {
         headers: { 'Authorization': `Bearer ${token}` }
