@@ -1289,10 +1289,47 @@ async def disable_autonomous_trading(user_id: str = "default"):
 async def resume_autonomous_trading(user_id: str = "default"):
     """Resume autonomous trading - starts opening new positions again"""
     trader = get_trader()
+    
+    # If user is not connected, try to connect them first
+    if user_id not in trader.user_clients:
+        logger.info(f"User {user_id} not connected, attempting to connect...")
+        
+        # Try to get credentials from Redis
+        r = await get_redis()
+        creds = await r.hgetall(f"user:{user_id}:exchange:bybit")
+        
+        if creds:
+            api_key = simple_decrypt(creds.get(b"api_key", b"").decode())
+            api_secret = simple_decrypt(creds.get(b"api_secret", b"").decode())
+            is_testnet = creds.get(b"is_testnet", b"0").decode() == "1"
+            
+            if api_key and api_secret:
+                connected = await trader.connect_user(user_id, api_key, api_secret, is_testnet)
+                if connected:
+                    logger.info(f"User {user_id} auto-connected on resume")
+                else:
+                    return {"success": False, "error": "Failed to connect - check API credentials"}
+            else:
+                return {"success": False, "error": "No valid credentials found"}
+        else:
+            # Try legacy "default" credentials
+            legacy_creds = await r.hgetall("exchange:credentials:default")
+            if legacy_creds and user_id == "default":
+                api_key = simple_decrypt(legacy_creds.get(b"api_key", b"").decode())
+                api_secret = simple_decrypt(legacy_creds.get(b"api_secret", b"").decode())
+                is_testnet = legacy_creds.get(b"testnet", b"0").decode() == "1"
+                
+                if api_key and api_secret:
+                    connected = await trader.connect_user(user_id, api_key, api_secret, is_testnet)
+                    if connected:
+                        logger.info(f"User {user_id} auto-connected from legacy credentials")
+            else:
+                return {"success": False, "error": "No credentials found - please connect exchange first"}
+    
+    # Now resume trading
     await trader.resume_trading(user_id)
     
     # Mark that this user has started trading at least once
-    # This is used to distinguish NEW users from EXISTING users on reconnect
     r = await get_redis()
     await r.set(f'trading:started:{user_id}', '1')
     
