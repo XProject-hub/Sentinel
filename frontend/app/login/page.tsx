@@ -5,7 +5,6 @@ import { motion } from 'framer-motion'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { 
-  Brain, 
   Mail, 
   Lock, 
   Eye, 
@@ -15,6 +14,7 @@ import {
   Loader2,
   Shield
 } from 'lucide-react'
+import Logo from '@/components/Logo'
 
 export default function LoginPage() {
   const router = useRouter()
@@ -41,10 +41,18 @@ export default function LoginPage() {
 
       const data = await response.json()
 
-      if (response.ok && data.token) {
-        localStorage.setItem('token', data.token)
-        localStorage.setItem('sentinel_user', JSON.stringify(data.user))
-        router.push('/dashboard')
+      if (response.ok && data.success) {
+        // Token is in data.data.token (Laravel response format)
+        const token = data.data?.token || data.token
+        const user = data.data?.user || data.user
+        
+        if (token) {
+          localStorage.setItem('token', token)
+          localStorage.setItem('sentinel_user', JSON.stringify(user))
+          router.push('/dashboard')
+        } else {
+          setError('Login failed - no token received')
+        }
       } else {
         setError(data.message || data.error || 'Invalid credentials')
       }
@@ -66,11 +74,8 @@ export default function LoginPage() {
           className="w-full max-w-md"
         >
           {/* Logo */}
-          <Link href="/" className="inline-flex items-center gap-3 mb-12">
-            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center">
-              <Brain className="w-7 h-7 text-white" />
-            </div>
-            <span className="text-2xl font-bold text-white tracking-tight">SENTINEL</span>
+          <Link href="/" className="inline-block mb-12">
+            <Logo size="lg" />
           </Link>
 
           {/* Header */}

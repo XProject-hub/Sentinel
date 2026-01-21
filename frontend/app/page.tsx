@@ -21,6 +21,7 @@ import {
   Clock,
   ChevronRight
 } from 'lucide-react'
+import Logo from '@/components/Logo'
 
 export default function LandingPage() {
   const [stats, setStats] = useState({
@@ -127,12 +128,7 @@ export default function LandingPage() {
       <nav className="fixed top-0 left-0 right-0 z-50 bg-[#0a0f1a]/80 backdrop-blur-xl border-b border-white/5">
         <div className="w-full px-6 lg:px-12 py-4">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center">
-                <Brain className="w-6 h-6 text-white" />
-              </div>
-              <span className="text-xl font-bold text-white tracking-tight">SENTINEL</span>
-            </div>
+            <Logo size="md" />
             
             <div className="hidden md:flex items-center gap-8">
               <a href="#features" className="text-sm text-gray-400 hover:text-white transition-colors">Features</a>
@@ -329,9 +325,7 @@ export default function LandingPage() {
       <footer className="py-8 px-6 lg:px-12 border-t border-white/5">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center">
-              <Brain className="w-4 h-4 text-white" />
-            </div>
+            <Logo size="sm" showText={false} />
             <span className="text-sm text-gray-500">SENTINEL AI - Autonomous Trading Intelligence</span>
           </div>
           <div className="text-sm text-gray-600">

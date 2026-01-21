@@ -4,7 +4,6 @@ import { useEffect, useState, useRef } from 'react'
 import { motion } from 'framer-motion'
 import Link from 'next/link'
 import { 
-  Brain,
   TrendingUp, 
   TrendingDown, 
   Shield,
@@ -29,8 +28,10 @@ import {
   ArrowDownRight,
   Waves,
   Users,
-  LineChart
+  LineChart,
+  Cpu
 } from 'lucide-react'
+import Logo from '@/components/Logo'
 import ConnectExchangePrompt from '@/components/ConnectExchangePrompt'
 
 interface Position {
@@ -246,12 +247,7 @@ export default function DashboardPage() {
         <div className="w-full px-6 py-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-6">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center">
-                  <Brain className="w-5 h-5 text-white" />
-                </div>
-                <span className="text-xl font-bold text-white">SENTINEL</span>
-              </div>
+              <Logo size="md" />
               
               {/* Status Indicator */}
               <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full ${
@@ -308,7 +304,7 @@ export default function DashboardPage() {
             animate={{ opacity: 1, y: 0 }}
             className="mb-6 p-4 bg-gradient-to-r from-cyan-500/10 via-blue-500/5 to-violet-500/10 border border-cyan-500/20 rounded-xl flex items-center gap-3"
           >
-            <Brain className="w-5 h-5 text-cyan-400 flex-shrink-0" />
+            <Cpu className="w-5 h-5 text-cyan-400 flex-shrink-0" />
             <span className="text-sm text-gray-300">{aiInsight}</span>
           </motion.div>
         )}

@@ -6,7 +6,6 @@ import {
   ArrowRight, 
   Shield, 
   Zap, 
-  Brain, 
   Key,
   Eye,
   EyeOff,
