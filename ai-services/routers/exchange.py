@@ -518,17 +518,25 @@ async def get_balance(user_id: str = "default"):
     # Calculate unrealized PnL
     total_unrealized_pnl = sum(c.get("unrealizedPnl", 0) for c in coins)
     
-    # Get daily/weekly P&L from Redis stats
+    # Get daily/weekly P&L from USER-SPECIFIC Redis stats
     try:
         r = await redis.from_url(settings.REDIS_URL)
-        stats_raw = await r.get('trader:stats')
-        sizer_raw = await r.get('sizer:state')
+        # Get user-specific stats
+        stats_raw = await r.get(f'trader:stats:{user_id}')
+        sizer_raw = await r.get(f'sizer:state:{user_id}')
+        
+        # Fallback to global if user-specific not found
+        if not stats_raw:
+            stats_raw = await r.get('trader:stats')
+        if not sizer_raw:
+            sizer_raw = await r.get('sizer:state')
+            
         stats = json.loads(stats_raw) if stats_raw else {}
         sizer = json.loads(sizer_raw) if sizer_raw else {}
         await r.close()
         
         total_pnl = float(stats.get('total_pnl', 0))
-        daily_pnl = float(sizer.get('daily_pnl', 0))
+        daily_pnl = float(stats.get('daily_pnl', sizer.get('daily_pnl', 0)))
         weekly_pnl = float(sizer.get('weekly_pnl', 0))
     except:
         total_pnl = 0
@@ -2387,12 +2395,12 @@ async def get_trade_history(user_id: str = "default", limit: int = 10):
 
 @router.get("/trading/stats")
 async def get_trading_stats(user_id: str = "default"):
-    """Get comprehensive trading statistics"""
+    """Get comprehensive trading statistics FOR A SPECIFIC USER"""
     r = await redis.from_url(settings.REDIS_URL)
     
     try:
-        # Get trader stats
-        stats_data = await r.get("trader:stats")
+        # Get USER-SPECIFIC stats (not global)
+        stats_data = await r.get(f"trader:stats:{user_id}")
         stats = {}
         if stats_data:
             try:

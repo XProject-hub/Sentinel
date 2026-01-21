@@ -184,7 +184,10 @@ class AutonomousTraderV2:
         self._cooldown_symbols: Dict[str, datetime] = {}
         self.cooldown_seconds = 60  # Wait 60 seconds before reopening same symbol
         
-        # Statistics
+        # Per-user statistics (isolated per user)
+        self.user_stats: Dict[str, Dict] = {}
+        
+        # Global stats for AI learning (aggregated from all users)
         self.stats = {
             'total_trades': 0,
             'winning_trades': 0,
@@ -196,6 +199,19 @@ class AutonomousTraderV2:
             'trades_rejected_risk': 0,
             'trades_rejected_no_momentum': 0
         }
+    
+    def _get_user_stats(self, user_id: str) -> Dict:
+        """Get or create stats for a specific user"""
+        if user_id not in self.user_stats:
+            self.user_stats[user_id] = {
+                'total_trades': 0,
+                'winning_trades': 0,
+                'total_pnl': 0.0,
+                'max_drawdown': 0.0,
+                'daily_pnl': 0.0,
+                'opportunities_scanned': 0
+            }
+        return self.user_stats[user_id]
         
     async def initialize(
         self,
@@ -271,6 +287,11 @@ class AutonomousTraderV2:
             if result.get('success'):
                 self.user_clients[user_id] = client
                 self.active_positions[user_id] = {}
+                
+                # Load user-specific stats from Redis
+                if self.redis_client:
+                    await self._load_user_stats(user_id)
+                
                 logger.info(f"User {user_id} connected for Ultimate trading")
                 return True
             else:
@@ -777,11 +798,21 @@ class AutonomousTraderV2:
                     "TRADE"
                 )
                 
-                # Update stats with NET values
+                # Update USER-SPECIFIC stats
+                user_stats = self._get_user_stats(user_id)
+                user_stats['total_trades'] += 1
+                if won:
+                    user_stats['winning_trades'] += 1
+                user_stats['total_pnl'] += pnl_value  # NET P&L
+                
+                # Also update GLOBAL stats for AI learning
                 self.stats['total_trades'] += 1
                 if won:
                     self.stats['winning_trades'] += 1
-                self.stats['total_pnl'] += pnl_value  # NET P&L
+                self.stats['total_pnl'] += pnl_value
+                
+                # Save user stats to Redis immediately
+                await self._save_user_stats(user_id)
                 
                 # Record in position sizer (NET P&L)
                 await self.position_sizer.close_position(position.symbol, pnl_value)
@@ -879,11 +910,21 @@ class AutonomousTraderV2:
                 position.size = remaining_size
                 position.position_value = position.position_value * (remaining_size / (remaining_size + close_size))
                 
-                # Update stats
-                self.stats['total_trades'] += 0.5  # Count as half trade
+                # Update USER-SPECIFIC stats
+                user_stats = self._get_user_stats(user_id)
+                user_stats['total_trades'] += 0.5  # Count as half trade
+                if pnl_percent > 0:
+                    user_stats['winning_trades'] += 0.5
+                user_stats['total_pnl'] += pnl_value
+                
+                # Also update GLOBAL stats for AI learning
+                self.stats['total_trades'] += 0.5
                 if pnl_percent > 0:
                     self.stats['winning_trades'] += 0.5
                 self.stats['total_pnl'] += pnl_value
+                
+                # Save user stats
+                await self._save_user_stats(user_id)
                 
                 # Log to console
                 await self._log_to_console(f"PARTIAL: {position.symbol} +{pnl_percent:.2f}% (took {close_percent}%)", "TRADE")
@@ -2433,11 +2474,30 @@ class AutonomousTraderV2:
             logger.warning(f"Failed to load registered users: {e}")
             
     async def _save_stats(self):
-        """Save stats to Redis"""
+        """Save GLOBAL stats to Redis (for AI learning)"""
         try:
             await self.redis_client.set('trader:stats', json.dumps(self.stats))
         except:
             pass
+    
+    async def _save_user_stats(self, user_id: str):
+        """Save USER-SPECIFIC stats to Redis"""
+        try:
+            if user_id in self.user_stats:
+                await self.redis_client.set(f'trader:stats:{user_id}', json.dumps(self.user_stats[user_id]))
+        except:
+            pass
+    
+    async def _load_user_stats(self, user_id: str):
+        """Load user-specific stats from Redis"""
+        try:
+            data = await self.redis_client.get(f'trader:stats:{user_id}')
+            if data:
+                loaded_stats = json.loads(data)
+                self.user_stats[user_id] = loaded_stats
+                logger.info(f"Loaded stats for user {user_id}: {loaded_stats.get('total_trades', 0)} trades")
+        except Exception as e:
+            logger.warning(f"Failed to load stats for user {user_id}: {e}")
             
     async def _log_status(self):
         """Log current trading status"""
