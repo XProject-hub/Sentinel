@@ -285,7 +285,7 @@ export default function BacktestPage() {
               {/* Capital */}
               <div>
                 <label className="block text-sm font-medium text-sentinel-text-secondary mb-2">
-                  Initial Capital ($)
+                  Initial Capital (€)
                 </label>
                 <input
                   type="number"
@@ -474,12 +474,12 @@ export default function BacktestPage() {
                         />
                         <YAxis 
                           tick={{ fill: '#64748b', fontSize: 10 }}
-                          tickFormatter={(value) => `$${value.toFixed(0)}`}
+                          tickFormatter={(value) => `€${value.toFixed(0)}`}
                         />
                         <Tooltip
                           contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #1e293b', borderRadius: '8px' }}
                           labelStyle={{ color: '#94a3b8' }}
-                          formatter={(value: any) => [`$${value.toFixed(2)}`, 'Equity']}
+                          formatter={(value: any) => [`€${value.toFixed(2)}`, 'Equity']}
                         />
                         <Area 
                           type="monotone" 
@@ -500,18 +500,18 @@ export default function BacktestPage() {
                     <div className="space-y-3">
                       <div className="flex justify-between">
                         <span className="text-sentinel-text-muted">Initial Capital</span>
-                        <span className="text-white">${result.initial_capital.toFixed(2)}</span>
+                        <span className="text-white">€{result.initial_capital.toFixed(2)}</span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-sentinel-text-muted">Final Capital</span>
                         <span className={result.final_capital >= result.initial_capital ? 'text-sentinel-accent-emerald' : 'text-sentinel-accent-crimson'}>
-                          ${result.final_capital.toFixed(2)}
+                          €{result.final_capital.toFixed(2)}
                         </span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-sentinel-text-muted">Total P&L</span>
                         <span className={result.total_pnl >= 0 ? 'text-sentinel-accent-emerald' : 'text-sentinel-accent-crimson'}>
-                          {result.total_pnl >= 0 ? '+' : ''}${result.total_pnl.toFixed(2)}
+                          {result.total_pnl >= 0 ? '+' : ''}€{result.total_pnl.toFixed(2)}
                         </span>
                       </div>
                       <div className="flex justify-between">
@@ -578,8 +578,8 @@ export default function BacktestPage() {
                                 {trade.direction.toUpperCase()}
                               </span>
                             </td>
-                            <td className="py-3 text-white">${trade.entry_price?.toFixed(2)}</td>
-                            <td className="py-3 text-white">${trade.exit_price?.toFixed(2)}</td>
+                            <td className="py-3 text-white">€{trade.entry_price?.toFixed(2)}</td>
+                            <td className="py-3 text-white">€{trade.exit_price?.toFixed(2)}</td>
                             <td className={`py-3 text-right ${trade.pnl >= 0 ? 'text-sentinel-accent-emerald' : 'text-sentinel-accent-crimson'}`}>
                               {trade.pnl >= 0 ? '+' : ''}{trade.pnl_percent?.toFixed(2)}%
                             </td>
