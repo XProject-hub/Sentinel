@@ -162,8 +162,13 @@ export default function SettingsPage() {
         const data = await response.json()
         if (data.data) {
           const backendData = data.data
+          // Normalize riskMode to uppercase
+          const riskMode = (backendData.riskMode || 'NORMAL').toUpperCase() as keyof typeof riskPresets
+          const validRiskMode = riskPresets[riskMode] ? riskMode : 'NORMAL'
+          
           const mapped = {
             ...backendData,
+            riskMode: validRiskMode,
             useRegimeFilter: backendData.useRegimeDetection ?? backendData.useRegimeFilter ?? true,
             useEdgeEstimation: backendData.useEdgeEstimation ?? true,
             useSentimentAnalysis: backendData.useCryptoBert ?? backendData.useSentimentAnalysis ?? true,
@@ -345,10 +350,10 @@ export default function SettingsPage() {
             <h3 className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-3">Current Mode</h3>
             <div className="flex items-center gap-2">
               <div className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
-              <span className="text-sm font-medium text-white">{settings.riskMode.replace('_', ' ')}</span>
+              <span className="text-sm font-medium text-white">{(settings.riskMode || 'NORMAL').replace('_', ' ')}</span>
             </div>
             <p className="text-xs text-gray-500 mt-2">
-              {riskPresets[settings.riskMode].description}
+              {riskPresets[settings.riskMode as keyof typeof riskPresets]?.description || 'Balanced risk/reward strategy'}
             </p>
           </div>
         </aside>
