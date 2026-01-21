@@ -81,8 +81,16 @@ interface WhaleAlert {
   timestamp: string
 }
 
+interface NewsItem {
+  title: string
+  sentiment: 'bullish' | 'bearish' | 'neutral'
+  source: string
+  time: string
+}
+
 export default function DashboardPage() {
   const [isLoading, setIsLoading] = useState(true)
+  const [news, setNews] = useState<NewsItem[]>([])
   const [hasExchangeConnection, setHasExchangeConnection] = useState(false)
   const [isAdmin, setIsAdmin] = useState(false)
   const [positions, setPositions] = useState<Position[]>([])
@@ -178,6 +186,15 @@ export default function DashboardPage() {
           if (data.data?.ai_insight) {
             setAiInsight(data.data.ai_insight)
           }
+        }
+      } catch {}
+
+      // Get market news/sentiment
+      try {
+        const newsRes = await fetch('/ai/market/news?limit=5')
+        if (newsRes.ok) {
+          const data = await newsRes.json()
+          setNews(data.news || [])
         }
       } catch {}
 
@@ -527,27 +544,61 @@ export default function DashboardPage() {
                 <h2 className="font-semibold text-white text-sm">Whale Activity</h2>
               </div>
               
-              <div className="p-4 space-y-3 max-h-48 overflow-y-auto">
+              <div className="divide-y divide-white/5">
                 {whaleAlerts.length === 0 ? (
-                  <div className="text-gray-600 text-sm">No whale activity detected</div>
+                  <div className="p-4 text-gray-600 text-sm">No whale activity detected</div>
                 ) : (
                   whaleAlerts.map((alert, i) => (
-                    <div key={i} className="flex items-start justify-between gap-2">
-                      <div>
+                    <div key={i} className="p-3 hover:bg-white/[0.02]">
+                      <div className="flex items-center justify-between mb-1">
                         <div className="flex items-center gap-2">
                           <span className="text-white text-sm font-medium">{alert.symbol}</span>
-                          <span className={`text-xs px-1.5 py-0.5 rounded ${
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
                             alert.type === 'buy_wall' ? 'bg-emerald-500/20 text-emerald-400' :
                             'bg-red-500/20 text-red-400'
                           }`}>
-                            {alert.type.replace('_', ' ')}
+                            {alert.type.replace('_', ' ').toUpperCase()}
                           </span>
                         </div>
-                        <p className="text-xs text-gray-500 mt-0.5">{alert.description}</p>
+                        <span className="text-[10px] text-gray-600">
+                          {new Date(alert.timestamp).toLocaleTimeString()}
+                        </span>
                       </div>
-                      <span className="text-xs text-gray-600 flex-shrink-0">
-                        {new Date(alert.timestamp).toLocaleTimeString()}
-                      </span>
+                      <p className="text-xs text-gray-500 leading-relaxed">{alert.description}</p>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            {/* Market News */}
+            <div className="bg-white/[0.02] rounded-2xl border border-white/5 overflow-hidden">
+              <div className="p-4 border-b border-white/5 flex items-center gap-2">
+                <Activity className="w-4 h-4 text-cyan-400" />
+                <h2 className="font-semibold text-white text-sm">Market Sentiment</h2>
+              </div>
+              
+              <div className="divide-y divide-white/5">
+                {news.length === 0 ? (
+                  <div className="p-4 text-gray-600 text-sm">Loading market data...</div>
+                ) : (
+                  news.map((item, i) => (
+                    <div key={i} className="p-3 hover:bg-white/[0.02]">
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="text-sm text-gray-300 leading-snug flex-1">{item.title}</p>
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium flex-shrink-0 ${
+                          item.sentiment === 'bullish' ? 'bg-emerald-500/20 text-emerald-400' :
+                          item.sentiment === 'bearish' ? 'bg-red-500/20 text-red-400' :
+                          'bg-gray-500/20 text-gray-400'
+                        }`}>
+                          {item.sentiment.toUpperCase()}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2 mt-1.5">
+                        <span className="text-[10px] text-gray-600">{item.source}</span>
+                        <span className="text-[10px] text-gray-700">•</span>
+                        <span className="text-[10px] text-gray-600">{item.time}</span>
+                      </div>
                     </div>
                   ))
                 )}
