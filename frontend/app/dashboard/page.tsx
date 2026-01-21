@@ -132,6 +132,20 @@ export default function DashboardPage() {
   const [marketRegime, setMarketRegime] = useState('analyzing')
   const [fearGreed, setFearGreed] = useState<number>(50)
   const [aiConfidence, setAiConfidence] = useState<number>(0)
+  const [breakoutAlerts, setBreakoutAlerts] = useState<{symbol: string, change: number, volume: number, time: string}[]>([])
+  const [aiIntelligence, setAiIntelligence] = useState<{
+    news_sentiment: string
+    breakouts_detected: number
+    pairs_analyzed: number
+    last_action: string
+    strategy_mode: string
+  }>({
+    news_sentiment: 'neutral',
+    breakouts_detected: 0,
+    pairs_analyzed: 0,
+    last_action: 'Initializing...',
+    strategy_mode: 'NORMAL'
+  })
   const [pairsScanned, setPairsScanned] = useState<number>(0)
   const [recentTrades, setRecentTrades] = useState<TradeHistory[]>([])
   const [traderStats, setTraderStats] = useState<TraderStats | null>(null)
@@ -282,6 +296,24 @@ export default function DashboardPage() {
         if (signalsRes.ok) {
           const data = await signalsRes.json()
           setAiSignals(data.signals || [])
+        }
+      } catch {}
+
+      // Get AI Intelligence status (breakouts, news sentiment, etc.)
+      try {
+        const aiRes = await fetch('/ai/exchange/intelligence')
+        if (aiRes.ok) {
+          const data = await aiRes.json()
+          setAiIntelligence({
+            news_sentiment: data.news_sentiment || 'neutral',
+            breakouts_detected: data.breakouts_detected || 0,
+            pairs_analyzed: data.pairs_analyzed || 0,
+            last_action: data.last_action || 'Scanning...',
+            strategy_mode: data.strategy_mode || 'NORMAL'
+          })
+          if (data.breakout_alerts && data.breakout_alerts.length > 0) {
+            setBreakoutAlerts(data.breakout_alerts)
+          }
         }
       } catch {}
 
@@ -957,31 +989,64 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* Whale Activity */}
+          {/* AI Intelligence - REAL TIME */}
           <div className="bg-white/[0.02] rounded-xl border border-white/5 overflow-hidden">
-            <div className="px-3 sm:px-4 py-2 sm:py-3 border-b border-white/5 flex items-center gap-2">
-              <Waves className="w-4 h-4 text-cyan-400" />
-              <h2 className="text-sm font-medium text-white">Whale Activity</h2>
+            <div className="px-3 sm:px-4 py-2 sm:py-3 border-b border-white/5 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Cpu className="w-4 h-4 text-violet-400" />
+                <h2 className="text-sm font-medium text-white">AI Intelligence</h2>
+              </div>
+              <span className={`text-[9px] px-2 py-0.5 rounded ${
+                aiIntelligence.news_sentiment === 'bullish' ? 'bg-emerald-500/20 text-emerald-400' :
+                aiIntelligence.news_sentiment === 'bearish' ? 'bg-red-500/20 text-red-400' :
+                'bg-gray-500/20 text-gray-400'
+              }`}>
+                {aiIntelligence.news_sentiment.toUpperCase()}
+              </span>
             </div>
-            <div className="h-48 sm:h-56 overflow-y-auto divide-y divide-white/5">
-              {whaleAlerts.length === 0 ? (
-                <div className="p-4 text-gray-600 text-xs text-center">No whale activity</div>
-              ) : (
-                whaleAlerts.map((alert, i) => (
-                  <div key={i} className="px-3 py-2 hover:bg-white/[0.02]">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <span className="text-white text-xs font-medium">{alert.symbol.replace('USDT', '')}</span>
-                        <span className={`text-[9px] px-1.5 py-0.5 rounded ${
-                          alert.type === 'buy_wall' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'
-                        }`}>
-                          {alert.type === 'buy_wall' ? 'BUY' : 'SELL'}
-                        </span>
+            <div className="p-3 space-y-3">
+              {/* Status Grid */}
+              <div className="grid grid-cols-2 gap-2">
+                <div className="p-2 bg-white/[0.02] rounded-lg">
+                  <div className="text-[9px] text-gray-500 uppercase">Strategy</div>
+                  <div className="text-xs font-semibold text-cyan-400">{aiIntelligence.strategy_mode}</div>
+                </div>
+                <div className="p-2 bg-white/[0.02] rounded-lg">
+                  <div className="text-[9px] text-gray-500 uppercase">Breakouts</div>
+                  <div className="text-xs font-semibold text-amber-400">{aiIntelligence.breakouts_detected}</div>
+                </div>
+              </div>
+              
+              {/* Last Action */}
+              <div className="p-2 bg-white/[0.02] rounded-lg">
+                <div className="text-[9px] text-gray-500 uppercase mb-1">Last Action</div>
+                <div className="text-[10px] text-white truncate">{aiIntelligence.last_action}</div>
+              </div>
+              
+              {/* Breakout Alerts */}
+              {breakoutAlerts.length > 0 && (
+                <div>
+                  <div className="text-[9px] text-gray-500 uppercase mb-2">Active Breakouts</div>
+                  <div className="space-y-1 max-h-24 overflow-y-auto">
+                    {breakoutAlerts.slice(0, 5).map((alert, i) => (
+                      <div key={i} className="flex items-center justify-between text-[10px] p-1.5 bg-white/[0.02] rounded">
+                        <span className="text-white font-medium">{alert.symbol.replace('USDT', '')}</span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-gray-500">${alert.volume}M</span>
+                          <span className={`font-semibold ${alert.change >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                            {alert.change >= 0 ? '+' : ''}{alert.change}%
+                          </span>
+                        </div>
                       </div>
-                      <span className="text-[9px] text-gray-600">{new Date(alert.timestamp).toLocaleTimeString()}</span>
-                    </div>
+                    ))}
                   </div>
-                ))
+                </div>
+              )}
+              
+              {breakoutAlerts.length === 0 && (
+                <div className="text-center py-2 text-gray-600 text-[10px]">
+                  No breakouts detected
+                </div>
               )}
             </div>
           </div>

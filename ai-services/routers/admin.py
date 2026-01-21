@@ -20,7 +20,14 @@ router = APIRouter()
 
 
 def get_git_commit() -> str:
-    """Get current git commit hash"""
+    """Get current git commit hash from environment or git"""
+    import os
+    # First try environment variable (set during docker build)
+    env_commit = os.environ.get('GIT_COMMIT', '')
+    if env_commit and env_commit != 'unknown':
+        return env_commit[:7] if len(env_commit) > 7 else env_commit
+    
+    # Fallback to git command
     try:
         result = subprocess.run(
             ['git', 'rev-parse', '--short', 'HEAD'],
@@ -32,7 +39,7 @@ def get_git_commit() -> str:
             return result.stdout.strip()
     except Exception:
         pass
-    return "unknown"
+    return ""
 
 
 def get_build_date() -> str:

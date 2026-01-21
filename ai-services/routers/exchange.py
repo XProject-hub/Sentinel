@@ -640,6 +640,102 @@ async def get_ai_signals(limit: int = 5):
     return {"signals": signals}
 
 
+@router.get("/intelligence")
+async def get_ai_intelligence():
+    """
+    Get AI Intelligence status - shows what AI is doing in REAL TIME
+    
+    Returns:
+    - news_sentiment: Current market sentiment from news
+    - breakouts_detected: Number of breakouts found
+    - breakout_alerts: List of current breakouts
+    - pairs_analyzed: How many pairs AI scanned
+    - last_action: What AI did last
+    - strategy_mode: Current trading strategy
+    """
+    r = await get_redis()
+    
+    intelligence = {
+        "news_sentiment": "neutral",
+        "breakouts_detected": 0,
+        "breakout_alerts": [],
+        "pairs_analyzed": 0,
+        "last_action": "Initializing...",
+        "strategy_mode": "NORMAL"
+    }
+    
+    try:
+        # Get settings for strategy mode
+        settings_raw = await r.get("bot:settings:default")
+        if settings_raw:
+            settings = json.loads(settings_raw)
+            intelligence["strategy_mode"] = settings.get("riskMode", "NORMAL").upper()
+        
+        # Get trader stats for pairs analyzed
+        stats_raw = await r.get("trader:stats")
+        if stats_raw:
+            stats = json.loads(stats_raw)
+            intelligence["pairs_analyzed"] = int(stats.get("opportunities_scanned", 0))
+        
+        # Get last console log for last action
+        console_logs_raw = await r.lrange("bot:console:default", 0, 0)
+        if console_logs_raw:
+            last_log = json.loads(console_logs_raw[0])
+            intelligence["last_action"] = last_log.get("message", "Scanning...")[:100]
+        
+        # Get news sentiment from cache
+        news_raw = await r.get("market:news:cache")
+        if news_raw:
+            news_list = json.loads(news_raw)
+            bullish = sum(1 for n in news_list if n.get('sentiment') == 'bullish')
+            bearish = sum(1 for n in news_list if n.get('sentiment') == 'bearish')
+            total = bullish + bearish
+            if total > 0:
+                score = (bullish - bearish) / total
+                if score > 0.3:
+                    intelligence["news_sentiment"] = "bullish"
+                elif score < -0.3:
+                    intelligence["news_sentiment"] = "bearish"
+                else:
+                    intelligence["news_sentiment"] = "neutral"
+        
+        # Scan for BREAKOUTS in real-time
+        if "default" in exchange_connections:
+            client = exchange_connections["default"]
+            tickers_result = await client.get_tickers()
+            
+            if tickers_result.get('success'):
+                tickers = tickers_result.get('data', {}).get('list', [])
+                breakouts = []
+                
+                for ticker in tickers:
+                    symbol = ticker.get('symbol', '')
+                    if not symbol.endswith('USDT'):
+                        continue
+                    
+                    price_change = float(ticker.get('price24hPcnt', 0)) * 100
+                    volume = float(ticker.get('turnover24h', 0))
+                    
+                    # Breakout: +5% or more with decent volume
+                    if abs(price_change) >= 5 and volume >= 500000:
+                        breakouts.append({
+                            "symbol": symbol,
+                            "change": round(price_change, 2),
+                            "volume": round(volume / 1000000, 2),  # In millions
+                            "time": datetime.utcnow().isoformat()
+                        })
+                
+                # Sort by absolute change
+                breakouts.sort(key=lambda x: abs(x['change']), reverse=True)
+                intelligence["breakouts_detected"] = len(breakouts)
+                intelligence["breakout_alerts"] = breakouts[:10]  # Top 10
+        
+    except Exception as e:
+        logger.error(f"Error getting AI intelligence: {e}")
+    
+    return intelligence
+
+
 @router.get("/positions")
 async def get_positions():
     """Get real open positions from connected exchange"""
