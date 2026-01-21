@@ -162,7 +162,7 @@ async def set_user_credentials(request: UserCredentialsRequest):
             )
             user_exchange_connections[f"{request.user_id}:{request.exchange}"] = client
             
-            # CRITICAL: Also connect user to autonomous trader for auto-trading
+            # Connect user to autonomous trader (but DON'T start trading automatically)
             # Import here to avoid circular imports at module load time
             from services.autonomous_trader_v2 import autonomous_trader_v2
             
@@ -175,7 +175,9 @@ async def set_user_credentials(request: UserCredentialsRequest):
             )
             
             if connected:
-                logger.info(f"User {request.user_id} connected to autonomous trader")
+                # IMPORTANT: Pause trading by default - user must click "Start" to begin
+                await autonomous_trader_v2.pause_trading(request.user_id)
+                logger.info(f"User {request.user_id} connected (PAUSED by default - must click Start)")
             else:
                 logger.warning(f"User {request.user_id} credentials saved but autonomous trader connection failed")
         
