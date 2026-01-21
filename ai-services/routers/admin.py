@@ -762,33 +762,74 @@ async def get_traffic_stats():
 
 @router.get("/stats")
 async def get_public_stats():
-    """Get public statistics for landing page - LIVE DATA"""
+    """Get public statistics for landing page - AGGREGATED FROM ALL USERS"""
     try:
         r = await redis.from_url(settings.REDIS_URL)
         
-        # Get trading stats
-        trade_stats_raw = await r.hgetall('ai:trading:stats')
-        trade_stats = {
-            k.decode() if isinstance(k, bytes) else k:
-            v.decode() if isinstance(v, bytes) else v
-            for k, v in trade_stats_raw.items()
-        } if trade_stats_raw else {}
+        # === AGGREGATE STATS FROM ALL USERS ===
+        total_trades = 0
+        total_wins = 0
+        best_win_rate = 0.0
+        total_pnl = 0.0
         
-        # Get total volume from trades
-        total_volume = float(trade_stats.get('total_volume', 0))
-        total_trades = int(trade_stats.get('total_trades', 0))
-        wins = int(trade_stats.get('wins', 0))
-        losses = int(trade_stats.get('losses', 0))
+        # Find all user stats keys
+        user_stats_keys = await r.keys('trader:stats:*')
         
-        # Calculate win rate
-        if total_trades > 0:
-            win_rate = (wins / total_trades) * 100
-        else:
-            win_rate = 0
+        for key in user_stats_keys:
+            try:
+                stats_raw = await r.get(key)
+                if stats_raw:
+                    stats = json.loads(stats_raw.decode() if isinstance(stats_raw, bytes) else stats_raw)
+                    user_trades = int(stats.get('total_trades', 0))
+                    user_wins = int(stats.get('winning_trades', 0))
+                    
+                    total_trades += user_trades
+                    total_wins += user_wins
+                    total_pnl += float(stats.get('total_pnl', 0))
+                    
+                    # Track best win rate
+                    if user_trades >= 10:  # Only count users with enough trades
+                        user_win_rate = (user_wins / user_trades * 100) if user_trades > 0 else 0
+                        if user_win_rate > best_win_rate:
+                            best_win_rate = user_win_rate
+            except:
+                continue
         
-        # Get active users count
-        user_keys = await r.keys('exchange:credentials:*')
-        active_users = len(user_keys) if user_keys else 0
+        # Also check global stats (for backwards compatibility)
+        global_stats_raw = await r.get('trader:stats')
+        if global_stats_raw:
+            try:
+                global_stats = json.loads(global_stats_raw.decode() if isinstance(global_stats_raw, bytes) else global_stats_raw)
+                global_trades = int(global_stats.get('total_trades', 0))
+                global_wins = int(global_stats.get('winning_trades', 0))
+                
+                # If global has more trades than aggregated, use global
+                if global_trades > total_trades:
+                    total_trades = global_trades
+                    total_wins = global_wins
+                    if global_trades > 0:
+                        global_win_rate = (global_wins / global_trades * 100)
+                        if global_win_rate > best_win_rate:
+                            best_win_rate = global_win_rate
+            except:
+                pass
+        
+        # Calculate overall win rate if no best found
+        if best_win_rate == 0 and total_trades > 0:
+            best_win_rate = (total_wins / total_trades * 100)
+        
+        # === COUNT ACTIVE USERS ===
+        # Count users with exchange credentials (new format)
+        user_cred_keys = await r.keys('user:*:exchange:*')
+        active_users = len(set([k.decode().split(':')[1] for k in user_cred_keys])) if user_cred_keys else 0
+        
+        # Also count legacy format
+        legacy_keys = await r.keys('exchange:credentials:*')
+        if legacy_keys:
+            active_users = max(active_users, len(legacy_keys))
+        
+        # Minimum 1 user
+        active_users = max(1, active_users)
         
         # Get system uptime
         try:
@@ -798,32 +839,24 @@ async def get_public_stats():
         except:
             uptime_percent = 99.99
         
-        # Get AI accuracy from learning stats
-        learning_stats_raw = await r.hgetall('ai:learning:stats')
-        learning_stats = {
-            k.decode() if isinstance(k, bytes) else k:
-            v.decode() if isinstance(v, bytes) else v
-            for k, v in learning_stats_raw.items()
-        } if learning_stats_raw else {}
-        
-        ai_accuracy = float(learning_stats.get('overall_accuracy', win_rate))
-        
-        # Get today's volume
-        today_key = f"stats:volume:{datetime.now().strftime('%Y-%m-%d')}"
-        today_volume = await r.get(today_key)
-        today_volume = float(today_volume) if today_volume else 0
-        
         await r.aclose()
         
         return {
-            "total_volume": total_volume if total_volume > 0 else today_volume,
-            "totalVolume": total_volume if total_volume > 0 else today_volume,
+            "success": True,
+            "data": {
+                "total_trades": total_trades,
+                "win_rate": round(best_win_rate, 1),
+                "active_users": active_users,
+                "total_pnl": round(total_pnl, 2)
+            },
+            "total_volume": 0,
+            "totalVolume": 0,
             "active_users": active_users,
             "activeUsers": active_users,
-            "ai_accuracy": ai_accuracy if ai_accuracy > 0 else win_rate,
-            "aiAccuracy": ai_accuracy if ai_accuracy > 0 else win_rate,
-            "win_rate": win_rate,
-            "winRate": win_rate,
+            "ai_accuracy": round(best_win_rate, 1),
+            "aiAccuracy": round(best_win_rate, 1),
+            "win_rate": round(best_win_rate, 1),
+            "winRate": round(best_win_rate, 1),
             "uptime": uptime_percent,
             "total_trades": total_trades,
             "totalTrades": total_trades,
@@ -833,6 +866,7 @@ async def get_public_stats():
         logger.error(f"Failed to get public stats: {e}")
         # Return default values on error
         return {
+            "success": False,
             "total_volume": 0,
             "totalVolume": 0,
             "active_users": 1,
