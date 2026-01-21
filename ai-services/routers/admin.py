@@ -281,47 +281,38 @@ async def get_users():
                     data = response.json()
                     backend_users = data.get('users', [])
                     
-                    # Get global trader stats (for admin who runs as default)
-                    global_stats = {}
-                    global_stats_raw = await r.get('trader:stats')
-                    if global_stats_raw:
-                        try:
-                            global_stats = json.loads(global_stats_raw)
-                        except:
-                            pass
-                    
-                    global_completed = await r.llen('trades:completed:default')
-                    
                     for user in backend_users:
                         user_id = str(user['id'])
                         is_admin = user['email'] == 'admin@sentinel.ai'
                         
-                        # Get trading stats from Redis
+                        # Determine Redis key for this user
+                        # Admin uses 'default' as their user_id in Redis
+                        redis_user_id = 'default' if is_admin else user_id
+                        
+                        # Get trading stats from Redis (same source as Dashboard)
                         stats = {}
-                        if is_admin:
-                            # Admin uses global stats
-                            stats = global_stats
-                            completed_count = global_completed
-                        else:
-                            user_stats = await r.get(f'trader:stats:{user_id}')
-                            if user_stats:
-                                try:
-                                    stats = json.loads(user_stats)
-                                except:
-                                    pass
-                            completed_count = await r.llen(f'trades:completed:{user_id}')
+                        user_stats = await r.get(f'trader:stats:{redis_user_id}')
+                        if user_stats:
+                            try:
+                                stats = json.loads(user_stats)
+                            except:
+                                pass
+                        completed_count = await r.llen(f'trades:completed:{redis_user_id}')
                         
                         total_trades = stats.get('total_trades', completed_count) or completed_count
                         winning_trades = stats.get('winning_trades', 0)
                         
-                        # Check if trading is paused
-                        is_paused = await r.exists(f'trading:paused:{user_id}')
+                        # Check if trading is paused (use redis_user_id)
+                        is_paused = await r.exists(f'trading:paused:{redis_user_id}')
                         
-                        # Check if exchange connected (for admin, check default credentials)
+                        # Check if exchange connected (use redis_user_id)
                         exchange_connected = user.get('exchange_connected', False)
                         if is_admin:
-                            has_creds = await r.exists('exchange:credentials:default')
+                            has_creds = await r.exists(f'user:{redis_user_id}:exchange:bybit') or await r.exists('exchange:credentials:default')
                             exchange_connected = bool(has_creds)
+                        else:
+                            has_creds = await r.exists(f'user:{redis_user_id}:exchange:bybit')
+                            exchange_connected = exchange_connected or bool(has_creds)
                         
                         users.append({
                             'id': user_id,
