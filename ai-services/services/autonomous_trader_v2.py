@@ -888,6 +888,99 @@ class AutonomousTraderV2:
             pass
         return {'minOrderQty': 1, 'qtyStep': 0.01}
             
+    async def _find_breakouts(self, user_id: str, client: BybitV5Client, wallet: Dict) -> List[TradingOpportunity]:
+        """
+        BREAKOUT DETECTOR - Find coins with MASSIVE moves (+5% or more)
+        
+        This catches opportunities like HANA +10% that normal filters would miss.
+        When a coin explodes, we want IN - no overthinking!
+        
+        Rules:
+        - +5% to +10% = Strong breakout, enter with normal size
+        - +10% to +20% = Mega breakout, enter with caution (might be late)
+        - +20%+ = FOMO territory, skip or small size
+        - Negative breakouts work too for shorts
+        """
+        breakouts = []
+        
+        try:
+            # Get ALL tickers from Bybit
+            tickers_result = await client.get_tickers()
+            if not tickers_result.get('success'):
+                return breakouts
+            
+            tickers = tickers_result.get('data', {}).get('list', [])
+            
+            # Minimum volume filter ($500K to ensure liquidity)
+            min_volume = 500000
+            
+            for ticker in tickers:
+                symbol = ticker.get('symbol', '')
+                if not symbol.endswith('USDT') or symbol in ['USDCUSDT', 'USDTUSDT', 'DAIUSDT']:
+                    continue
+                
+                # Skip if already in position
+                if symbol in self.active_positions.get(user_id, {}):
+                    continue
+                
+                # Skip if on cooldown
+                if symbol in self._cooldown_symbols:
+                    continue
+                
+                price_change = float(ticker.get('price24hPcnt', 0)) * 100  # Convert to %
+                volume = float(ticker.get('turnover24h', 0))
+                last_price = float(ticker.get('lastPrice', 0))
+                
+                if volume < min_volume or last_price <= 0:
+                    continue
+                
+                # BREAKOUT DETECTION
+                is_breakout = False
+                direction = None
+                breakout_strength = 0
+                
+                # Bullish breakout (+5% to +25%)
+                if 5 <= price_change <= 25:
+                    is_breakout = True
+                    direction = 'long'
+                    breakout_strength = min(100, price_change * 10)  # Scale 5-10% to 50-100
+                    
+                # Bearish breakout (-5% to -25%)
+                elif -25 <= price_change <= -5:
+                    is_breakout = True
+                    direction = 'short'
+                    breakout_strength = min(100, abs(price_change) * 10)
+                
+                if is_breakout:
+                    # Create opportunity with HIGH edge/confidence to bypass normal filters
+                    opp = TradingOpportunity(
+                        symbol=symbol,
+                        direction=direction,
+                        edge_score=0.8,  # High edge to pass filters
+                        confidence=breakout_strength,
+                        opportunity_score=breakout_strength,
+                        current_price=last_price,
+                        price_change_24h=price_change,
+                        volume_24h=volume,
+                        should_trade=True,
+                        reasons=[f"🚀 BREAKOUT: {price_change:+.1f}% move detected!"],
+                        timestamp=datetime.utcnow().isoformat()
+                    )
+                    breakouts.append(opp)
+                    logger.info(f"🚀 BREAKOUT DETECTED: {symbol} {price_change:+.1f}% | Vol: ${volume/1000000:.1f}M")
+            
+            # Sort by strength (biggest moves first)
+            breakouts.sort(key=lambda x: abs(x.price_change_24h), reverse=True)
+            
+            # Log if we found breakouts
+            if breakouts:
+                await self._log_to_console(f"🚀 {len(breakouts)} BREAKOUTS detected! Top: {breakouts[0].symbol} {breakouts[0].price_change_24h:+.1f}%", "SIGNAL")
+            
+        except Exception as e:
+            logger.error(f"Breakout detection error: {e}")
+        
+        return breakouts[:5]  # Return top 5 breakouts
+    
     async def _find_opportunities(self, user_id: str, client: BybitV5Client, wallet: Dict):
         """Find and execute new trading opportunities"""
         try:
@@ -896,6 +989,20 @@ class AutonomousTraderV2:
                 logger.debug(f"⏸️ Trading paused for {user_id} - skipping opportunity search")
                 return
             
+            # === BREAKOUT DETECTION FIRST ===
+            # This catches big moves that normal filters would reject
+            breakouts = await self._find_breakouts(user_id, client, wallet)
+            
+            for opp in breakouts:
+                num_positions = len(self.active_positions.get(user_id, {}))
+                if self.max_open_positions > 0 and num_positions >= self.max_open_positions:
+                    break
+                
+                # Breakouts skip most validation - they're already high-conviction
+                logger.info(f"🚀 BREAKOUT TRADE: {opp.symbol} | {opp.price_change_24h:+.1f}%")
+                await self._execute_trade(user_id, client, opp, wallet)
+            
+            # === NORMAL OPPORTUNITY SCAN ===
             # Get opportunities from scanner
             opportunities = await self.market_scanner.get_tradeable_opportunities()
             
@@ -1111,6 +1218,74 @@ class AutonomousTraderV2:
         except Exception as e:
             logger.debug(f"Momentum check failed for {symbol}: {e}")
             return True, None
+    
+    async def _analyze_news_sentiment(self, symbol: str) -> Tuple[float, str]:
+        """
+        NEWS SENTIMENT ANALYSIS
+        
+        Reads cached news and determines if sentiment supports the trade.
+        Returns: (sentiment_score: -1 to +1, reason: str)
+        
+        - Positive score (>0.2): Bullish news
+        - Negative score (<-0.2): Bearish news
+        - Neutral (-0.2 to +0.2): No clear direction
+        """
+        try:
+            # Get cached news from Redis
+            news_raw = await self.redis_client.get("market:news:cache")
+            if not news_raw:
+                return 0, "No news data"
+            
+            news_list = json.loads(news_raw)
+            if not news_list:
+                return 0, "Empty news"
+            
+            # Extract base symbol (BTCUSDT -> BTC)
+            base_symbol = symbol.replace('USDT', '').replace('PERP', '')
+            
+            # Find news related to this symbol
+            symbol_news = []
+            bullish_count = 0
+            bearish_count = 0
+            
+            for news in news_list:
+                title = news.get('title', '').upper()
+                sentiment = news.get('sentiment', 'neutral')
+                
+                # Check if news mentions this symbol or its common names
+                if base_symbol in title or (base_symbol == 'BTC' and 'BITCOIN' in title) or (base_symbol == 'ETH' and 'ETHEREUM' in title):
+                    symbol_news.append(news)
+                    if sentiment == 'bullish':
+                        bullish_count += 1
+                    elif sentiment == 'bearish':
+                        bearish_count += 1
+            
+            if not symbol_news:
+                # Check general market sentiment
+                for news in news_list:
+                    sentiment = news.get('sentiment', 'neutral')
+                    if sentiment == 'bullish':
+                        bullish_count += 1
+                    elif sentiment == 'bearish':
+                        bearish_count += 1
+                
+                total = bullish_count + bearish_count
+                if total > 0:
+                    market_sentiment = (bullish_count - bearish_count) / total
+                    return market_sentiment * 0.5, f"Market sentiment: {bullish_count}B/{bearish_count}Be"
+                return 0, "No relevant news"
+            
+            # Calculate sentiment score
+            total = bullish_count + bearish_count
+            if total > 0:
+                sentiment_score = (bullish_count - bearish_count) / total
+                return sentiment_score, f"{base_symbol} news: {bullish_count} bullish, {bearish_count} bearish"
+            
+            return 0, "Neutral news"
+            
+        except Exception as e:
+            logger.debug(f"News sentiment analysis error: {e}")
+            return 0, "Analysis error"
             
     async def _validate_opportunity(self, opp: TradingOpportunity, wallet: Dict, client: BybitV5Client = None) -> Tuple[bool, str]:
         """
@@ -1118,14 +1293,25 @@ class AutonomousTraderV2:
         
         Checks:
         1. Basic edge/confidence
-        2. MOMENTUM FILTER (LOCK PROFIT only!)
-        3. XGBoost ML classification
-        4. CryptoBERT sentiment (crypto-specific)
-        5. Price predictor (multi-timeframe)
-        6. Capital allocator (unified budget)
-        7. Regime detection
-        8. Position sizing
+        2. NEWS SENTIMENT (reads and understands news!)
+        3. MOMENTUM FILTER (LOCK PROFIT only!)
+        4. XGBoost ML classification
+        5. CryptoBERT sentiment (crypto-specific)
+        6. Price predictor (multi-timeframe)
+        7. Capital allocator (unified budget)
+        8. Regime detection
+        9. Position sizing
         """
+        
+        # 0. BREAKOUT BYPASS - If this is a breakout trade, skip most filters
+        is_breakout = "BREAKOUT" in str(opp.reasons)
+        if is_breakout:
+            logger.info(f"🚀 Breakout trade {opp.symbol} - bypassing strict filters")
+            # Only check basic risk limits for breakouts
+            total_equity = float(wallet.get('totalEquity', 0))
+            if total_equity < 10:
+                return False, "Insufficient equity"
+            return True, "Breakout trade approved"
         
         # 1. Edge check
         if opp.edge_score < self.min_edge:
@@ -1136,6 +1322,28 @@ class AutonomousTraderV2:
         if opp.confidence < self.min_confidence:
             self.stats['trades_rejected_low_edge'] += 1
             return False, f"Confidence too low ({opp.confidence:.1f} < {self.min_confidence})"
+        
+        # 2.5 NEWS SENTIMENT ANALYSIS - AI reads and understands news!
+        try:
+            news_sentiment, news_reason = await self._analyze_news_sentiment(opp.symbol)
+            
+            # Strong negative news blocks long trades
+            if news_sentiment < -0.5 and opp.direction == 'long':
+                self.stats['trades_rejected_regime'] += 1
+                return False, f"News strongly bearish: {news_reason}"
+            
+            # Strong positive news blocks short trades  
+            if news_sentiment > 0.5 and opp.direction == 'short':
+                self.stats['trades_rejected_regime'] += 1
+                return False, f"News strongly bullish: {news_reason}"
+            
+            # Boost confidence if news aligns with direction
+            if (news_sentiment > 0.3 and opp.direction == 'long') or (news_sentiment < -0.3 and opp.direction == 'short'):
+                opp.confidence = min(100, opp.confidence + 10)
+                logger.debug(f"📰 News supports {opp.symbol} {opp.direction}: {news_reason}")
+                
+        except Exception as e:
+            logger.debug(f"News sentiment check skipped: {e}")
         
         # 3. MOMENTUM FILTER - For LOCK PROFIT and MICRO PROFIT strategies
         # This increases win rate by only buying when price is already rising
