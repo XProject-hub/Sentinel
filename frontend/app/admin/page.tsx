@@ -397,20 +397,20 @@ export default function AdminPage() {
             {/* System Stats */}
             <div className="grid md:grid-cols-4 gap-4">
               {[
-                { label: 'CPU Usage', value: systemStats?.cpu_percent || 0, icon: Cpu, color: 'cyan' },
-                { label: 'Memory', value: systemStats?.memory_percent || 0, icon: Activity, color: 'violet' },
-                { label: 'System Disk', value: systemStats?.disk_percent || 0, icon: HardDrive, color: 'amber' },
-                { label: 'Data Disk', value: systemStats?.data_disk_percent || 0, icon: Database, color: 'emerald' }
+                { label: 'CPU Usage', value: systemStats?.cpu_percent || 0, icon: Cpu, iconClass: 'text-cyan-400', barClass: 'bg-cyan-500' },
+                { label: 'Memory', value: systemStats?.memory_percent || 0, icon: Activity, iconClass: 'text-violet-400', barClass: 'bg-violet-500' },
+                { label: 'System Disk', value: systemStats?.disk_percent || 0, icon: HardDrive, iconClass: 'text-amber-400', barClass: 'bg-amber-500' },
+                { label: 'Data Disk', value: systemStats?.data_disk_percent || 0, icon: Database, iconClass: 'text-emerald-400', barClass: 'bg-emerald-500' }
               ].map((stat, i) => (
                 <div key={i} className="p-5 bg-white/[0.02] rounded-2xl border border-white/5">
                   <div className="flex items-center gap-2 mb-3">
-                    <stat.icon className={`w-4 h-4 text-${stat.color}-400`} />
+                    <stat.icon className={`w-4 h-4 ${stat.iconClass}`} />
                     <span className="text-sm text-gray-500">{stat.label}</span>
                   </div>
                   <div className="text-2xl font-bold text-white mb-2">{stat.value.toFixed(1)}%</div>
                   <div className="h-1.5 bg-white/5 rounded-full overflow-hidden">
                     <div 
-                      className={`h-full bg-${stat.color}-500 rounded-full`}
+                      className={`h-full ${stat.barClass} rounded-full`}
                       style={{ width: `${stat.value}%` }}
                     />
                   </div>

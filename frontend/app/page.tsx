@@ -58,37 +58,43 @@ export default function LandingPage() {
       icon: Brain,
       title: 'AI-Powered Analysis',
       description: 'Advanced machine learning models analyze market patterns 24/7, identifying high-probability trading opportunities.',
-      color: 'cyan'
+      iconClass: 'text-cyan-400',
+      bgClass: 'bg-cyan-500/10'
     },
     {
       icon: Shield,
       title: 'Risk Management',
       description: 'Intelligent position sizing with Kelly Criterion, trailing stops, and automatic risk controls protect your capital.',
-      color: 'emerald'
+      iconClass: 'text-emerald-400',
+      bgClass: 'bg-emerald-500/10'
     },
     {
       icon: Zap,
       title: 'Lightning Fast Execution',
       description: 'Sub-second order execution ensures you never miss a trade. React to market changes instantly.',
-      color: 'amber'
+      iconClass: 'text-amber-400',
+      bgClass: 'bg-amber-500/10'
     },
     {
       icon: Target,
       title: 'Precision Trading',
       description: 'Edge estimation and confidence scoring ensure only the highest quality trades are executed.',
-      color: 'violet'
+      iconClass: 'text-violet-400',
+      bgClass: 'bg-violet-500/10'
     },
     {
       icon: Activity,
       title: 'Live Market Monitoring',
       description: 'Real-time scanning of 650+ trading pairs across multiple timeframes and market conditions.',
-      color: 'rose'
+      iconClass: 'text-rose-400',
+      bgClass: 'bg-rose-500/10'
     },
     {
       icon: LineChart,
       title: 'Continuous Learning',
       description: 'The AI learns from every trade, continuously improving its strategies and adapting to market changes.',
-      color: 'blue'
+      iconClass: 'text-blue-400',
+      bgClass: 'bg-blue-500/10'
     }
   ]
 
@@ -253,8 +259,8 @@ export default function LandingPage() {
                 viewport={{ once: true }}
                 className="group p-6 bg-white/[0.02] rounded-2xl border border-white/5 hover:border-cyan-500/30 hover:bg-white/[0.04] transition-all"
               >
-                <div className={`w-12 h-12 rounded-xl bg-${feature.color}-500/10 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform`}>
-                  <feature.icon className={`w-6 h-6 text-${feature.color}-400`} />
+                <div className={`w-12 h-12 rounded-xl ${feature.bgClass} flex items-center justify-center mb-4 group-hover:scale-110 transition-transform`}>
+                  <feature.icon className={`w-6 h-6 ${feature.iconClass}`} />
                 </div>
                 <h3 className="text-xl font-semibold text-white mb-2">{feature.title}</h3>
                 <p className="text-gray-400 leading-relaxed">{feature.description}</p>
