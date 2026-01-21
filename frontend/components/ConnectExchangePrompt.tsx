@@ -71,7 +71,17 @@ export default function ConnectExchangePrompt() {
           apiKey: formData.api_key,
           apiSecret: formData.api_secret
         }))
-        setTimeout(() => router.push('/dashboard'), 2000)
+        // Update user data to mark as connected
+        const userData = localStorage.getItem('sentinel_user')
+        if (userData) {
+          const user = JSON.parse(userData)
+          user.exchangeConnected = true
+          localStorage.setItem('sentinel_user', JSON.stringify(user))
+        }
+        // Force redirect with page reload to refresh state
+        setTimeout(() => {
+          window.location.href = '/dashboard'
+        }, 1500)
       } else {
         setError(data.message || data.error || 'Failed to connect exchange')
       }

@@ -158,6 +158,7 @@ export default function DashboardPage() {
   const [traderStats, setTraderStats] = useState<TraderStats | null>(null)
   const [pnlHistory, setPnlHistory] = useState<{time: string, pnl: number}[]>([])
   const [last100Pnl, setLast100Pnl] = useState<number>(0)
+  const [userId, setUserId] = useState<string>('default')
   
   const consoleRef = useRef<HTMLDivElement>(null)
 
@@ -176,6 +177,9 @@ export default function DashboardPage() {
 
     try {
       const user = JSON.parse(storedUser)
+      // Set the actual user ID for API calls
+      const currentUserId = user.id || user.userId || user.user_id || 'default'
+      setUserId(currentUserId)
       setIsAdmin(user.email === 'admin@sentinel.ai')
       
       const response = await fetch('/api/exchanges', {
@@ -188,7 +192,7 @@ export default function DashboardPage() {
         setHasExchangeConnection(hasConnection)
         
         if (hasConnection) {
-          loadDashboardData()
+          loadDashboardData(currentUserId)
         }
       }
     } catch (error) {
@@ -198,16 +202,17 @@ export default function DashboardPage() {
     }
   }
 
-  const loadDashboardData = async () => {
+  const loadDashboardData = async (currentUserId?: string) => {
+    const uid = currentUserId || userId
     try {
       const [walletRes, positionsRes, statusRes, consoleRes, whaleRes, tradesRes, statsRes] = await Promise.all([
-        fetch('/ai/exchange/balance?user_id=default'),
-        fetch('/ai/exchange/positions?user_id=default'),
-        fetch('/ai/exchange/trading/status?user_id=default'),
-        fetch('/ai/exchange/trading/console?user_id=default&limit=20'),
+        fetch(`/ai/exchange/balance?user_id=${uid}`),
+        fetch(`/ai/exchange/positions?user_id=${uid}`),
+        fetch(`/ai/exchange/trading/status?user_id=${uid}`),
+        fetch(`/ai/exchange/trading/console?user_id=${uid}&limit=20`),
         fetch('/ai/market/whale-alerts?limit=10'),
-        fetch('/ai/exchange/trades/history?user_id=default&limit=100'),
-        fetch('/ai/exchange/trading/stats?user_id=default')
+        fetch(`/ai/exchange/trades/history?user_id=${uid}&limit=100`),
+        fetch(`/ai/exchange/trading/stats?user_id=${uid}`)
       ])
 
       if (walletRes.ok) {
@@ -339,7 +344,7 @@ export default function DashboardPage() {
   const startTrading = async () => {
     setIsTogglingBot(true)
     try {
-      await fetch('/ai/exchange/trading/resume?user_id=default', { method: 'POST' })
+      await fetch(`/ai/exchange/trading/resume?user_id=${userId}`, { method: 'POST' })
       setTradingStatus(prev => prev ? { ...prev, is_autonomous_trading: true, is_paused: false } : null)
     } catch (error) {
       console.error('Failed to start:', error)
@@ -351,7 +356,7 @@ export default function DashboardPage() {
   const stopTrading = async () => {
     setIsTogglingBot(true)
     try {
-      await fetch('/ai/exchange/trading/disable?user_id=default', { method: 'POST' })
+      await fetch(`/ai/exchange/trading/disable?user_id=${userId}`, { method: 'POST' })
       setTradingStatus(prev => prev ? { ...prev, is_autonomous_trading: false, is_paused: true } : null)
     } catch (error) {
       console.error('Failed to stop:', error)
