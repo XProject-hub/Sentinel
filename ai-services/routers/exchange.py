@@ -531,19 +531,14 @@ async def get_balance(user_id: str = "default"):
     # Calculate unrealized PnL
     total_unrealized_pnl = sum(c.get("unrealizedPnl", 0) for c in coins)
     
-    # Get daily/weekly P&L from USER-SPECIFIC Redis stats
+    # Get daily/weekly P&L from USER-SPECIFIC Redis stats ONLY (no fallback to global!)
     try:
         r = await redis.from_url(settings.REDIS_URL)
-        # Get user-specific stats
+        # Get user-specific stats ONLY - no fallback to global!
         stats_raw = await r.get(f'trader:stats:{user_id}')
         sizer_raw = await r.get(f'sizer:state:{user_id}')
         
-        # Fallback to global if user-specific not found
-        if not stats_raw:
-            stats_raw = await r.get('trader:stats')
-        if not sizer_raw:
-            sizer_raw = await r.get('sizer:state')
-            
+        # NO FALLBACK - each user sees only their own data
         stats = json.loads(stats_raw) if stats_raw else {}
         sizer = json.loads(sizer_raw) if sizer_raw else {}
         await r.close()
