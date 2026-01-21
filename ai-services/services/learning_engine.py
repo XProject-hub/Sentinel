@@ -122,6 +122,9 @@ class LearningEngine:
         # Initialize Q-table if empty
         if not self.strategy_q_values:
             self._initialize_q_table()
+            # Save initial Q-values to Redis immediately
+            await self._save_all_learning_data()
+            logger.info("Initialized and saved Q-table with prior knowledge")
             
         self.is_running = True
         

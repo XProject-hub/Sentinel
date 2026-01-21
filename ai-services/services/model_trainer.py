@@ -524,3 +524,5 @@ class ModelTrainer:
 # Global instance
 model_trainer = ModelTrainer()
 
+
+

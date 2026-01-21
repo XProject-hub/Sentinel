@@ -375,3 +375,5 @@ class CapitalAllocator:
 # Global instance
 capital_allocator = CapitalAllocator()
 
+
+

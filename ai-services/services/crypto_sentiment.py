@@ -407,3 +407,5 @@ class CryptoSentimentAnalyzer:
 # Global instance
 crypto_sentiment = CryptoSentimentAnalyzer()
 
+
+

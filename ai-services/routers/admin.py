@@ -435,14 +435,34 @@ async def get_ai_stats():
         learning_raw = await r.get('learning:stats')
         learning_stats = json.loads(learning_raw) if learning_raw else {}
         
-        # Get Q-values count
-        q_values_raw = await r.get('learning:q_values')
-        q_values = json.loads(q_values_raw) if q_values_raw else {}
-        q_state_count = len(q_values) if isinstance(q_values, dict) else 0
+        # Get Q-values count (from ai:learning namespace)
+        q_state_count = 0
+        q_values_raw = await r.get('ai:learning:q_values')
+        if q_values_raw:
+            q_values = json.loads(q_values_raw)
+            if isinstance(q_values, dict):
+                # Count actual Q-states (regime -> strategy -> value)
+                # Only count significant Q-values (abs > 0.1) as "learned"
+                for regime, strategies in q_values.items():
+                    if isinstance(strategies, dict):
+                        q_state_count += sum(1 for q in strategies.values() if isinstance(q, (int, float)) and abs(q) > 0.1)
         
-        # Get edge calibration
+        # Get edge calibration from edge estimator
         try:
-            edge_count = await r.hlen('edge:calibration')
+            edge_count = 0
+            # Edge calibration is stored as JSON string
+            edge_calibration_raw = await r.get('edge:calibration')
+            if edge_calibration_raw:
+                edge_calibration = json.loads(edge_calibration_raw)
+                edge_count = len(edge_calibration) if isinstance(edge_calibration, dict) else 0
+            
+            # Also check edge performance for more data
+            edge_perf_raw = await r.get('edge:performance')
+            if edge_perf_raw:
+                edge_perf = json.loads(edge_perf_raw)
+                # Count total outcomes recorded
+                for bucket_data in edge_perf.values() if isinstance(edge_perf, dict) else []:
+                    edge_count += bucket_data.get('total', 0) if isinstance(bucket_data, dict) else 0
         except:
             edge_count = 0
         
