@@ -14,12 +14,13 @@ class ExchangeConnection extends Model
     protected $keyType = 'string';
     public $incrementing = false;
 
+    // Use virtual attributes for api_key/api_secret that map to encrypted columns
     protected $fillable = [
         'user_id',
         'exchange',
         'name',
-        'api_key_encrypted',
-        'api_secret_encrypted',
+        'api_key',           // Virtual - triggers mutator
+        'api_secret',        // Virtual - triggers mutator
         'is_testnet',
         'is_active',
         'last_sync_at',
@@ -30,6 +31,9 @@ class ExchangeConnection extends Model
         'api_key_encrypted',
         'api_secret_encrypted',
     ];
+    
+    // Tell Laravel these are the actual DB columns
+    protected $appends = [];
 
     protected function casts(): array
     {
@@ -41,30 +45,40 @@ class ExchangeConnection extends Model
         ];
     }
 
-    // Encrypt API key before saving (maps api_key to api_key_encrypted column)
+    // Encrypt API key before saving - saves to api_key_encrypted column
     public function setApiKeyAttribute($value)
     {
         $this->attributes['api_key_encrypted'] = $value ? Crypt::encryptString($value) : null;
     }
 
-    // Decrypt API key when retrieving
+    // Decrypt API key when retrieving from api_key_encrypted column
     public function getApiKeyAttribute()
     {
         $value = $this->attributes['api_key_encrypted'] ?? null;
-        return $value ? Crypt::decryptString($value) : null;
+        if (!$value) return null;
+        try {
+            return Crypt::decryptString($value);
+        } catch (\Exception $e) {
+            return null;
+        }
     }
 
-    // Encrypt API secret before saving (maps api_secret to api_secret_encrypted column)
+    // Encrypt API secret before saving - saves to api_secret_encrypted column
     public function setApiSecretAttribute($value)
     {
         $this->attributes['api_secret_encrypted'] = $value ? Crypt::encryptString($value) : null;
     }
 
-    // Decrypt API secret when retrieving
+    // Decrypt API secret when retrieving from api_secret_encrypted column
     public function getApiSecretAttribute()
     {
         $value = $this->attributes['api_secret_encrypted'] ?? null;
-        return $value ? Crypt::decryptString($value) : null;
+        if (!$value) return null;
+        try {
+            return Crypt::decryptString($value);
+        } catch (\Exception $e) {
+            return null;
+        }
     }
 
     // Relationships
