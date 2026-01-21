@@ -1655,6 +1655,8 @@ async def get_settings():
         "partialExitPercent": 50,
         "useSmartExit": False,
         "momentumThreshold": 0.05,
+        # Breakout settings
+        "breakoutExtraSlots": False,  # Allow +2 positions for breakouts
     }
     
     try:
@@ -1708,6 +1710,8 @@ async def get_settings():
                     "momentumThreshold": float(parsed.get('momentumThreshold', defaults['momentumThreshold'])),
                     # Kelly Criterion
                     "kellyMultiplier": float(parsed.get('kellyMultiplier', 0.5)),
+                    # Breakout settings
+                    "breakoutExtraSlots": parsed.get('breakoutExtraSlots', 'false') == 'true',
                 }
             }
         else:
@@ -1782,6 +1786,9 @@ async def save_settings(request: Request):
             
             # Kelly Criterion
             'kellyMultiplier': str(body.get('kellyMultiplier', 0.5)),
+            
+            # Breakout settings
+            'breakoutExtraSlots': str(body.get('breakoutExtraSlots', False)).lower(),
         }
         
         await r.hset('bot:settings', mapping=settings_to_save)

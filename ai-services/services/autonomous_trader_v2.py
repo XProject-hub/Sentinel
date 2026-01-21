@@ -160,6 +160,9 @@ class AutonomousTraderV2:
         self.max_exposure_percent = 100  # 100% = can use entire budget
         self.max_daily_drawdown = 3.0
         
+        # Breakout settings (user must enable in settings)
+        self.breakout_extra_slots = False  # OFF by default
+        
         # Leverage mode: '1x', '2x', '3x', '5x', '10x', 'auto'
         self.leverage_mode = 'auto'
         
@@ -1031,29 +1034,47 @@ class AutonomousTraderV2:
             # This catches big moves that normal filters would reject
             breakouts = await self._find_breakouts(user_id, client, wallet)
             
+            # Calculate breakout position limit based on user settings
+            # If breakoutExtraSlots is enabled, allow +2 extra positions for breakouts
+            extra_slots = 2 if self.breakout_extra_slots else 0
+            if self.max_open_positions > 0:
+                breakout_limit = self.max_open_positions + extra_slots
+            else:
+                breakout_limit = 0  # 0 = unlimited
+            
+            breakout_trades_opened = 0
+            max_breakout_trades_per_cycle = 3  # Don't open too many at once
+            
             for opp in breakouts:
                 num_positions = len(self.active_positions.get(user_id, {}))
                 
                 # Check if max positions reached
-                if self.max_open_positions > 0 and num_positions >= self.max_open_positions:
-                    logger.info(f" BREAKOUT {opp.symbol} skipped - max positions ({self.max_open_positions}) reached")
-                    await self._log_to_console(f"{opp.symbol} {opp.price_change_24h:+.1f}% skipped - max positions", "WARNING")
+                if breakout_limit > 0 and num_positions >= breakout_limit:
+                    limit_info = f"{breakout_limit} (max {self.max_open_positions} + {extra_slots} breakout)" if extra_slots > 0 else str(self.max_open_positions)
+                    logger.info(f"BREAKOUT {opp.symbol} skipped - position limit {limit_info} reached")
+                    await self._log_to_console(f"{opp.symbol} {opp.price_change_24h:+.1f}% skipped - position limit ({num_positions}/{limit_info})", "WARNING")
+                    break
+                
+                # Limit breakout trades per cycle to avoid overtrading
+                if breakout_trades_opened >= max_breakout_trades_per_cycle:
+                    logger.info(f"BREAKOUT {opp.symbol} skipped - max {max_breakout_trades_per_cycle} breakouts per cycle")
                     break
                 
                 # Check if already in this position
                 if opp.symbol in self.active_positions.get(user_id, {}):
-                    logger.debug(f" BREAKOUT {opp.symbol} skipped - already in position")
+                    logger.debug(f"BREAKOUT {opp.symbol} skipped - already in position")
                     continue
                 
                 # Breakouts skip most validation - they're already high-conviction
-                logger.info(f" BREAKOUT TRADE: {opp.symbol} | {opp.price_change_24h:+.1f}%")
-                await self._log_to_console(f"EXECUTING BREAKOUT: {opp.symbol} {opp.price_change_24h:+.1f}%", "TRADE")
+                logger.info(f"BREAKOUT TRADE: {opp.symbol} | {opp.price_change_24h:+.1f}%")
+                await self._log_to_console(f"OPENING BREAKOUT: {opp.symbol} {opp.price_change_24h:+.1f}%", "TRADE")
                 try:
                     await self._execute_trade(user_id, client, opp, wallet)
-                    logger.info(f" BREAKOUT TRADE SUBMITTED: {opp.symbol}")
+                    breakout_trades_opened += 1
+                    logger.info(f"BREAKOUT TRADE OPENED: {opp.symbol}")
                 except Exception as e:
-                    logger.error(f" BREAKOUT TRADE FAILED: {opp.symbol} - {e}")
-                    await self._log_to_console(f"FAILED: {opp.symbol} - {str(e)[:50]}", "ERROR")
+                    logger.error(f"BREAKOUT TRADE FAILED: {opp.symbol} - {e}")
+                    await self._log_to_console(f"BREAKOUT FAILED: {opp.symbol} - {str(e)[:50]}", "ERROR")
             
             # === NORMAL OPPORTUNITY SCAN ===
             # Get opportunities from scanner
@@ -2207,6 +2228,9 @@ class AutonomousTraderV2:
                 self.max_open_positions = int(float(parsed.get('maxOpenPositions', self.max_open_positions)))
                 self.max_exposure_percent = float(parsed.get('maxTotalExposure', self.max_exposure_percent))
                 self.max_daily_drawdown = float(parsed.get('maxDailyDrawdown', self.max_daily_drawdown))
+                
+                # Breakout settings
+                self.breakout_extra_slots = parsed.get('breakoutExtraSlots', 'false') == 'true'
                 
                 # Get risk mode from settings (or detect from parameters for backwards compatibility)
                 saved_risk_mode = parsed.get('riskMode', 'normal')

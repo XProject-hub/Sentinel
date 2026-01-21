@@ -62,6 +62,7 @@ interface BotSettings {
   useEdgeEstimation: boolean
   useQLearning: boolean
   momentumThreshold: number
+  breakoutExtraSlots: boolean  // Allow +2 extra positions for breakouts
 }
 
 const defaultSettings: BotSettings = {
@@ -87,7 +88,8 @@ const defaultSettings: BotSettings = {
   useXGBoost: true,
   useEdgeEstimation: true,
   useQLearning: true,
-  momentumThreshold: 0
+  momentumThreshold: 0,
+  breakoutExtraSlots: false  // OFF by default - user must enable
 }
 
 const riskPresets = {
@@ -700,6 +702,36 @@ export default function SettingsPage() {
                       className="w-full h-2 rounded-full appearance-none cursor-pointer bg-white/10 accent-red-500"
                     />
                     <p className="text-xs text-gray-500 mt-3">0 = OFF (no daily loss limit). Stops trading after X% daily loss.</p>
+                  </div>
+
+                  {/* Breakout Extra Slots */}
+                  <div className={`p-5 rounded-2xl border transition-all ${
+                    settings.breakoutExtraSlots 
+                      ? 'bg-emerald-500/5 border-emerald-500/20' 
+                      : 'bg-white/[0.02] border-white/5'
+                  }`}>
+                    <div className="flex items-center justify-between">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-1">
+                          <Zap className={`w-4 h-4 ${settings.breakoutExtraSlots ? 'text-emerald-400' : 'text-gray-500'}`} />
+                          <span className="font-medium text-white">Breakout Extra Slots</span>
+                        </div>
+                        <p className="text-xs text-gray-500">
+                          Allow +2 extra positions for high-conviction breakouts (coins moving +10% or more). 
+                          When enabled: if you have 7 max positions, breakouts can open up to 9.
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => updateSetting('breakoutExtraSlots', !settings.breakoutExtraSlots)}
+                        className={`relative w-12 h-6 rounded-full transition-colors ml-4 ${
+                          settings.breakoutExtraSlots ? 'bg-emerald-500' : 'bg-white/10'
+                        }`}
+                      >
+                        <div className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow-lg transition-transform ${
+                          settings.breakoutExtraSlots ? 'left-[26px]' : 'left-0.5'
+                        }`} />
+                      </button>
+                    </div>
                   </div>
                 </div>
               </section>
