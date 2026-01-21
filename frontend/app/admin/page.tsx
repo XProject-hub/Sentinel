@@ -44,8 +44,9 @@ interface AIModel {
   name: string
   progress: number
   dataPoints: number
-  status: 'learning' | 'ready' | 'expert'
+  status: 'learning' | 'ready' | 'junior' | 'amateur' | 'professional' | 'expert'
   lastUpdate: string
+  description?: string
 }
 
 interface SystemStats {
@@ -114,10 +115,37 @@ export default function AdminPage() {
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'learning': return 'text-amber-400 bg-amber-500/10'
-      case 'ready': return 'text-cyan-400 bg-cyan-500/10'
-      case 'expert': return 'text-emerald-400 bg-emerald-500/10'
+      case 'learning': return 'text-gray-400 bg-gray-500/10'      // Gray - just starting
+      case 'ready': return 'text-amber-400 bg-amber-500/10'       // Amber - basic functionality
+      case 'junior': return 'text-yellow-400 bg-yellow-500/10'    // Yellow - learning
+      case 'amateur': return 'text-cyan-400 bg-cyan-500/10'       // Cyan - getting better
+      case 'professional': return 'text-blue-400 bg-blue-500/10'  // Blue - good
+      case 'expert': return 'text-emerald-400 bg-emerald-500/10'  // Green - true expert
       default: return 'text-gray-400 bg-gray-500/10'
+    }
+  }
+  
+  const getStatusLabel = (status: string) => {
+    switch (status) {
+      case 'learning': return 'LEARNING'
+      case 'ready': return 'READY'
+      case 'junior': return 'JUNIOR'
+      case 'amateur': return 'AMATEUR'
+      case 'professional': return 'PRO'
+      case 'expert': return 'EXPERT'
+      default: return status.toUpperCase()
+    }
+  }
+  
+  const getProgressBarColor = (status: string) => {
+    switch (status) {
+      case 'learning': return 'bg-gray-500'
+      case 'ready': return 'bg-amber-500'
+      case 'junior': return 'bg-yellow-500'
+      case 'amateur': return 'bg-cyan-500'
+      case 'professional': return 'bg-blue-500'
+      case 'expert': return 'bg-emerald-500'
+      default: return 'bg-gray-500'
     }
   }
 
@@ -305,9 +333,20 @@ export default function AdminPage() {
                 <p className="text-sm text-gray-300 leading-relaxed">
                   <span className="text-cyan-400 font-medium">How AI Learning Works:</span> Sentinel's AI 
                   continuously learns from market data and trade outcomes. Progress shows data accumulation - 
-                  more data means more accurate predictions. "Expert" status indicates the model has enough 
-                  historical data for reliable decision-making, but learning never stops.
+                  more data means more accurate predictions. <span className="text-emerald-400 font-medium">Expert</span> status 
+                  requires MASSIVE amounts of data (tens of thousands of data points) for truly reliable decision-making.
                 </p>
+              </div>
+              
+              {/* Level Legend */}
+              <div className="flex flex-wrap gap-3 mb-6 p-3 bg-white/[0.02] rounded-xl border border-white/5">
+                <span className="text-xs text-gray-400">Levels:</span>
+                <span className="px-2 py-0.5 rounded text-xs font-medium text-gray-400 bg-gray-500/10">LEARNING</span>
+                <span className="px-2 py-0.5 rounded text-xs font-medium text-amber-400 bg-amber-500/10">READY</span>
+                <span className="px-2 py-0.5 rounded text-xs font-medium text-yellow-400 bg-yellow-500/10">JUNIOR</span>
+                <span className="px-2 py-0.5 rounded text-xs font-medium text-cyan-400 bg-cyan-500/10">AMATEUR</span>
+                <span className="px-2 py-0.5 rounded text-xs font-medium text-blue-400 bg-blue-500/10">PRO</span>
+                <span className="px-2 py-0.5 rounded text-xs font-medium text-emerald-400 bg-emerald-500/10">EXPERT</span>
               </div>
 
               {isLoading ? (
@@ -321,31 +360,33 @@ export default function AdminPage() {
                       <div className="flex items-center justify-between mb-3">
                         <span className="font-medium text-white">{model.name}</span>
                         <span className={`px-2 py-0.5 rounded text-xs font-medium ${getStatusColor(model.status)}`}>
-                          {model.status.toUpperCase()}
+                          {getStatusLabel(model.status)}
                         </span>
                       </div>
                       
                       <div className="mb-3">
                         <div className="flex justify-between text-xs mb-1">
-                          <span className="text-gray-500">Progress</span>
-                          <span className="text-cyan-400">{model.progress.toFixed(0)}%</span>
+                          <span className="text-gray-500">Progress to Expert</span>
+                          <span className={getStatusColor(model.status).split(' ')[0]}>{model.progress.toFixed(1)}%</span>
                         </div>
                         <div className="h-2 bg-white/5 rounded-full overflow-hidden">
                           <div 
-                            className={`h-full rounded-full transition-all ${
-                              model.status === 'expert' ? 'bg-emerald-500' :
-                              model.status === 'ready' ? 'bg-cyan-500' :
-                              'bg-amber-500'
-                            }`}
+                            className={`h-full rounded-full transition-all ${getProgressBarColor(model.status)}`}
                             style={{ width: `${Math.min(model.progress, 100)}%` }}
                           />
                         </div>
                       </div>
                       
-                      <div className="flex justify-between text-xs">
+                      <div className="flex justify-between text-xs mb-2">
                         <span className="text-gray-500">{model.dataPoints.toLocaleString()} data points</span>
                         <span className="text-gray-500">{model.lastUpdate}</span>
                       </div>
+                      
+                      {model.description && (
+                        <p className="text-xs text-gray-500 truncate" title={model.description}>
+                          {model.description}
+                        </p>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -353,34 +394,64 @@ export default function AdminPage() {
             </div>
 
             {/* Learning Explanation */}
-            <div className="grid md:grid-cols-3 gap-4">
+            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+              <div className="p-4 bg-gray-500/5 border border-gray-500/20 rounded-xl">
+                <div className="flex items-center gap-2 mb-2">
+                  <Clock className="w-4 h-4 text-gray-400" />
+                  <span className="font-medium text-gray-400">Learning (0-5%)</span>
+                </div>
+                <p className="text-sm text-gray-500">
+                  Just starting. Collecting initial data. NOT ready for reliable trading.
+                </p>
+              </div>
+              
               <div className="p-4 bg-amber-500/5 border border-amber-500/20 rounded-xl">
                 <div className="flex items-center gap-2 mb-2">
                   <Clock className="w-4 h-4 text-amber-400" />
-                  <span className="font-medium text-amber-400">Learning</span>
+                  <span className="font-medium text-amber-400">Ready (5-20%)</span>
                 </div>
                 <p className="text-sm text-gray-400">
-                  Collecting initial data. Predictions may be less accurate.
+                  Basic functionality. Can make simple decisions but still learning.
+                </p>
+              </div>
+              
+              <div className="p-4 bg-yellow-500/5 border border-yellow-500/20 rounded-xl">
+                <div className="flex items-center gap-2 mb-2">
+                  <Zap className="w-4 h-4 text-yellow-400" />
+                  <span className="font-medium text-yellow-400">Junior (20-40%)</span>
+                </div>
+                <p className="text-sm text-gray-400">
+                  Learning patterns. Starting to recognize market conditions.
                 </p>
               </div>
               
               <div className="p-4 bg-cyan-500/5 border border-cyan-500/20 rounded-xl">
                 <div className="flex items-center gap-2 mb-2">
-                  <Zap className="w-4 h-4 text-cyan-400" />
-                  <span className="font-medium text-cyan-400">Ready</span>
+                  <Target className="w-4 h-4 text-cyan-400" />
+                  <span className="font-medium text-cyan-400">Amateur (40-60%)</span>
                 </div>
                 <p className="text-sm text-gray-400">
-                  Has enough data for good predictions. Still improving.
+                  Getting better. Can identify good opportunities. Still improving.
+                </p>
+              </div>
+              
+              <div className="p-4 bg-blue-500/5 border border-blue-500/20 rounded-xl">
+                <div className="flex items-center gap-2 mb-2">
+                  <TrendingUp className="w-4 h-4 text-blue-400" />
+                  <span className="font-medium text-blue-400">Professional (60-80%)</span>
+                </div>
+                <p className="text-sm text-gray-400">
+                  Strong performance. Good at predicting market moves. Reliable.
                 </p>
               </div>
               
               <div className="p-4 bg-emerald-500/5 border border-emerald-500/20 rounded-xl">
                 <div className="flex items-center gap-2 mb-2">
                   <CheckCircle className="w-4 h-4 text-emerald-400" />
-                  <span className="font-medium text-emerald-400">Expert</span>
+                  <span className="font-medium text-emerald-400">Expert (80-100%)</span>
                 </div>
                 <p className="text-sm text-gray-400">
-                  Fully calibrated with extensive data. Highest accuracy.
+                  Massive data. Highest accuracy. Truly reliable predictions.
                 </p>
               </div>
             </div>

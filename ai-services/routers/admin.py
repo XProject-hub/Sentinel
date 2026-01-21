@@ -474,55 +474,149 @@ async def get_ai_stats():
         # Calculate win rate
         win_rate = round((winning_trades / total_trades * 100), 1) if total_trades > 0 else 0
         
-        # Build models array based on REAL data
+        # === REALISTIC LEVEL SYSTEM ===
+        # Levels: learning → ready → junior → amateur → professional → expert
+        # Expert requires MASSIVE amounts of data - these models need LOTS of learning
+        
+        def get_level_and_progress(data_points: int, thresholds: dict) -> tuple:
+            """
+            Get realistic level based on data points.
+            thresholds = {
+                'ready': 50,      # Basic functionality
+                'junior': 200,    # Starting to learn
+                'amateur': 1000,  # Getting better
+                'professional': 5000,  # Good performance
+                'expert': 20000   # True expert - VERY HIGH
+            }
+            """
+            if data_points >= thresholds['expert']:
+                level = 'expert'
+                # Progress within expert tier (20k to 50k for 100%)
+                progress = min(100, 80 + (data_points - thresholds['expert']) / (thresholds['expert'] * 1.5) * 20)
+            elif data_points >= thresholds['professional']:
+                level = 'professional'
+                progress = 60 + (data_points - thresholds['professional']) / (thresholds['expert'] - thresholds['professional']) * 20
+            elif data_points >= thresholds['amateur']:
+                level = 'amateur'
+                progress = 40 + (data_points - thresholds['amateur']) / (thresholds['professional'] - thresholds['amateur']) * 20
+            elif data_points >= thresholds['junior']:
+                level = 'junior'
+                progress = 20 + (data_points - thresholds['junior']) / (thresholds['amateur'] - thresholds['junior']) * 20
+            elif data_points >= thresholds['ready']:
+                level = 'ready'
+                progress = 5 + (data_points - thresholds['ready']) / (thresholds['junior'] - thresholds['ready']) * 15
+            else:
+                level = 'learning'
+                progress = (data_points / thresholds['ready']) * 5 if thresholds['ready'] > 0 else 0
+            
+            return level, round(min(100, max(0, progress)), 1)
+        
+        # Thresholds for each model (MUCH higher for expert!)
+        trade_history_thresholds = {
+            'ready': 100,        # 100 trades = basic understanding
+            'junior': 500,       # 500 trades = learning patterns
+            'amateur': 2000,     # 2000 trades = decent knowledge
+            'professional': 10000,  # 10k trades = professional level
+            'expert': 50000      # 50k trades = true expert
+        }
+        
+        edge_estimation_thresholds = {
+            'ready': 100,        # 100 calibrations
+            'junior': 500,       # 500 outcomes tracked
+            'amateur': 2000,     # 2000 edge measurements
+            'professional': 10000,
+            'expert': 50000
+        }
+        
+        position_sizing_thresholds = {
+            'ready': 50,         # 50 completed trades
+            'junior': 200,       # 200 sizing decisions
+            'amateur': 1000,     # 1000 Kelly calibrations
+            'professional': 5000,
+            'expert': 25000
+        }
+        
+        regime_detection_thresholds = {
+            'ready': 200,        # 200 regime states
+            'junior': 1000,      # 1000 market conditions
+            'amateur': 5000,     # 5000 regime changes tracked
+            'professional': 20000,
+            'expert': 100000
+        }
+        
+        q_learning_thresholds = {
+            'ready': 50,         # 50 Q-state updates
+            'junior': 200,       # 200 learning iterations
+            'amateur': 1000,     # 1000 strategy optimizations
+            'professional': 5000,
+            'expert': 25000
+        }
+        
+        opportunity_scanner_thresholds = {
+            'ready': 50000,      # 50k scans
+            'junior': 200000,    # 200k scans
+            'amateur': 1000000,  # 1M scans
+            'professional': 5000000,  # 5M scans
+            'expert': 25000000   # 25M scans for expert
+        }
+        
+        # Get levels for each model
+        trade_level, trade_progress = get_level_and_progress(total_trades, trade_history_thresholds)
+        edge_level, edge_progress = get_level_and_progress(edge_count, edge_estimation_thresholds)
+        sizing_level, sizing_progress = get_level_and_progress(completed_trades, position_sizing_thresholds)
+        regime_level, regime_progress = get_level_and_progress(regime_count, regime_detection_thresholds)
+        q_level, q_progress = get_level_and_progress(q_state_count, q_learning_thresholds)
+        scanner_level, scanner_progress = get_level_and_progress(opportunities_scanned, opportunity_scanner_thresholds)
+        
+        # Build models array based on REAL data with REALISTIC levels
         models = [
             {
                 "name": "Trade History",
-                "progress": min(100, total_trades / 20 * 100),
+                "progress": trade_progress,
                 "dataPoints": total_trades,
-                "status": "expert" if total_trades > 1000 else "ready" if total_trades > 100 else "learning",
+                "status": trade_level,
                 "lastUpdate": "Real-time",
-                "description": f"Win rate: {win_rate}%"
+                "description": f"Win rate: {win_rate}% | Need {trade_history_thresholds['expert']:,} for Expert"
             },
             {
                 "name": "Edge Estimation",
-                "progress": min(100, edge_count / 2),
+                "progress": edge_progress,
                 "dataPoints": edge_count,
-                "status": "expert" if edge_count > 100 else "ready" if edge_count > 30 else "learning",
+                "status": edge_level,
                 "lastUpdate": "Real-time",
-                "description": "Symbol calibration data"
+                "description": f"Symbol calibration | Need {edge_estimation_thresholds['expert']:,} for Expert"
             },
             {
                 "name": "Position Sizing",
-                "progress": min(100, completed_trades / 10 * 100),
+                "progress": sizing_progress,
                 "dataPoints": completed_trades,
-                "status": "expert" if completed_trades > 500 else "ready" if completed_trades > 50 else "learning",
+                "status": sizing_level,
                 "lastUpdate": "Real-time",
-                "description": "Kelly criterion calibration"
+                "description": f"Kelly criterion | Need {position_sizing_thresholds['expert']:,} for Expert"
             },
             {
                 "name": "Regime Detection",
-                "progress": min(100, regime_count / 5 * 100),
+                "progress": regime_progress,
                 "dataPoints": regime_count,
-                "status": "expert" if regime_count > 300 else "ready" if regime_count > 50 else "learning",
+                "status": regime_level,
                 "lastUpdate": "Real-time",
-                "description": "Market condition analysis"
+                "description": f"Market analysis | Need {regime_detection_thresholds['expert']:,} for Expert"
             },
             {
                 "name": "Q-Learning",
-                "progress": min(100, q_state_count * 10),
+                "progress": q_progress,
                 "dataPoints": q_state_count,
-                "status": "expert" if q_state_count > 50 else "ready" if q_state_count > 10 else "learning",
+                "status": q_level,
                 "lastUpdate": "Real-time",
-                "description": "Strategy optimization"
+                "description": f"Strategy optimization | Need {q_learning_thresholds['expert']:,} for Expert"
             },
             {
                 "name": "Opportunity Scanner",
-                "progress": min(100, opportunities_scanned / 10000 * 100),
+                "progress": scanner_progress,
                 "dataPoints": opportunities_scanned,
-                "status": "expert" if opportunities_scanned > 500000 else "ready" if opportunities_scanned > 50000 else "learning",
+                "status": scanner_level,
                 "lastUpdate": "Real-time",
-                "description": "Market scanning"
+                "description": f"Market scanning | Need {opportunity_scanner_thresholds['expert']:,} for Expert"
             }
         ]
         
