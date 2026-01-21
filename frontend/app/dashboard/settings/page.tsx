@@ -78,7 +78,7 @@ const defaultSettings: BotSettings = {
   kellyMultiplier: 0.3,
   minEdge: 0.10,
   minConfidence: 60,
-  leverageMode: 'AUTO',
+  leverageMode: 'auto',
   useDynamicSizing: true,
   useWhaleDetection: true,
   useFundingRate: true,
@@ -802,12 +802,12 @@ export default function SettingsPage() {
                         onChange={(e) => updateSetting('leverageMode', e.target.value)}
                         className="w-full px-4 py-3 bg-[#0d1321] border border-white/10 rounded-xl text-white focus:border-cyan-500/50 focus:outline-none appearance-none cursor-pointer"
                       >
-                        <option value="AUTO">AUTO (AI decides)</option>
-                        <option value="1">1x (No leverage)</option>
-                        <option value="2">2x</option>
-                        <option value="3">3x</option>
-                        <option value="5">5x</option>
-                        <option value="10">10x</option>
+                        <option value="auto">AUTO (AI decides)</option>
+                        <option value="1x">1x (No leverage)</option>
+                        <option value="2x">2x</option>
+                        <option value="3x">3x</option>
+                        <option value="5x">5x</option>
+                        <option value="10x">10x</option>
                       </select>
                       <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500 pointer-events-none" />
                     </div>
