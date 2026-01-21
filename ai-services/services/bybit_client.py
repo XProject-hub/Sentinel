@@ -156,24 +156,24 @@ class BybitV5Client:
                 ERROR_MESSAGES = {
                     10001: "Request parameter error - check parameters",
                     10002: "Request timestamp expired - sync server time",
-                    10003: "Invalid API key - check if key is correct",
-                    10004: "Invalid signature - check API secret is correct",
-                    10005: "Permission denied - enable Read & Trade permissions on API key",
-                    10006: "IP restricted - remove all IPs from whitelist OR add server IP",
+                    10003: "Invalid API key",
+                    10004: "Invalid signature - check API secret",
+                    10005: "Permission denied - check API permissions",
+                    10006: "Your API key has IP restrictions. Either add server IP or remove all IPs from Bybit whitelist",
                     10007: "Access denied - API key not valid for this endpoint",
                     10008: "Invalid sign type",
-                    10009: "Invalid timestamp",
-                    10010: "IP restricted - SOLUTION: In Bybit API settings, either REMOVE all IPs from whitelist (allows any IP) OR add server IP",
+                    10009: "Invalid Timestamp",
+                    10010: "Your API key has IP restrictions. Go to Bybit API Management and either: 1) Add server IP, or 2) Remove all IPs (leave empty for unrestricted access)",
                     10014: "Invalid API key format",
                     10016: "Server error - try again",
                     10017: "API not available for this path",
                     10018: "Unsupported request",
-                    10024: "KYC required on Bybit account",
+                    10024: "KYC required",
                     10025: "Cross margin not enabled",
-                    10027: "API key is banned",
-                    10028: "API key expired - create a new one",
+                    10027: "Banned API key",
+                    10028: "API key expired",
                     10029: "Duplicate request",
-                    33004: "API key not enabled for trading - enable Trade permission",
+                    33004: "API key not enabled for trading",
                     110001: "Order does not exist",
                     110003: "Order already filled",
                     110004: "Insufficient balance",
@@ -190,13 +190,10 @@ class BybitV5Client:
                     140013: "Due to risk limit, cannot set leverage so high",
                 }
                 
-                # Log full error details for debugging
-                logger.warning(f"Bybit error {error_code}: {error_msg} | API Key: {self.api_key[:8]}...")
-                
                 if error_code in ERROR_MESSAGES:
                     return {"success": False, "error": ERROR_MESSAGES[error_code], "code": error_code}
-                elif "ip" in error_msg.lower() or "whitelist" in error_msg.lower():
-                    return {"success": False, "error": f"IP restriction: {error_msg}. Remove all IPs from whitelist in Bybit API settings.", "code": error_code}
+                elif "ip" in error_msg.lower():
+                    return {"success": False, "error": f"IP issue: {error_msg}. Whitelist your server IP on Bybit.", "code": error_code}
                     
                 return {"success": False, "error": error_msg, "code": error_code}
                 
@@ -631,7 +628,7 @@ class BybitV5Client:
             logger.error(f"Bybit auth failed: {result.get('error')}")
             return {
                 "success": False,
-                "error": result.get("error", "Authentication failed - check API key and IP whitelist")
+                "error": result.get("error", "Authentication failed - check API key and secret")
             }
                 
         except Exception as e:
