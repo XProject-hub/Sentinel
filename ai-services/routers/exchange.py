@@ -153,7 +153,7 @@ async def set_user_credentials(request: UserCredentialsRequest):
             "updated_at": datetime.utcnow().isoformat(),
         })
         
-        # If active, create connection
+        # If active, create connection for API calls
         if request.is_active:
             client = BybitV5Client(
                 api_key=request.api_key,
@@ -161,6 +161,23 @@ async def set_user_credentials(request: UserCredentialsRequest):
                 testnet=request.is_testnet
             )
             user_exchange_connections[f"{request.user_id}:{request.exchange}"] = client
+            
+            # CRITICAL: Also connect user to autonomous trader for auto-trading
+            # Import here to avoid circular imports at module load time
+            from services.autonomous_trader_v2 import autonomous_trader_v2
+            
+            # Connect user to autonomous trader
+            connected = await autonomous_trader_v2.connect_user(
+                user_id=request.user_id,
+                api_key=request.api_key,
+                api_secret=request.api_secret,
+                testnet=request.is_testnet
+            )
+            
+            if connected:
+                logger.info(f"User {request.user_id} connected to autonomous trader")
+            else:
+                logger.warning(f"User {request.user_id} credentials saved but autonomous trader connection failed")
         
         logger.info(f"Credentials set for user {request.user_id} on {request.exchange}")
         
@@ -440,13 +457,18 @@ async def sync_user_exchange(user_id: str, exchange: str = "bybit"):
 
 
 @router.get("/balance")
-async def get_balance():
+async def get_balance(user_id: str = "default"):
     """Get real wallet balance from connected exchange - checks ALL account types"""
     
-    if "default" not in exchange_connections:
-        return {"success": False, "error": "No exchange connected"}
+    # Get user-specific client
+    client = await get_user_client(user_id, "bybit")
+    
+    # Fallback to legacy default connection for backwards compatibility
+    if not client and "default" in exchange_connections:
+        client = exchange_connections["default"]
         
-    client = exchange_connections["default"]
+    if not client:
+        return {"success": False, "error": "No exchange connected for this user"}
     
     coins = []
     total_equity = 0
@@ -874,13 +896,19 @@ async def get_fee_rates():
 
 
 @router.get("/positions")
-async def get_positions():
+async def get_positions(user_id: str = "default"):
     """Get real open positions from connected exchange"""
     
-    if "default" not in exchange_connections:
-        return {"success": False, "error": "No exchange connected"}
+    # Get user-specific client
+    client = await get_user_client(user_id, "bybit")
+    
+    # Fallback to legacy default connection for backwards compatibility
+    if not client and "default" in exchange_connections:
+        client = exchange_connections["default"]
         
-    client = exchange_connections["default"]
+    if not client:
+        return {"success": False, "error": "No exchange connected for this user"}
+        
     result = await client.get_positions()
     
     if not result.get("success"):
@@ -1935,13 +1963,18 @@ async def sell_all_positions():
 
 
 @router.post("/close-position/{symbol}")
-async def close_single_position(symbol: str):
+async def close_single_position(symbol: str, user_id: str = "default"):
     """Close a specific position by symbol"""
     
-    if "default" not in exchange_connections:
-        return {"success": False, "error": "No exchange connected"}
+    # Get user-specific client
+    client = await get_user_client(user_id, "bybit")
     
-    client = exchange_connections["default"]
+    # Fallback to legacy default connection for backwards compatibility
+    if not client and "default" in exchange_connections:
+        client = exchange_connections["default"]
+        
+    if not client:
+        return {"success": False, "error": "No exchange connected for this user"}
     
     try:
         # Get current positions
@@ -2004,13 +2037,18 @@ async def close_single_position(symbol: str):
 
 
 @router.post("/close-all-positions")
-async def close_all_positions():
+async def close_all_positions(user_id: str = "default"):
     """Close ALL open positions at once"""
     
-    if "default" not in exchange_connections:
-        return {"success": False, "error": "No exchange connected"}
+    # Get user-specific client
+    client = await get_user_client(user_id, "bybit")
     
-    client = exchange_connections["default"]
+    # Fallback to legacy default connection for backwards compatibility
+    if not client and "default" in exchange_connections:
+        client = exchange_connections["default"]
+        
+    if not client:
+        return {"success": False, "error": "No exchange connected for this user"}
     
     try:
         # Get current positions

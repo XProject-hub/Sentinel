@@ -229,6 +229,9 @@ class AutonomousTraderV2:
         # Load paused users from Redis
         await self._load_paused_users()
         
+        # Load and connect all registered users from Redis
+        await self._load_registered_users()
+        
         # Initialize whale tracker
         try:
             await whale_tracker.initialize()
@@ -822,8 +825,8 @@ class AutonomousTraderV2:
                 self._cooldown_symbols[position.symbol] = datetime.utcnow()
                 logger.debug(f"{position.symbol} on cooldown for {self.cooldown_seconds}s")
                         
-                # Store trade for dashboard with NET P&L
-                await self._store_trade_event(position.symbol, 'closed', net_pnl_percent, reason, position, pnl_value)
+                # Store trade for dashboard with NET P&L (per user)
+                await self._store_trade_event(user_id, position.symbol, 'closed', net_pnl_percent, reason, position, pnl_value)
                 
             else:
                 logger.error(f"Failed to close {position.symbol}: {result}")
@@ -1867,8 +1870,8 @@ class AutonomousTraderV2:
                 if is_breakout and self.redis_client:
                     await self.redis_client.hset("positions:breakout", opp.symbol, "1")
                 
-                # Store trade event
-                await self._store_trade_event(opp.symbol, 'opened', 0, opp.direction)
+                # Store trade event (per user)
+                await self._store_trade_event(user_id, opp.symbol, 'opened', 0, opp.direction)
                 
             else:
                 error_msg = result.get('error', result.get('message', str(result)))
@@ -2093,12 +2096,13 @@ class AutonomousTraderV2:
         except Exception:
             pass  # Don't break trading for console logging
         
-    async def _store_trade_event(self, symbol: str, action: str, pnl: float, reason: str,
+    async def _store_trade_event(self, user_id: str, symbol: str, action: str, pnl: float, reason: str,
                                   position: Optional[ActivePosition] = None, 
                                   net_pnl_value: Optional[float] = None):
         """Store trade event for dashboard and data collection
         
         Args:
+            user_id: User identifier for data isolation
             pnl: NET P&L percentage (after fees)
             net_pnl_value: NET P&L value in USD (after fees)
         """
@@ -2122,23 +2126,28 @@ class AutonomousTraderV2:
                 'timestamp': timestamp,
                 'side': position.side if position else None,
                 'entry_price': position.entry_price if position else None,
-                'value': position.position_value if position else None
+                'value': position.position_value if position else None,
+                'user_id': user_id  # Track user
             }
             
-            # Push to Redis list for dashboard
-            await self.redis_client.lpush('trading:events', json.dumps(event))
-            await self.redis_client.ltrim('trading:events', 0, 99)  # Keep last 100
+            # Push to user-specific Redis list for dashboard
+            await self.redis_client.lpush(f'trading:events:{user_id}', json.dumps(event))
+            await self.redis_client.ltrim(f'trading:events:{user_id}', 0, 99)  # Keep last 100
             
-            # Also store completed trades separately for activity panel (NET P&L)
+            # Also push to global events for AI learning (all users)
+            await self.redis_client.lpush('trading:events:all', json.dumps(event))
+            await self.redis_client.ltrim('trading:events:all', 0, 999)  # Keep last 1000 for learning
+            
+            # Store completed trades per user for activity panel (NET P&L)
             if action == 'closed':
-                await self.redis_client.lpush('trades:completed:default', json.dumps({
+                await self.redis_client.lpush(f'trades:completed:{user_id}', json.dumps({
                     'symbol': symbol,
                     'pnl': round(pnl_value, 2),  # NET value
                     'pnl_percent': round(pnl, 2),  # NET %
                     'close_reason': reason,
                     'closed_time': timestamp
                 }))
-                await self.redis_client.ltrim('trades:completed:default', 0, 49)  # Keep last 50
+                await self.redis_client.ltrim(f'trades:completed:{user_id}', 0, 49)  # Keep last 50
             
             # V3: Record to data collector for ML training
             if position:
@@ -2357,9 +2366,71 @@ class AutonomousTraderV2:
                 user_id = key_str.replace('trading:paused:', '')
                 self.paused_users.add(user_id)
             if self.paused_users:
-                logger.info(f" Loaded {len(self.paused_users)} paused users: {self.paused_users}")
+                logger.info(f"Loaded {len(self.paused_users)} paused users: {self.paused_users}")
         except Exception as e:
             logger.warning(f"Failed to load paused users: {e}")
+    
+    async def _load_registered_users(self):
+        """Load all registered users from Redis and connect them"""
+        try:
+            import base64
+            
+            # Find all user credential keys
+            keys = await self.redis_client.keys('user:*:exchange:*')
+            connected_count = 0
+            
+            for key in keys:
+                try:
+                    key_str = key.decode() if isinstance(key, bytes) else key
+                    # Parse user_id from key format "user:{user_id}:exchange:{exchange}"
+                    parts = key_str.split(':')
+                    if len(parts) >= 4:
+                        user_id = parts[1]
+                        exchange = parts[3]
+                        
+                        # Skip if already connected
+                        if user_id in self.user_clients:
+                            continue
+                        
+                        # Get credentials
+                        creds = await self.redis_client.hgetall(key)
+                        if not creds:
+                            continue
+                        
+                        # Decode credentials
+                        creds_decoded = {
+                            k.decode() if isinstance(k, bytes) else k: 
+                            v.decode() if isinstance(v, bytes) else v 
+                            for k, v in creds.items()
+                        }
+                        
+                        # Check if active
+                        if creds_decoded.get('is_active') != '1':
+                            continue
+                        
+                        # Decrypt credentials (simple base64)
+                        api_key = base64.b64decode(creds_decoded.get('api_key', '')).decode()
+                        api_secret = base64.b64decode(creds_decoded.get('api_secret', '')).decode()
+                        is_testnet = creds_decoded.get('is_testnet') == '1'
+                        
+                        if api_key and api_secret:
+                            # Connect user
+                            success = await self.connect_user(user_id, api_key, api_secret, is_testnet)
+                            if success:
+                                connected_count += 1
+                                logger.info(f"Auto-connected user {user_id} from Redis")
+                            
+                except Exception as e:
+                    logger.warning(f"Failed to load user from key {key}: {e}")
+                    continue
+            
+            if connected_count > 0:
+                logger.info(f"Auto-connected {connected_count} users from Redis")
+            else:
+                logger.info("No users to auto-connect from Redis")
+                
+        except Exception as e:
+            logger.warning(f"Failed to load registered users: {e}")
             
     async def _save_stats(self):
         """Save stats to Redis"""

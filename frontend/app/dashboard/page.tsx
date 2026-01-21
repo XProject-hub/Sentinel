@@ -375,7 +375,7 @@ export default function DashboardPage() {
 
     setClosingPositions(prev => new Set(prev).add(symbol))
     try {
-      const response = await fetch(`/ai/exchange/close-position/${symbol}`, {
+      const response = await fetch(`/ai/exchange/close-position/${symbol}?user_id=${userId}`, {
         method: 'POST'
       })
       if (response.ok) {
@@ -407,7 +407,7 @@ export default function DashboardPage() {
 
     setIsSellingAll(true)
     try {
-      const response = await fetch('/ai/exchange/close-all-positions', {
+      const response = await fetch(`/ai/exchange/close-all-positions?user_id=${userId}`, {
         method: 'POST'
       })
       if (response.ok) {
