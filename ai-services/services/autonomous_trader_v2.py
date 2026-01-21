@@ -864,7 +864,7 @@ class AutonomousTraderV2:
                 self.stats['total_pnl'] += pnl_value
                 
                 # Log to console
-                await self._log_to_console(f"💰 PARTIAL: {position.symbol} +{pnl_percent:.2f}% (took {close_percent}%)", "TRADE")
+                await self._log_to_console(f"PARTIAL: {position.symbol} +{pnl_percent:.2f}% (took {close_percent}%)", "TRADE")
                 
                 return True
             else:
@@ -1002,7 +1002,7 @@ class AutonomousTraderV2:
             
             # Log if we found breakouts
             if breakouts:
-                await self._log_to_console(f"🚀 {len(breakouts)} BREAKOUTS! Best: {breakouts[0].symbol} {breakouts[0].price_change_24h:+.1f}%", "SIGNAL")
+                await self._log_to_console(f"{len(breakouts)} BREAKOUTS detected! Best: {breakouts[0].symbol} {breakouts[0].price_change_24h:+.1f}%", "SIGNAL")
             
         except Exception as e:
             logger.error(f"Breakout detection error: {e}")
@@ -1028,7 +1028,7 @@ class AutonomousTraderV2:
                 # Check if max positions reached
                 if self.max_open_positions > 0 and num_positions >= self.max_open_positions:
                     logger.info(f"⚠️ BREAKOUT {opp.symbol} skipped - max positions ({self.max_open_positions}) reached")
-                    await self._log_to_console(f"⚠️ {opp.symbol} {opp.price_change_24h:+.1f}% skipped - max positions", "WARNING")
+                    await self._log_to_console(f"{opp.symbol} {opp.price_change_24h:+.1f}% skipped - max positions", "WARNING")
                     break
                 
                 # Check if already in this position
@@ -1038,13 +1038,13 @@ class AutonomousTraderV2:
                 
                 # Breakouts skip most validation - they're already high-conviction
                 logger.info(f"🚀 BREAKOUT TRADE: {opp.symbol} | {opp.price_change_24h:+.1f}%")
-                await self._log_to_console(f"🚀 EXECUTING BREAKOUT: {opp.symbol} {opp.price_change_24h:+.1f}%", "TRADE")
+                await self._log_to_console(f"EXECUTING BREAKOUT: {opp.symbol} {opp.price_change_24h:+.1f}%", "TRADE")
                 try:
                     await self._execute_trade(user_id, client, opp, wallet)
                     logger.info(f"✅ BREAKOUT TRADE SUBMITTED: {opp.symbol}")
                 except Exception as e:
                     logger.error(f"❌ BREAKOUT TRADE FAILED: {opp.symbol} - {e}")
-                    await self._log_to_console(f"❌ FAILED: {opp.symbol} - {str(e)[:50]}", "ERROR")
+                    await self._log_to_console(f"FAILED: {opp.symbol} - {str(e)[:50]}", "ERROR")
             
             # === NORMAL OPPORTUNITY SCAN ===
             # Get opportunities from scanner
@@ -1066,11 +1066,11 @@ class AutonomousTraderV2:
                 if should_log_scan:
                     top_opps = opportunities[:3]
                     opp_str = ", ".join([f"{o.symbol}({o.edge_score:.2f})" for o in top_opps])
-                    await self._log_to_console(f"🔍 {len(opportunities)} opportunities | Best: {opp_str}", "SIGNAL")
+                    await self._log_to_console(f"{len(opportunities)} opportunities | Best: {opp_str}", "SIGNAL")
             else:
                 logger.debug("🔍 No opportunities found in this scan")
                 if should_log_scan:
-                    await self._log_to_console("🔍 Scanning... waiting for signals", "INFO")
+                    await self._log_to_console("Scanning... waiting for signals", "INFO")
             
             for opp in opportunities:
                 # Skip if we have max positions (0 = unlimited)
@@ -1685,9 +1685,10 @@ class AutonomousTraderV2:
             
             if is_breakout or not pos_size:
                 # Calculate position value based on settings
-                total_equity = float(wallet.get('totalEquity', 0))
+                # Support both snake_case (internal) and camelCase (API) keys
+                total_equity = float(wallet.get('total_equity', wallet.get('totalEquity', 0)))
                 if total_equity < 10:
-                    logger.warning(f"Insufficient equity for {opp.symbol}: ${total_equity}")
+                    logger.warning(f"Insufficient equity for {opp.symbol}: ${total_equity:.2f}")
                     return
                 
                 # Use max_position_percent from settings (default 5%)
@@ -1784,7 +1785,7 @@ class AutonomousTraderV2:
                 # Log to console for dashboard
                 leverage_display = f" | {leverage}x" if leverage > 1 else ""
                 await self._log_to_console(
-                    f"🚀 OPENED {opp.symbol} {side} | ${position_value:.0f}{leverage_display} | Edge: {opp.edge_score:.2f} | Conf: {opp.confidence:.0f}%",
+                    f"OPENED {opp.symbol} {side} | ${position_value:.0f}{leverage_display} | Edge: {opp.edge_score:.2f} | Conf: {opp.confidence:.0f}%",
                     "TRADE"
                 )
                 
@@ -1830,11 +1831,11 @@ class AutonomousTraderV2:
             else:
                 error_msg = result.get('error', result.get('message', str(result)))
                 logger.error(f"ORDER FAILED: {opp.symbol} - {error_msg}")
-                await self._log_to_console(f"❌ ORDER FAILED: {opp.symbol} - {error_msg[:50]}", "ERROR")
+                await self._log_to_console(f"ORDER FAILED: {opp.symbol} - {error_msg[:50]}", "ERROR")
                 
         except Exception as e:
             logger.error(f"Execute trade error for {opp.symbol}: {e}")
-            await self._log_to_console(f"❌ TRADE ERROR: {opp.symbol} - {str(e)[:50]}", "ERROR")
+            await self._log_to_console(f"TRADE ERROR: {opp.symbol} - {str(e)[:50]}", "ERROR")
             
     async def _get_ticker(self, client: BybitV5Client, symbol: str) -> Optional[Dict]:
         """Get current ticker for a symbol"""
@@ -1969,12 +1970,12 @@ class AutonomousTraderV2:
             # Take Profit only triggers if TP > 0 (enabled)
             if self.take_profit > 0 and pnl_percent >= self.take_profit:
                 logger.info(f"✅ {position.symbol}: P&L={pnl_percent:+.2f}% >= TP={self.take_profit}% - SELLING!")
-                await self._log_to_console(f"✅ SOLD {position.symbol}: +{pnl_percent:.2f}% (Take Profit)", "TRADE")
+                await self._log_to_console(f"SOLD {position.symbol}: +{pnl_percent:.2f}% (Take Profit)", "TRADE")
                 should_exit = True
                 exit_reason = f"Take profit ({pnl_percent:.2f}%)"
             elif pnl_percent <= -self.emergency_stop_loss:
                 logger.info(f"❌ {position.symbol}: P&L={pnl_percent:+.2f}% <= SL=-{self.emergency_stop_loss}% - SELLING!")
-                await self._log_to_console(f"❌ SOLD {position.symbol}: {pnl_percent:.2f}% (Stop Loss)", "TRADE")
+                await self._log_to_console(f"SOLD {position.symbol}: {pnl_percent:.2f}% (Stop Loss)", "TRADE")
                 should_exit = True
                 exit_reason = f"Stop loss ({pnl_percent:.2f}%)"
             elif self.take_profit > 0 and pnl_percent >= self.take_profit * 0.8:
