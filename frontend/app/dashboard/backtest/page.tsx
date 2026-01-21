@@ -92,12 +92,24 @@ export default function BacktestPage() {
   const [strategies, setStrategies] = useState<Strategy[]>(initialStrategies)
   const [symbols, setSymbols] = useState<{symbol: string, name: string}[]>(initialSymbols)
   
-  // Form state
+  // Form state - default to last 30 days
+  const getDefaultDates = () => {
+    const end = new Date()
+    const start = new Date()
+    start.setDate(start.getDate() - 30)
+    return {
+      start_date: start.toISOString().split('T')[0], // YYYY-MM-DD
+      end_date: end.toISOString().split('T')[0]
+    }
+  }
+  
+  const defaultDates = getDefaultDates()
+  
   const [config, setConfig] = useState({
     symbol: 'BTCUSDT',
     strategy: 'trend_following',
-    start_date: '',
-    end_date: '',
+    start_date: defaultDates.start_date,
+    end_date: defaultDates.end_date,
     initial_capital: 1000,
     take_profit_percent: 2.0,
     stop_loss_percent: 1.0,

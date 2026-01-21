@@ -56,10 +56,10 @@ export default function Footer() {
           <span className="font-semibold text-sentinel-text-secondary">SENTINEL AI</span>
           <span className="hidden sm:inline text-sentinel-text-muted">Autonomous Trading Intelligence</span>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1">
           <span className="text-sentinel-text-secondary">Version:</span>
           <span className="font-mono text-sentinel-accent-cyan">
-            {versionInfo.build_date}{versionInfo.git_commit ? ` - ${versionInfo.git_commit}` : ''}
+            {versionInfo.build_date}{versionInfo.git_commit ? `-${versionInfo.git_commit}` : ''}
           </span>
         </div>
       </div>

@@ -445,16 +445,21 @@ class Backtester:
         """
         logger.info(f"Starting backtest for {config.symbol} with strategy: {config.strategy}")
         
-        # Parse dates
-        if config.start_date:
+        # Parse dates - default to 30 days of historical data
+        # Empty string or None means use defaults
+        if config.start_date and config.start_date.strip():
             start_date = datetime.strptime(config.start_date, "%Y-%m-%d")
         else:
+            # Default: 30 days ago
             start_date = datetime.utcnow() - timedelta(days=30)
         
-        if config.end_date:
+        if config.end_date and config.end_date.strip():
             end_date = datetime.strptime(config.end_date, "%Y-%m-%d")
         else:
+            # Default: now
             end_date = datetime.utcnow()
+        
+        logger.info(f"📊 Backtest date range: {start_date} to {end_date} (config: start='{config.start_date}', end='{config.end_date}')")
         
         # Fetch historical data
         candles = await self.fetch_historical_data(
