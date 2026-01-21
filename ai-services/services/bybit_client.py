@@ -257,6 +257,132 @@ class BybitV5Client:
         }
         return await self._request("GET", "/v5/market/open-interest", params)
     
+    async def get_long_short_ratio(self, symbol: str, category: str = "linear", period: str = "1h") -> Dict:
+        """
+        Get Long/Short Ratio - CRITICAL for sentiment analysis!
+        
+        Period: 5min, 15min, 30min, 1h, 4h, 1d
+        
+        Returns ratio of long vs short positions - tells us market sentiment:
+        - Ratio > 1: More longs than shorts (bullish sentiment)
+        - Ratio < 1: More shorts than longs (bearish sentiment)
+        - Extreme ratios (>2 or <0.5) often signal reversal
+        
+        https://bybit-exchange.github.io/docs/v5/market/long-short-ratio
+        """
+        params = {
+            "category": category,
+            "symbol": symbol,
+            "period": period,
+            "limit": 1
+        }
+        return await self._request("GET", "/v5/market/account-ratio", params)
+    
+    async def get_fee_rate(self, symbol: str = None, category: str = "linear") -> Dict:
+        """
+        Get Trading Fee Rate - for calculating REAL profit after fees
+        
+        https://bybit-exchange.github.io/docs/v5/account/fee-rate
+        
+        Returns:
+        - takerFeeRate: Fee when taking liquidity (market orders)
+        - makerFeeRate: Fee when providing liquidity (limit orders)
+        
+        Example: takerFeeRate: 0.0006 = 0.06%
+        On $1000 trade = $0.60 fee per side ($1.20 round trip)
+        """
+        params = {"category": category}
+        if symbol:
+            params["symbol"] = symbol
+        return await self._request("GET", "/v5/account/fee-rate", params, auth=True)
+    
+    async def get_historical_volatility(self, category: str = "option", base_coin: str = "BTC", period: int = 7) -> Dict:
+        """
+        Get Historical Volatility
+        
+        https://bybit-exchange.github.io/docs/v5/market/historical-volatility
+        """
+        params = {
+            "category": category,
+            "baseCoin": base_coin,
+            "period": period
+        }
+        return await self._request("GET", "/v5/market/historical-volatility", params)
+    
+    async def get_recent_trades(self, symbol: str, category: str = "linear", limit: int = 60) -> Dict:
+        """
+        Get Recent Trades - useful for momentum detection
+        
+        Shows actual executed trades, not just orderbook
+        
+        https://bybit-exchange.github.io/docs/v5/market/recent-trade
+        """
+        params = {
+            "category": category,
+            "symbol": symbol,
+            "limit": limit
+        }
+        return await self._request("GET", "/v5/market/recent-trade", params)
+    
+    async def get_risk_limit(self, symbol: str, category: str = "linear") -> Dict:
+        """
+        Get Risk Limit info for a symbol
+        
+        https://bybit-exchange.github.io/docs/v5/market/risk-limit
+        """
+        params = {
+            "category": category,
+            "symbol": symbol
+        }
+        return await self._request("GET", "/v5/market/risk-limit", params)
+    
+    async def get_insurance_fund(self, coin: str = "USDT") -> Dict:
+        """
+        Get Insurance Fund data
+        
+        https://bybit-exchange.github.io/docs/v5/market/insurance
+        """
+        params = {"coin": coin}
+        return await self._request("GET", "/v5/market/insurance", params)
+    
+    async def get_delivery_price(self, category: str = "linear", symbol: str = None) -> Dict:
+        """
+        Get Delivery Price
+        
+        https://bybit-exchange.github.io/docs/v5/market/delivery-price
+        """
+        params = {"category": category}
+        if symbol:
+            params["symbol"] = symbol
+        return await self._request("GET", "/v5/market/delivery-price", params)
+    
+    async def get_execution_list(self, category: str = "linear", symbol: str = None, limit: int = 100) -> Dict:
+        """
+        Get Trade Execution List - your actual filled trades
+        
+        https://bybit-exchange.github.io/docs/v5/order/execution
+        """
+        params = {
+            "category": category,
+            "limit": limit
+        }
+        if symbol:
+            params["symbol"] = symbol
+        return await self._request("GET", "/v5/execution/list", params, auth=True)
+    
+    async def get_transaction_log(self, category: str = "linear", limit: int = 50) -> Dict:
+        """
+        Get Transaction Log - all wallet movements (trading, funding, etc.)
+        
+        https://bybit-exchange.github.io/docs/v5/account/transaction-log
+        """
+        params = {
+            "accountType": "UNIFIED",
+            "category": category,
+            "limit": limit
+        }
+        return await self._request("GET", "/v5/account/transaction-log", params, auth=True)
+    
     async def get_all_symbols(self, category: str = "linear") -> List[str]:
         """
         Get ALL available trading symbols from Bybit

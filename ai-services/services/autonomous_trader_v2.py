@@ -1064,6 +1064,83 @@ class AutonomousTraderV2:
         except Exception as e:
             logger.error(f"Find opportunities error: {e}")
     
+    async def _check_long_short_ratio(self, symbol: str, direction: str, client: BybitV5Client) -> Tuple[bool, float, str]:
+        """
+        LONG/SHORT RATIO ANALYSIS - CRITICAL for sentiment!
+        
+        Bybit API: /v5/market/account-ratio
+        
+        Ratio interpretation:
+        - Ratio > 1.5: Too many longs = potential reversal DOWN
+        - Ratio 1.0-1.5: Healthy long bias = bullish
+        - Ratio 0.7-1.0: Healthy short bias = bearish
+        - Ratio < 0.7: Too many shorts = potential reversal UP
+        
+        Returns: (supports_trade, ratio, reasoning)
+        """
+        try:
+            ls_data = await client.get_long_short_ratio(symbol, period="1h")
+            
+            if ls_data.get('retCode') != 0:
+                return True, 1.0, "L/S ratio unavailable"
+            
+            ls_list = ls_data.get('result', {}).get('list', [])
+            if not ls_list:
+                return True, 1.0, "No L/S data"
+            
+            # buyRatio is the long percentage
+            buy_ratio = float(ls_list[0].get('buyRatio', 0.5))
+            sell_ratio = float(ls_list[0].get('sellRatio', 0.5))
+            
+            # Calculate actual ratio
+            ls_ratio = buy_ratio / sell_ratio if sell_ratio > 0 else 1.0
+            
+            reasoning = ""
+            supports = True
+            
+            if ls_ratio > 2.0:
+                # Way too many longs - expect crash
+                if direction == 'long':
+                    supports = False
+                    reasoning = f"DANGER: L/S ratio {ls_ratio:.2f} - too many longs, expect dump"
+                else:
+                    reasoning = f"GOOD: L/S ratio {ls_ratio:.2f} - crowded long, good for short"
+                    
+            elif ls_ratio > 1.5:
+                # Many longs - be cautious
+                if direction == 'long':
+                    reasoning = f"CAUTION: L/S ratio {ls_ratio:.2f} - many longs, late entry"
+                else:
+                    reasoning = f"OK: L/S ratio {ls_ratio:.2f} - short against crowd"
+                    
+            elif ls_ratio < 0.5:
+                # Way too many shorts - expect squeeze
+                if direction == 'short':
+                    supports = False
+                    reasoning = f"DANGER: L/S ratio {ls_ratio:.2f} - too many shorts, expect squeeze"
+                else:
+                    reasoning = f"GOOD: L/S ratio {ls_ratio:.2f} - crowded short, good for long"
+                    
+            elif ls_ratio < 0.7:
+                # Many shorts - be cautious for shorts
+                if direction == 'short':
+                    reasoning = f"CAUTION: L/S ratio {ls_ratio:.2f} - many shorts, late entry"
+                else:
+                    reasoning = f"OK: L/S ratio {ls_ratio:.2f} - long against crowd"
+            else:
+                # Balanced - neutral
+                reasoning = f"NEUTRAL: L/S ratio {ls_ratio:.2f} - balanced market"
+            
+            # Cache for dashboard display
+            await self.redis_client.hset(f"ls_ratio:{symbol}", "ratio", str(ls_ratio))
+            await self.redis_client.hset(f"ls_ratio:{symbol}", "timestamp", datetime.utcnow().isoformat())
+            
+            return supports, ls_ratio, reasoning
+            
+        except Exception as e:
+            logger.debug(f"L/S ratio check error for {symbol}: {e}")
+            return True, 1.0, "L/S check failed"
+    
     async def _check_funding_rate(self, symbol: str, direction: str, client: BybitV5Client) -> Tuple[bool, float, str]:
         """
         FUNDING RATE ANALYSIS
@@ -1386,6 +1463,23 @@ class AutonomousTraderV2:
             # Store funding rate for position tracking
             opp.funding_rate = funding_rate
             opp.funding_reason = funding_reason
+        
+        # 3.55 LONG/SHORT RATIO - Critical sentiment indicator!
+        if client:
+            try:
+                ls_supports, ls_ratio, ls_reason = await self._check_long_short_ratio(opp.symbol, opp.direction, client)
+                
+                # Block if extreme L/S ratio against us
+                if not ls_supports:
+                    self.stats['trades_rejected_regime'] += 1
+                    return False, f"L/S ratio unfavorable: {ls_reason}"
+                
+                # Log if notable
+                if "GOOD" in ls_reason or "CAUTION" in ls_reason:
+                    logger.debug(f"📊 L/S ratio for {opp.symbol}: {ls_reason}")
+                    
+            except Exception as e:
+                logger.debug(f"L/S ratio check skipped: {e}")
         
         # 3.6 WHALE TRACKING - Check if whale activity supports the trade
         try:

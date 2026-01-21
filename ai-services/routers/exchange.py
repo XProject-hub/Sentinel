@@ -736,6 +736,127 @@ async def get_ai_intelligence():
     return intelligence
 
 
+@router.get("/market-data/{symbol}")
+async def get_market_data(symbol: str):
+    """
+    Get comprehensive market data for a symbol including:
+    - Long/Short Ratio
+    - Open Interest
+    - Fee Rates
+    - Recent Trades summary
+    
+    This is the FULL picture for decision making!
+    """
+    if "default" not in exchange_connections:
+        return {"error": "No exchange connected"}
+    
+    client = exchange_connections["default"]
+    data = {
+        "symbol": symbol,
+        "long_short_ratio": None,
+        "open_interest": None,
+        "fee_rate": None,
+        "funding_rate": None,
+        "recent_trade_bias": None
+    }
+    
+    try:
+        # Long/Short Ratio
+        ls_result = await client.get_long_short_ratio(symbol)
+        if ls_result.get('retCode') == 0:
+            ls_list = ls_result.get('result', {}).get('list', [])
+            if ls_list:
+                buy_ratio = float(ls_list[0].get('buyRatio', 0.5))
+                sell_ratio = float(ls_list[0].get('sellRatio', 0.5))
+                data['long_short_ratio'] = {
+                    'buy_ratio': round(buy_ratio * 100, 1),
+                    'sell_ratio': round(sell_ratio * 100, 1),
+                    'ratio': round(buy_ratio / sell_ratio, 2) if sell_ratio > 0 else 1.0,
+                    'sentiment': 'bullish' if buy_ratio > sell_ratio else 'bearish'
+                }
+        
+        # Open Interest
+        oi_result = await client.get_open_interest(symbol)
+        if oi_result.get('retCode') == 0:
+            oi_list = oi_result.get('result', {}).get('list', [])
+            if oi_list:
+                oi_value = float(oi_list[0].get('openInterest', 0))
+                data['open_interest'] = {
+                    'value': oi_value,
+                    'value_formatted': f"${oi_value/1000000:.1f}M" if oi_value > 1000000 else f"${oi_value/1000:.0f}K"
+                }
+        
+        # Fee Rate
+        fee_result = await client.get_fee_rate(symbol)
+        if fee_result.get('retCode') == 0:
+            fee_list = fee_result.get('result', {}).get('list', [])
+            if fee_list:
+                taker = float(fee_list[0].get('takerFeeRate', 0.0006))
+                maker = float(fee_list[0].get('makerFeeRate', 0.0001))
+                data['fee_rate'] = {
+                    'taker': round(taker * 100, 4),  # As percentage
+                    'maker': round(maker * 100, 4),
+                    'taker_display': f"{taker * 100:.3f}%",
+                    'maker_display': f"{maker * 100:.3f}%"
+                }
+        
+        # Funding Rate
+        funding_result = await client.get_funding_rate(symbol)
+        if funding_result.get('retCode') == 0:
+            funding_list = funding_result.get('result', {}).get('list', [])
+            if funding_list:
+                rate = float(funding_list[0].get('fundingRate', 0))
+                data['funding_rate'] = {
+                    'rate': round(rate * 100, 4),
+                    'display': f"{rate * 100:+.4f}%",
+                    'direction': 'longs pay shorts' if rate > 0 else 'shorts pay longs'
+                }
+        
+        # Recent Trades Analysis (buy vs sell volume)
+        trades_result = await client.get_recent_trades(symbol, limit=60)
+        if trades_result.get('retCode') == 0:
+            trades = trades_result.get('result', {}).get('list', [])
+            buy_volume = sum(float(t.get('size', 0)) for t in trades if t.get('side') == 'Buy')
+            sell_volume = sum(float(t.get('size', 0)) for t in trades if t.get('side') == 'Sell')
+            total = buy_volume + sell_volume
+            if total > 0:
+                data['recent_trade_bias'] = {
+                    'buy_percent': round(buy_volume / total * 100, 1),
+                    'sell_percent': round(sell_volume / total * 100, 1),
+                    'bias': 'buying' if buy_volume > sell_volume else 'selling'
+                }
+    
+    except Exception as e:
+        logger.error(f"Error getting market data for {symbol}: {e}")
+    
+    return data
+
+
+@router.get("/fee-rates")
+async def get_fee_rates():
+    """Get your trading fee rates"""
+    if "default" not in exchange_connections:
+        return {"error": "No exchange connected"}
+    
+    client = exchange_connections["default"]
+    
+    try:
+        result = await client.get_fee_rate(category="linear")
+        if result.get('retCode') == 0:
+            fees = result.get('result', {}).get('list', [])
+            # Get default fee (usually first entry or BTCUSDT)
+            if fees:
+                return {
+                    "taker_fee": f"{float(fees[0].get('takerFeeRate', 0)) * 100:.3f}%",
+                    "maker_fee": f"{float(fees[0].get('makerFeeRate', 0)) * 100:.3f}%",
+                    "raw": fees[:5]  # First 5 for reference
+                }
+    except Exception as e:
+        logger.error(f"Error getting fee rates: {e}")
+    
+    return {"taker_fee": "0.060%", "maker_fee": "0.010%", "error": "Could not fetch real rates"}
+
+
 @router.get("/positions")
 async def get_positions():
     """Get real open positions from connected exchange"""
