@@ -492,10 +492,10 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* Main Grid */}
-        <div className="grid lg:grid-cols-3 gap-6">
+        {/* Main Grid - 70/30 split */}
+        <div className="grid lg:grid-cols-4 gap-4">
           {/* Positions Panel */}
-          <div className="lg:col-span-2 bg-white/[0.02] rounded-2xl border border-white/5 overflow-hidden">
+          <div className="lg:col-span-3 bg-white/[0.02] rounded-2xl border border-white/5 overflow-hidden">
             <div className="p-5 border-b border-white/5 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Activity className="w-5 h-5 text-cyan-400" />
@@ -530,8 +530,31 @@ export default function DashboardPage() {
                   </thead>
                   <tbody>
                     {positions.map((pos, i) => {
-                      const pnl = parseFloat(pos.unrealisedPnl || '0')
-                      const pnlPercent = (pnl / parseFloat(pos.positionValue || '1')) * 100
+                      const entryPrice = parseFloat(pos.entryPrice || '0')
+                      const markPrice = parseFloat(pos.markPrice || '0')
+                      const size = parseFloat(pos.size || '0')
+                      const leverage = parseFloat(pos.leverage || '1')
+                      
+                      // Calculate P&L based on side
+                      let pnlPercent = 0
+                      let pnl = 0
+                      if (entryPrice > 0 && markPrice > 0) {
+                        if (pos.side === 'Buy') {
+                          pnlPercent = ((markPrice - entryPrice) / entryPrice) * 100 * leverage
+                        } else {
+                          pnlPercent = ((entryPrice - markPrice) / entryPrice) * 100 * leverage
+                        }
+                        pnl = (pnlPercent / 100) * parseFloat(pos.positionValue || '0')
+                      }
+                      
+                      // If API provides unrealisedPnl, use it
+                      if (pos.unrealisedPnl && parseFloat(pos.unrealisedPnl) !== 0) {
+                        pnl = parseFloat(pos.unrealisedPnl)
+                        if (parseFloat(pos.positionValue || '0') > 0) {
+                          pnlPercent = (pnl / parseFloat(pos.positionValue)) * 100
+                        }
+                      }
+                      
                       return (
                         <tr key={i} className="border-b border-white/5 hover:bg-white/[0.02]">
                           <td className="px-5 py-4">
@@ -574,29 +597,29 @@ export default function DashboardPage() {
             )}
           </div>
 
-          {/* Right Sidebar */}
-          <div className="space-y-6">
-            {/* Console */}
-            <div className="bg-white/[0.02] rounded-2xl border border-white/5 overflow-hidden">
-              <div className="p-4 border-b border-white/5 flex items-center gap-2">
-                <div className={`w-2 h-2 rounded-full ${isTrading ? 'bg-emerald-400 animate-pulse' : 'bg-gray-500'}`} />
-                <h2 className="font-semibold text-white text-sm">AI Console</h2>
+          {/* Right Sidebar - Compact */}
+          <div className="space-y-3">
+            {/* Console - Compact */}
+            <div className="bg-white/[0.02] rounded-xl border border-white/5 overflow-hidden">
+              <div className="px-3 py-2 border-b border-white/5 flex items-center gap-2">
+                <div className={`w-1.5 h-1.5 rounded-full ${isTrading ? 'bg-emerald-400 animate-pulse' : 'bg-gray-500'}`} />
+                <h2 className="font-medium text-white text-xs">AI Console</h2>
               </div>
               
-              <div ref={consoleRef} className="h-64 overflow-y-auto p-4 font-mono text-xs space-y-2">
+              <div ref={consoleRef} className="h-32 overflow-y-auto p-2 font-mono text-[10px] space-y-1">
                 {consoleLogs.length === 0 ? (
-                  <div className="text-gray-600">Waiting for activity...</div>
+                  <div className="text-gray-600">Waiting...</div>
                 ) : (
-                  consoleLogs.map((log, i) => (
-                    <div key={i} className="flex gap-2">
-                      <span className="text-gray-600">{new Date(log.time).toLocaleTimeString()}</span>
-                      <span className={
+                  consoleLogs.slice(0, 10).map((log, i) => (
+                    <div key={i} className="flex gap-1.5 leading-tight">
+                      <span className="text-gray-600 flex-shrink-0">{new Date(log.time).toLocaleTimeString()}</span>
+                      <span className={`truncate ${
                         log.level === 'TRADE' ? 'text-emerald-400' :
                         log.level === 'SIGNAL' ? 'text-cyan-400' :
                         log.level === 'WARNING' ? 'text-amber-400' :
                         log.level === 'ERROR' ? 'text-red-400' :
                         'text-gray-400'
-                      }>
+                      }`}>
                         {log.message}
                       </span>
                     </div>
@@ -605,67 +628,61 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            {/* Whale Alerts */}
-            <div className="bg-white/[0.02] rounded-2xl border border-white/5 overflow-hidden">
-              <div className="p-4 border-b border-white/5 flex items-center gap-2">
-                <Waves className="w-4 h-4 text-cyan-400" />
-                <h2 className="font-semibold text-white text-sm">Whale Activity</h2>
+            {/* Whale Alerts - Compact */}
+            <div className="bg-white/[0.02] rounded-xl border border-white/5 overflow-hidden">
+              <div className="px-3 py-2 border-b border-white/5 flex items-center gap-2">
+                <Waves className="w-3 h-3 text-cyan-400" />
+                <h2 className="font-medium text-white text-xs">Whales</h2>
               </div>
               
-              <div className="divide-y divide-white/5">
+              <div className="max-h-28 overflow-y-auto divide-y divide-white/5">
                 {whaleAlerts.length === 0 ? (
-                  <div className="p-4 text-gray-600 text-sm">No whale activity detected</div>
+                  <div className="p-2 text-gray-600 text-[10px]">No activity</div>
                 ) : (
-                  whaleAlerts.map((alert, i) => (
-                    <div key={i} className="p-3 hover:bg-white/[0.02]">
-                      <div className="flex items-center justify-between mb-1">
-                        <div className="flex items-center gap-2">
-                          <span className="text-white text-sm font-medium">{alert.symbol}</span>
-                          <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+                  whaleAlerts.slice(0, 4).map((alert, i) => (
+                    <div key={i} className="px-2 py-1.5 hover:bg-white/[0.02]">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-white text-[11px] font-medium">{alert.symbol.replace('USDT', '')}</span>
+                          <span className={`text-[9px] px-1 py-0.5 rounded ${
                             alert.type === 'buy_wall' ? 'bg-emerald-500/20 text-emerald-400' :
                             'bg-red-500/20 text-red-400'
                           }`}>
-                            {alert.type.replace('_', ' ').toUpperCase()}
+                            {alert.type === 'buy_wall' ? 'BUY' : 'SELL'}
                           </span>
                         </div>
-                        <span className="text-[10px] text-gray-600">
+                        <span className="text-[9px] text-gray-600">
                           {new Date(alert.timestamp).toLocaleTimeString()}
                         </span>
                       </div>
-                      <p className="text-xs text-gray-500 leading-relaxed">{alert.description}</p>
                     </div>
                   ))
                 )}
               </div>
             </div>
 
-            {/* Market News */}
-            <div className="bg-white/[0.02] rounded-2xl border border-white/5 overflow-hidden">
-              <div className="p-4 border-b border-white/5 flex items-center gap-2">
-                <Activity className="w-4 h-4 text-cyan-400" />
-                <h2 className="font-semibold text-white text-sm">Market Sentiment</h2>
+            {/* Market News - Compact */}
+            <div className="bg-white/[0.02] rounded-xl border border-white/5 overflow-hidden">
+              <div className="px-3 py-2 border-b border-white/5 flex items-center gap-2">
+                <Activity className="w-3 h-3 text-cyan-400" />
+                <h2 className="font-medium text-white text-xs">Market News</h2>
               </div>
               
-              <div className="divide-y divide-white/5">
+              <div className="max-h-36 overflow-y-auto divide-y divide-white/5">
                 {news.length === 0 ? (
-                  <div className="p-4 text-gray-600 text-sm">Loading market data...</div>
+                  <div className="p-2 text-gray-600 text-[10px]">Loading...</div>
                 ) : (
-                  news.map((item, i) => (
-                    <div key={i} className="p-3 hover:bg-white/[0.02]">
-                      <div className="flex items-start justify-between gap-2">
-                        <p className="text-sm text-gray-300 leading-snug flex-1">{item.title}</p>
-                        <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium flex-shrink-0 ${
+                  news.slice(0, 6).map((item, i) => (
+                    <div key={i} className="px-2 py-1.5 hover:bg-white/[0.02]">
+                      <div className="flex items-start gap-1.5">
+                        <span className={`text-[9px] px-1 py-0.5 rounded flex-shrink-0 mt-0.5 ${
                           item.sentiment === 'bullish' ? 'bg-emerald-500/20 text-emerald-400' :
                           item.sentiment === 'bearish' ? 'bg-red-500/20 text-red-400' :
                           'bg-gray-500/20 text-gray-400'
                         }`}>
-                          {item.sentiment.toUpperCase()}
+                          {item.sentiment === 'bullish' ? '↑' : item.sentiment === 'bearish' ? '↓' : '•'}
                         </span>
-                      </div>
-                      <div className="flex items-center gap-2 mt-1.5">
-                        <span className="text-[10px] text-gray-600">{item.source}</span>
-                        <span className="text-[10px] text-gray-700">•</span>
-                        <span className="text-[10px] text-gray-600">{item.time}</span>
+                        <p className="text-[10px] text-gray-300 leading-tight line-clamp-2">{item.title}</p>
                       </div>
                     </div>
                   ))

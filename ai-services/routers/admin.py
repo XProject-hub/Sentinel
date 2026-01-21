@@ -274,39 +274,62 @@ async def get_users():
                     data = response.json()
                     backend_users = data.get('users', [])
                     
+                    # Get global trader stats (for admin who runs as default)
+                    global_stats = {}
+                    global_stats_raw = await r.get('trader:stats')
+                    if global_stats_raw:
+                        try:
+                            global_stats = json.loads(global_stats_raw)
+                        except:
+                            pass
+                    
+                    global_completed = await r.llen('trades:completed:default')
+                    
                     for user in backend_users:
                         user_id = str(user['id'])
+                        is_admin = user['email'] == 'admin@sentinel.ai'
                         
                         # Get trading stats from Redis
                         stats = {}
-                        user_stats = await r.get(f'trader:stats:{user_id}')
-                        if user_stats:
-                            try:
-                                stats = json.loads(user_stats)
-                            except:
-                                pass
+                        if is_admin:
+                            # Admin uses global stats
+                            stats = global_stats
+                            completed_count = global_completed
+                        else:
+                            user_stats = await r.get(f'trader:stats:{user_id}')
+                            if user_stats:
+                                try:
+                                    stats = json.loads(user_stats)
+                                except:
+                                    pass
+                            completed_count = await r.llen(f'trades:completed:{user_id}')
                         
-                        # Get completed trades count
-                        completed_count = await r.llen(f'trades:completed:{user_id}')
                         total_trades = stats.get('total_trades', completed_count) or completed_count
+                        winning_trades = stats.get('winning_trades', 0)
                         
                         # Check if trading is paused
                         is_paused = await r.exists(f'trading:paused:{user_id}')
+                        
+                        # Check if exchange connected (for admin, check default credentials)
+                        exchange_connected = user.get('exchange_connected', False)
+                        if is_admin:
+                            has_creds = await r.exists('exchange:credentials:default')
+                            exchange_connected = bool(has_creds)
                         
                         users.append({
                             'id': user_id,
                             'email': user['email'],
                             'name': user['name'] or user['email'].split('@')[0],
-                            'exchange': user.get('exchange') or 'Bybit' if user.get('exchange_connected') else None,
-                            'exchangeConnected': user.get('exchange_connected', False),
-                            'isActive': user.get('exchange_connected', False) and not is_paused,
+                            'exchange': 'Bybit' if exchange_connected else None,
+                            'exchangeConnected': exchange_connected,
+                            'isActive': exchange_connected and not is_paused,
                             'isPaused': bool(is_paused),
-                            'isAdmin': user['email'] == 'admin@sentinel.ai',
+                            'isAdmin': is_admin,
                             'createdAt': user['created_at'],
                             'totalTrades': int(total_trades) if total_trades else 0,
                             'totalPnl': float(stats.get('total_pnl', 0)),
-                            'winningTrades': int(stats.get('winning_trades', 0)),
-                            'winRate': round((stats.get('winning_trades', 0) / total_trades * 100), 1) if total_trades else 0,
+                            'winningTrades': int(winning_trades),
+                            'winRate': round((winning_trades / total_trades * 100), 1) if total_trades > 0 else 0,
                         })
                     
                     logger.info(f"Loaded {len(users)} users from Laravel backend")
@@ -378,131 +401,101 @@ async def get_users():
 
 @router.get("/ai-stats")
 async def get_ai_stats():
-    """Get AI learning statistics from Redis Q-Learning storage"""
+    """Get AI learning statistics from Redis - uses actual trader data"""
     try:
         r = await redis.from_url(settings.REDIS_URL)
         
-        # Get Q-values (strategy learning)
-        q_values_raw = await r.get('ai:learning:q_values')
-        q_values = json.loads(q_values_raw) if q_values_raw else {}
-        
-        # Get pattern memory
-        patterns_raw = await r.get('ai:learning:patterns')
-        patterns = json.loads(patterns_raw) if patterns_raw else {}
-        
-        # Get market states
-        market_states_raw = await r.get('ai:learning:market_states')
-        market_states = json.loads(market_states_raw) if market_states_raw else {}
-        
-        # Get sentiment patterns
-        sentiment_raw = await r.get('ai:learning:sentiment')
-        sentiment_patterns = json.loads(sentiment_raw) if sentiment_raw else {}
-        
-        # Get learning statistics
-        stats_raw = await r.hgetall('ai:learning:stats')
-        stats = {
-            k.decode() if isinstance(k, bytes) else k:
-            v.decode() if isinstance(v, bytes) else v
-            for k, v in stats_raw.items()
-        } if stats_raw else {}
-        
-        # Get trade statistics
-        trade_stats_raw = await r.hgetall('ai:trading:stats')
-        trade_stats = {
-            k.decode() if isinstance(k, bytes) else k:
-            v.decode() if isinstance(v, bytes) else v
-            for k, v in trade_stats_raw.items()
-        } if trade_stats_raw else {}
-        
-        # Calculate Q-state count
-        q_state_count = sum(
-            1 for regime_values in q_values.values() 
-            if isinstance(regime_values, dict)
-            for q in regime_values.values() 
-            if abs(q) > 0.1
-        )
-        
-        # Total models = active learning components
-        # We have 5 learning sources: Q-Learning, Patterns, Market States, Sentiment, Technical
-        active_models = 0
-        if q_state_count > 0:
-            active_models += 1  # Q-Learning Strategy Model
-        if len(patterns) > 0:
-            active_models += 1  # Pattern Recognition Model
-        if len(market_states) > 0:
-            active_models += 1  # Market State Model
-        if len(sentiment_patterns) > 0:
-            active_models += 1  # Sentiment Analysis Model
-        
-        # If learning is actively running, count the technical analysis model
-        learning_iterations = int(stats.get('learning_iterations', 0))
-        if learning_iterations > 0:
-            active_models += 1  # Technical Analysis Model
-        
-        # Total learned states
-        total_states = q_state_count + len(patterns) + len(market_states) + len(sentiment_patterns)
-        
-        # Calculate training progress
-        training_progress = min(100, round(total_states / 50 * 100, 1))
-        
-        # Get trader stats for data points
+        # Get REAL trader stats
         trader_stats_raw = await r.get('trader:stats')
         trader_stats = json.loads(trader_stats_raw) if trader_stats_raw else {}
         total_trades = int(trader_stats.get('total_trades', 0))
         winning_trades = int(trader_stats.get('winning_trades', 0))
         opportunities_scanned = int(trader_stats.get('opportunities_scanned', 0))
+        total_pnl = float(trader_stats.get('total_pnl', 0))
         
-        # Get edge calibration count
-        edge_count = await r.hlen('edge:calibration')
+        # Get sizer state (Kelly calibration)
+        sizer_raw = await r.get('sizer:state')
+        sizer_state = json.loads(sizer_raw) if sizer_raw else {}
         
-        # Get training data count
+        # Get completed trades for learning
+        completed_trades = await r.llen('trades:completed:default')
+        
+        # Get regime keys count
+        regime_keys = await r.keys('regime:*')
+        regime_count = len(regime_keys) if regime_keys else 0
+        
+        # Get learning engine stats
+        learning_raw = await r.get('learning:stats')
+        learning_stats = json.loads(learning_raw) if learning_raw else {}
+        
+        # Get Q-values count
+        q_values_raw = await r.get('learning:q_values')
+        q_values = json.loads(q_values_raw) if q_values_raw else {}
+        q_state_count = len(q_values) if isinstance(q_values, dict) else 0
+        
+        # Get edge calibration
+        try:
+            edge_count = await r.hlen('edge:calibration')
+        except:
+            edge_count = 0
+        
+        # Get training data
         training_count = await r.llen('training:trades')
         
         await r.close()
         
-        # Build models array for frontend
+        # Calculate win rate
+        win_rate = round((winning_trades / total_trades * 100), 1) if total_trades > 0 else 0
+        
+        # Build models array based on REAL data
         models = [
             {
-                "name": "Q-Learning Strategy",
-                "progress": min(100, q_state_count * 2),
-                "dataPoints": q_state_count,
-                "status": "expert" if q_state_count > 30 else "ready" if q_state_count > 10 else "learning",
-                "lastUpdate": "Active"
-            },
-            {
-                "name": "Pattern Recognition",
-                "progress": min(100, len(patterns) * 5),
-                "dataPoints": len(patterns),
-                "status": "expert" if len(patterns) > 15 else "ready" if len(patterns) > 5 else "learning",
-                "lastUpdate": "Active"
+                "name": "Trade History",
+                "progress": min(100, total_trades / 20 * 100),
+                "dataPoints": total_trades,
+                "status": "expert" if total_trades > 1000 else "ready" if total_trades > 100 else "learning",
+                "lastUpdate": "Real-time",
+                "description": f"Win rate: {win_rate}%"
             },
             {
                 "name": "Edge Estimation",
-                "progress": min(100, edge_count * 0.5),
+                "progress": min(100, edge_count / 2),
                 "dataPoints": edge_count,
                 "status": "expert" if edge_count > 100 else "ready" if edge_count > 30 else "learning",
-                "lastUpdate": "Active"
+                "lastUpdate": "Real-time",
+                "description": "Symbol calibration data"
             },
             {
-                "name": "Position Sizing (Kelly)",
-                "progress": min(100, total_trades * 0.5),
-                "dataPoints": total_trades,
-                "status": "expert" if total_trades > 100 else "ready" if total_trades > 30 else "learning",
-                "lastUpdate": "Active"
+                "name": "Position Sizing",
+                "progress": min(100, completed_trades / 10 * 100),
+                "dataPoints": completed_trades,
+                "status": "expert" if completed_trades > 500 else "ready" if completed_trades > 50 else "learning",
+                "lastUpdate": "Real-time",
+                "description": "Kelly criterion calibration"
             },
             {
                 "name": "Regime Detection",
-                "progress": min(100, len(market_states) * 3),
-                "dataPoints": len(market_states),
-                "status": "expert" if len(market_states) > 20 else "ready" if len(market_states) > 5 else "learning",
-                "lastUpdate": "Active"
+                "progress": min(100, regime_count / 5 * 100),
+                "dataPoints": regime_count,
+                "status": "expert" if regime_count > 300 else "ready" if regime_count > 50 else "learning",
+                "lastUpdate": "Real-time",
+                "description": "Market condition analysis"
             },
             {
-                "name": "Sentiment Analysis",
-                "progress": min(100, len(sentiment_patterns) * 5),
-                "dataPoints": len(sentiment_patterns),
-                "status": "expert" if len(sentiment_patterns) > 15 else "ready" if len(sentiment_patterns) > 5 else "learning",
-                "lastUpdate": "Active"
+                "name": "Q-Learning",
+                "progress": min(100, q_state_count * 10),
+                "dataPoints": q_state_count,
+                "status": "expert" if q_state_count > 50 else "ready" if q_state_count > 10 else "learning",
+                "lastUpdate": "Real-time",
+                "description": "Strategy optimization"
+            },
+            {
+                "name": "Opportunity Scanner",
+                "progress": min(100, opportunities_scanned / 10000 * 100),
+                "dataPoints": opportunities_scanned,
+                "status": "expert" if opportunities_scanned > 500000 else "ready" if opportunities_scanned > 50000 else "learning",
+                "lastUpdate": "Real-time",
+                "description": "Market scanning"
             }
         ]
         
@@ -512,10 +505,10 @@ async def get_ai_stats():
             "summary": {
                 "totalTrades": total_trades,
                 "winningTrades": winning_trades,
-                "winRate": round((winning_trades / total_trades * 100), 1) if total_trades > 0 else 0,
+                "winRate": win_rate,
                 "opportunitiesScanned": opportunities_scanned,
                 "trainingDataPoints": training_count,
-                "totalPnl": float(trader_stats.get('total_pnl', 0))
+                "totalPnl": total_pnl
             }
         }
     except Exception as e:
