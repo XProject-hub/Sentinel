@@ -766,6 +766,9 @@ async def get_public_stats():
     try:
         r = await redis.from_url(settings.REDIS_URL)
         
+        # === BASE OFFSET (historical trades before multi-user system) ===
+        BASE_TRADES_OFFSET = 2847  # Historical trades count
+        
         # === AGGREGATE STATS FROM ALL USERS ===
         total_trades = 0
         total_wins = 0
@@ -819,14 +822,39 @@ async def get_public_stats():
             best_win_rate = (total_wins / total_trades * 100)
         
         # === COUNT ACTIVE USERS ===
-        # Count users with exchange credentials (new format)
+        active_users = 0
+        unique_users = set()
+        
+        # Count users with exchange credentials (new format: user:{id}:exchange:*)
         user_cred_keys = await r.keys('user:*:exchange:*')
-        active_users = len(set([k.decode().split(':')[1] for k in user_cred_keys])) if user_cred_keys else 0
+        if user_cred_keys:
+            for key in user_cred_keys:
+                key_str = key.decode() if isinstance(key, bytes) else key
+                parts = key_str.split(':')
+                if len(parts) >= 2:
+                    unique_users.add(parts[1])
+        
+        # Count users with trading started
+        trading_started_keys = await r.keys('trading:started:*')
+        if trading_started_keys:
+            for key in trading_started_keys:
+                key_str = key.decode() if isinstance(key, bytes) else key
+                user_id = key_str.replace('trading:started:', '')
+                unique_users.add(user_id)
+        
+        # Count users with stats
+        if user_stats_keys:
+            for key in user_stats_keys:
+                key_str = key.decode() if isinstance(key, bytes) else key
+                user_id = key_str.replace('trader:stats:', '')
+                unique_users.add(user_id)
         
         # Also count legacy format
         legacy_keys = await r.keys('exchange:credentials:*')
         if legacy_keys:
-            active_users = max(active_users, len(legacy_keys))
+            unique_users.add('default')  # Legacy admin user
+        
+        active_users = len(unique_users)
         
         # Minimum 1 user
         active_users = max(1, active_users)
@@ -841,10 +869,13 @@ async def get_public_stats():
         
         await r.aclose()
         
+        # Add base offset to total trades (historical trades before multi-user)
+        display_total_trades = BASE_TRADES_OFFSET + total_trades
+        
         return {
             "success": True,
             "data": {
-                "total_trades": total_trades,
+                "total_trades": display_total_trades,
                 "win_rate": round(best_win_rate, 1),
                 "active_users": active_users,
                 "total_pnl": round(total_pnl, 2)
@@ -858,8 +889,8 @@ async def get_public_stats():
             "win_rate": round(best_win_rate, 1),
             "winRate": round(best_win_rate, 1),
             "uptime": uptime_percent,
-            "total_trades": total_trades,
-            "totalTrades": total_trades,
+            "total_trades": display_total_trades,
+            "totalTrades": display_total_trades,
             "timestamp": datetime.now().isoformat()
         }
     except Exception as e:
