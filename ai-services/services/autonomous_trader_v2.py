@@ -1673,11 +1673,49 @@ class AutonomousTraderV2:
         """Execute a trade"""
         try:
             edge_data = opp.edge_data
-            pos_size: PositionSize = getattr(edge_data, '_position_size', None)
+            pos_size: PositionSize = getattr(edge_data, '_position_size', None) if edge_data else None
             
-            if not pos_size or pos_size.position_value_usdt < 5:
-                logger.debug(f"Position too small for {opp.symbol}")
-                return
+            # === BREAKOUT TRADES: Calculate position size manually ===
+            is_breakout = "BREAKOUT" in str(opp.reasons)
+            
+            if is_breakout or not pos_size:
+                # Calculate position value based on settings
+                total_equity = float(wallet.get('totalEquity', 0))
+                if total_equity < 10:
+                    logger.warning(f"Insufficient equity for {opp.symbol}: ${total_equity}")
+                    return
+                
+                # Use max_position_percent from settings (default 5%)
+                max_pos_pct = getattr(self, 'max_position_percent', 5)
+                base_position_value = total_equity * (max_pos_pct / 100)
+                
+                # Apply size multiplier for extreme breakouts
+                size_multiplier = getattr(opp, 'size_multiplier', 1.0)
+                position_value = base_position_value * size_multiplier
+                
+                # Minimum $10 position
+                position_value = max(10, min(position_value, total_equity * 0.2))  # Max 20% per trade
+                
+                # Determine leverage based on settings
+                leverage_mode = getattr(self, 'leverage_mode', 'auto')
+                if leverage_mode == 'auto':
+                    # Auto: lower leverage for extreme moves
+                    if abs(opp.price_change_24h) > 50:
+                        leverage = 2
+                    elif abs(opp.price_change_24h) > 25:
+                        leverage = 3
+                    else:
+                        leverage = 5
+                else:
+                    leverage = int(leverage_mode.replace('x', ''))
+                
+                logger.info(f"📊 BREAKOUT sizing: ${position_value:.0f} | {leverage}x | Size mult: {size_multiplier:.0%}")
+            else:
+                if pos_size.position_value_usdt < 5:
+                    logger.debug(f"Position too small for {opp.symbol}")
+                    return
+                position_value = pos_size.position_value_usdt
+                leverage = pos_size.recommended_leverage
                 
             # Get symbol info for quantity precision
             symbol_info = self.market_scanner.get_symbol_info(opp.symbol)
@@ -1685,7 +1723,7 @@ class AutonomousTraderV2:
             qty_step = symbol_info.get('qty_step', 0.001)
             
             # Calculate quantity
-            qty_raw = pos_size.position_value_usdt / opp.current_price
+            qty_raw = position_value / opp.current_price
             
             # Round to step
             qty_raw = max(min_qty, round(qty_raw / qty_step) * qty_step)
@@ -1708,8 +1746,7 @@ class AutonomousTraderV2:
             # Determine side
             side = 'Buy' if opp.direction == 'long' else 'Sell'
             
-            # Get leverage from position sizer
-            leverage = pos_size.recommended_leverage
+            # Leverage already set above for breakouts or from pos_size
             
             # Set leverage on Bybit before placing order
             try:
@@ -1742,7 +1779,7 @@ class AutonomousTraderV2:
                 # Log to console for dashboard
                 leverage_display = f" | {leverage}x" if leverage > 1 else ""
                 await self._log_to_console(
-                    f"🚀 OPENED {opp.symbol} {side} | ${pos_size.position_value_usdt:.0f}{leverage_display} | Edge: {opp.edge_score:.2f} | Conf: {opp.confidence:.0f}%",
+                    f"🚀 OPENED {opp.symbol} {side} | ${position_value:.0f}{leverage_display} | Edge: {opp.edge_score:.2f} | Conf: {opp.confidence:.0f}%",
                     "TRADE"
                 )
                 
@@ -1774,13 +1811,13 @@ class AutonomousTraderV2:
                     stop_loss_price=stop_loss,
                     take_profit_price=take_profit,
                     trailing_active=False,
-                    position_value=pos_size.position_value_usdt,
-                    kelly_fraction=pos_size.kelly_fraction,
+                    position_value=position_value,
+                    kelly_fraction=pos_size.kelly_fraction if pos_size else 0.5,
                     leverage=leverage
                 )
                 
                 # Register in position sizer
-                await self.position_sizer.register_position(opp.symbol, pos_size.position_value_usdt)
+                await self.position_sizer.register_position(opp.symbol, position_value)
                 
                 # Store trade event
                 await self._store_trade_event(opp.symbol, 'opened', 0, opp.direction)

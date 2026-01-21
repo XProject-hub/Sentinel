@@ -678,10 +678,26 @@ async def get_ai_intelligence():
             intelligence["pairs_analyzed"] = int(stats.get("opportunities_scanned", 0))
         
         # Get last console log for last action
-        console_logs_raw = await r.lrange("bot:console:default", 0, 0)
+        console_logs_raw = await r.lrange("bot:console:default", 0, 5)
         if console_logs_raw:
-            last_log = json.loads(console_logs_raw[0])
-            intelligence["last_action"] = last_log.get("message", "Scanning...")[:100]
+            # Find the most recent TRADE or SIGNAL action
+            for log_raw in console_logs_raw:
+                try:
+                    log = json.loads(log_raw)
+                    msg = log.get("message", "")
+                    level = log.get("level", "")
+                    if level in ["TRADE", "SIGNAL"] or "OPENED" in msg or "CLOSED" in msg or "BREAKOUT" in msg:
+                        intelligence["last_action"] = msg[:100]
+                        break
+                except:
+                    continue
+            else:
+                # If no trade/signal found, use the latest message
+                try:
+                    last_log = json.loads(console_logs_raw[0])
+                    intelligence["last_action"] = last_log.get("message", "Scanning...")[:100]
+                except:
+                    pass
         
         # Get news sentiment from cache
         news_raw = await r.get("market:news:cache")
