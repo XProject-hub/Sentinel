@@ -2565,6 +2565,16 @@ async def get_trading_stats(user_id: str = "default"):
         avg_loss = abs(sum(losses) / len(losses)) if losses else 0
         profit_factor = (sum(profits) / abs(sum(losses))) if losses and sum(losses) != 0 else 0
         
+        # Get opportunities_scanned from GLOBAL stats (it's system-wide, not per-user)
+        opportunities_scanned = 0
+        global_stats_raw = await r.get('trader:stats')
+        if global_stats_raw:
+            try:
+                global_stats = json.loads(global_stats_raw.decode() if isinstance(global_stats_raw, bytes) else global_stats_raw)
+                opportunities_scanned = int(global_stats.get("opportunities_scanned", 0))
+            except:
+                pass
+        
         return {
             "success": True,
             "data": {
@@ -2574,7 +2584,7 @@ async def get_trading_stats(user_id: str = "default"):
                 "win_rate": round(win_rate, 1),
                 "total_pnl": round(total_pnl, 2),
                 "max_drawdown": float(stats.get("max_drawdown", 0)),
-                "opportunities_scanned": int(stats.get("opportunities_scanned", 0)),
+                "opportunities_scanned": opportunities_scanned,  # From global stats
                 "avg_profit": round(avg_profit, 2),
                 "avg_loss": round(avg_loss, 2),
                 "profit_factor": round(profit_factor, 2),
