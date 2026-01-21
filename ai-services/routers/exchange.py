@@ -531,14 +531,29 @@ async def get_balance(user_id: str = "default"):
     # Calculate unrealized PnL
     total_unrealized_pnl = sum(c.get("unrealizedPnl", 0) for c in coins)
     
-    # Get daily/weekly P&L from USER-SPECIFIC Redis stats ONLY (no fallback to global!)
+    # Get daily/weekly P&L from USER-SPECIFIC Redis stats
     try:
         r = await redis.from_url(settings.REDIS_URL)
-        # Get user-specific stats ONLY - no fallback to global!
+        
+        # Try user-specific stats first
         stats_raw = await r.get(f'trader:stats:{user_id}')
         sizer_raw = await r.get(f'sizer:state:{user_id}')
         
-        # NO FALLBACK - each user sees only their own data
+        # For admin/default user: migrate from global stats if user-specific doesn't exist
+        if not stats_raw and user_id == 'default':
+            global_stats = await r.get('trader:stats')
+            if global_stats:
+                # Migrate admin data to user-specific key
+                await r.set(f'trader:stats:{user_id}', global_stats)
+                stats_raw = global_stats
+                logger.info(f"Migrated global stats to trader:stats:{user_id}")
+        
+        if not sizer_raw and user_id == 'default':
+            global_sizer = await r.get('sizer:state')
+            if global_sizer:
+                await r.set(f'sizer:state:{user_id}', global_sizer)
+                sizer_raw = global_sizer
+        
         stats = json.loads(stats_raw) if stats_raw else {}
         sizer = json.loads(sizer_raw) if sizer_raw else {}
         await r.close()
@@ -2377,6 +2392,14 @@ async def get_trade_history(user_id: str = "default", limit: int = 10):
         # Get completed trades from Redis
         trades_data = await r.lrange(f"trades:completed:{user_id}", 0, limit - 1)
         
+        # For admin/default: migrate from global if user-specific is empty
+        if not trades_data and user_id == 'default':
+            global_trades = await r.lrange('trades:completed:default', 0, limit - 1)
+            if not global_trades:
+                # Try old key format without user_id suffix
+                global_trades = await r.lrange('trading:events', 0, limit - 1)
+            trades_data = global_trades
+        
         for trade_json in trades_data:
             try:
                 if isinstance(trade_json, bytes):
@@ -2412,8 +2435,17 @@ async def get_trading_stats(user_id: str = "default"):
     r = await redis.from_url(settings.REDIS_URL)
     
     try:
-        # Get USER-SPECIFIC stats (not global)
+        # Get USER-SPECIFIC stats
         stats_data = await r.get(f"trader:stats:{user_id}")
+        
+        # For admin/default: migrate from global if user-specific doesn't exist
+        if not stats_data and user_id == 'default':
+            global_stats = await r.get('trader:stats')
+            if global_stats:
+                await r.set(f'trader:stats:{user_id}', global_stats)
+                stats_data = global_stats
+                logger.info(f"Migrated global stats to trader:stats:{user_id}")
+        
         stats = {}
         if stats_data:
             try:
