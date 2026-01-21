@@ -19,7 +19,7 @@ This is what hedge funds use, not retail bot BS.
 """
 
 import asyncio
-from typing import Dict, List, Optional, Any, Tuple
+from typing import Dict, List, Optional, Any, Tuple, Set
 from datetime import datetime, timedelta
 from dataclasses import dataclass, field
 import numpy as np
@@ -120,6 +120,9 @@ class AutonomousTraderV2:
         # Connected exchange clients per user
         self.user_clients: Dict[str, BybitV5Client] = {}
         
+        # Paused users - still connected but not opening NEW positions
+        self.paused_users: Set[str] = set()
+        
         # Active positions with full metadata
         self.active_positions: Dict[str, Dict[str, ActivePosition]] = {}  # user_id -> symbol -> position
         
@@ -217,6 +220,9 @@ class AutonomousTraderV2:
         # Load stats
         await self._load_stats()
         
+        # Load paused users from Redis
+        await self._load_paused_users()
+        
         # Initialize whale tracker
         try:
             await whale_tracker.initialize()
@@ -267,13 +273,39 @@ class AutonomousTraderV2:
             return False
             
     async def disconnect_user(self, user_id: str):
-        """Disconnect user"""
+        """Pause trading for user - keeps connection but stops NEW positions"""
+        await self.pause_trading(user_id)
+        logger.info(f"User {user_id} trading paused (existing positions will continue)")
+    
+    async def pause_trading(self, user_id: str):
+        """Pause trading - stop opening NEW positions, but keep monitoring existing ones"""
+        self.paused_users.add(user_id)
+        # Store in Redis for persistence
+        if self.redis_client:
+            await self.redis_client.set(f'trading:paused:{user_id}', '1')
+        logger.info(f"🛑 Trading PAUSED for {user_id} - no new positions will be opened")
+    
+    async def resume_trading(self, user_id: str):
+        """Resume trading - allow opening new positions again"""
+        self.paused_users.discard(user_id)
+        # Remove from Redis
+        if self.redis_client:
+            await self.redis_client.delete(f'trading:paused:{user_id}')
+        logger.info(f"▶️ Trading RESUMED for {user_id} - new positions will be opened")
+    
+    def is_paused(self, user_id: str) -> bool:
+        """Check if trading is paused for user"""
+        return user_id in self.paused_users
+    
+    async def force_disconnect_user(self, user_id: str):
+        """Fully disconnect user - closes connection and removes data"""
         if user_id in self.user_clients:
             await self.user_clients[user_id].close()
             del self.user_clients[user_id]
             if user_id in self.active_positions:
                 del self.active_positions[user_id]
-            logger.info(f"User {user_id} disconnected")
+            self.paused_users.discard(user_id)
+            logger.info(f"User {user_id} fully disconnected")
             
     async def run_trading_loop(self):
         """
@@ -859,6 +891,11 @@ class AutonomousTraderV2:
     async def _find_opportunities(self, user_id: str, client: BybitV5Client, wallet: Dict):
         """Find and execute new trading opportunities"""
         try:
+            # Check if trading is paused for this user
+            if self.is_paused(user_id):
+                logger.debug(f"⏸️ Trading paused for {user_id} - skipping opportunity search")
+                return
+            
             # Get opportunities from scanner
             opportunities = await self.market_scanner.get_tradeable_opportunities()
             
@@ -1858,6 +1895,19 @@ class AutonomousTraderV2:
                     self.stats['trades_rejected_no_momentum'] = 0
         except:
             pass
+    
+    async def _load_paused_users(self):
+        """Load paused users from Redis"""
+        try:
+            keys = await self.redis_client.keys('trading:paused:*')
+            for key in keys:
+                key_str = key.decode() if isinstance(key, bytes) else key
+                user_id = key_str.replace('trading:paused:', '')
+                self.paused_users.add(user_id)
+            if self.paused_users:
+                logger.info(f"⏸️ Loaded {len(self.paused_users)} paused users: {self.paused_users}")
+        except Exception as e:
+            logger.warning(f"Failed to load paused users: {e}")
             
     async def _save_stats(self):
         """Save stats to Redis"""

@@ -34,6 +34,31 @@ Route::prefix('auth')->group(function () {
 // Subscription plans (public)
 Route::get('/plans', [SubscriptionController::class, 'plans']);
 
+// Internal admin endpoint (for ai-services)
+Route::get('/internal/users', function () {
+    $users = \App\Models\User::select('id', 'name', 'email', 'created_at', 'email_verified_at')
+        ->with(['exchangeConnections' => function($q) {
+            $q->select('id', 'user_id', 'exchange', 'is_active', 'created_at');
+        }])
+        ->get();
+    
+    return response()->json([
+        'success' => true,
+        'users' => $users->map(function($user) {
+            return [
+                'id' => $user->id,
+                'name' => $user->name,
+                'email' => $user->email,
+                'created_at' => $user->created_at,
+                'email_verified' => !is_null($user->email_verified_at),
+                'exchange_connected' => $user->exchangeConnections->count() > 0,
+                'exchange' => $user->exchangeConnections->first()?->exchange ?? null,
+            ];
+        }),
+        'total' => $users->count()
+    ]);
+});
+
 // ============================================
 // AUTHENTICATED ROUTES
 // ============================================

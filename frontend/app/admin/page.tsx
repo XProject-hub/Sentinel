@@ -383,11 +383,17 @@ export default function AdminPage() {
                             )}
                           </td>
                           <td className="px-6 py-4">
-                            <span className={`px-3 py-1 rounded-full text-xs font-medium ${
+                            <span className={`px-3 py-1 rounded-full text-xs font-medium flex items-center gap-1.5 w-fit ${
                               user.isActive ? 'bg-sentinel-accent-emerald/10 text-sentinel-accent-emerald border border-sentinel-accent-emerald/30' :
+                              user.isPaused ? 'bg-sentinel-accent-amber/10 text-sentinel-accent-amber border border-sentinel-accent-amber/30' :
                               'bg-sentinel-text-muted/10 text-sentinel-text-muted border border-sentinel-text-muted/30'
                             }`}>
-                              {user.isActive ? '🟢 Trading' : '⏸️ Paused'}
+                              <span className={`w-2 h-2 rounded-full ${
+                                user.isActive ? 'bg-sentinel-accent-emerald' :
+                                user.isPaused ? 'bg-sentinel-accent-amber' :
+                                'bg-sentinel-text-muted'
+                              }`} />
+                              {user.isActive ? 'Trading' : user.isPaused ? 'Paused' : 'Inactive'}
                             </span>
                           </td>
                           <td className="px-6 py-4">

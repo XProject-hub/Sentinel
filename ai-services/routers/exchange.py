@@ -802,13 +802,25 @@ async def auto_reconnect_trading():
 
 @router.post("/trading/disable")
 async def disable_autonomous_trading(user_id: str = "default"):
-    """Disable autonomous trading for a user"""
+    """Pause autonomous trading - stops opening NEW positions, monitors existing ones"""
     trader = get_trader()
-    await trader.disconnect_user(user_id)
+    await trader.pause_trading(user_id)
     
     return {
         "success": True,
-        "message": "Autonomous trading disabled"
+        "message": "Trading paused - no new positions will be opened, existing positions are still monitored"
+    }
+
+
+@router.post("/trading/resume")
+async def resume_autonomous_trading(user_id: str = "default"):
+    """Resume autonomous trading - starts opening new positions again"""
+    trader = get_trader()
+    await trader.resume_trading(user_id)
+    
+    return {
+        "success": True,
+        "message": "Trading resumed - new positions will be opened"
     }
 
 
@@ -817,6 +829,7 @@ async def get_trading_status(user_id: str = "default"):
     """Get autonomous trading status"""
     trader = get_trader()
     is_trading = user_id in trader.user_clients
+    is_paused = trader.is_paused(user_id) if hasattr(trader, 'is_paused') else False
     
     # Get recent trades
     trades = []
@@ -848,7 +861,9 @@ async def get_trading_status(user_id: str = "default"):
     return {
         "success": True,
         "data": {
-            "is_autonomous_trading": is_trading,
+            "is_autonomous_trading": is_trading and not is_paused,
+            "is_connected": is_trading,
+            "is_paused": is_paused,
             "trading_pairs": trading_pairs if is_trading else [],
             "total_pairs": total_pairs,
             "max_positions": max_positions,

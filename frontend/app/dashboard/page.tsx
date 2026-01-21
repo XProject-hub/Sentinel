@@ -589,7 +589,18 @@ export default function DashboardPage() {
   const startTrading = async () => {
     setIsTogglingBot(true)
     try {
-      // Get stored credentials from localStorage or prompt user
+      // First try to resume (if trading was just paused)
+      const resumeResponse = await fetch('/ai/exchange/trading/resume?user_id=default', {
+        method: 'POST',
+      })
+      
+      const resumeData = await resumeResponse.json()
+      if (resumeData.success) {
+        setTradingStatus(prev => prev ? { ...prev, is_autonomous_trading: true, is_paused: false } : null)
+        return
+      }
+      
+      // If resume fails, try full enable with credentials
       const storedCreds = localStorage.getItem('sentinel_api_creds')
       if (!storedCreds) {
         // Redirect to connect page if no credentials
@@ -611,7 +622,7 @@ export default function DashboardPage() {
       
       const data = await response.json()
       if (data.success) {
-        setTradingStatus(prev => prev ? { ...prev, is_autonomous_trading: true } : null)
+        setTradingStatus(prev => prev ? { ...prev, is_autonomous_trading: true, is_paused: false } : null)
       }
     } catch (error) {
       console.error('Failed to start trading:', error)
