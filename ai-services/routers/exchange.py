@@ -533,6 +533,113 @@ async def get_balance():
     }
 
 
+@router.get("/signals")
+async def get_ai_signals(limit: int = 5):
+    """Get top AI trading signals - opportunities the bot is considering"""
+    
+    if "default" not in exchange_connections:
+        return {"signals": [], "error": "No exchange connected"}
+    
+    client = exchange_connections["default"]
+    r = await get_redis()
+    
+    signals = []
+    
+    try:
+        # Get current settings
+        settings_raw = await r.get("bot:settings:default")
+        settings = json.loads(settings_raw) if settings_raw else {}
+        take_profit = float(settings.get("takeProfitPercent", 2.0))
+        stop_loss = float(settings.get("stopLossPercent", 1.5))
+        min_edge = float(settings.get("minEdge", 0.25))
+        
+        # Get tickers for analysis
+        tickers_result = await client.get_tickers()
+        if not tickers_result.get('success'):
+            return {"signals": []}
+        
+        tickers = tickers_result.get('data', {}).get('list', [])
+        
+        # Score and filter opportunities
+        opportunities = []
+        for ticker in tickers[:100]:  # Scan top 100 by volume
+            symbol = ticker.get('symbol', '')
+            if not symbol.endswith('USDT') or symbol in ['USDCUSDT', 'USDTUSDT']:
+                continue
+            
+            price_change = float(ticker.get('price24hPcnt', 0)) * 100
+            volume = float(ticker.get('turnover24h', 0))
+            last_price = float(ticker.get('lastPrice', 0))
+            bid_price = float(ticker.get('bid1Price', 0))
+            ask_price = float(ticker.get('ask1Price', 0))
+            
+            if volume < 1000000 or last_price <= 0:  # Min $1M volume
+                continue
+            
+            # Calculate spread
+            spread = ((ask_price - bid_price) / last_price * 100) if last_price > 0 else 0
+            if spread > 0.5:  # Skip high spread pairs
+                continue
+            
+            # Determine direction based on momentum
+            direction = 'LONG' if price_change > 0.5 else 'SHORT' if price_change < -0.5 else None
+            if not direction:
+                continue
+            
+            # Calculate edge (simplified)
+            volatility = abs(price_change)
+            edge = max(0, volatility * 0.3 - spread * 2)  # Simple edge calculation
+            
+            if edge < min_edge:
+                continue
+            
+            # Calculate confidence based on volume and momentum
+            volume_score = min(100, volume / 10000000 * 50)  # Up to 50 from volume
+            momentum_score = min(50, abs(price_change) * 10)  # Up to 50 from momentum
+            confidence = int(volume_score + momentum_score)
+            
+            # Calculate entry, TP, SL
+            entry_price = last_price
+            if direction == 'LONG':
+                target_price = entry_price * (1 + take_profit / 100)
+                stop_loss_price = entry_price * (1 - stop_loss / 100)
+            else:
+                target_price = entry_price * (1 - take_profit / 100)
+                stop_loss_price = entry_price * (1 + stop_loss / 100)
+            
+            # Get funding rate if available
+            funding_rate = None
+            try:
+                funding_raw = await r.hget(f"funding:{symbol}", "rate")
+                if funding_raw:
+                    funding_rate = float(funding_raw) * 100
+            except:
+                pass
+            
+            opportunities.append({
+                "symbol": symbol,
+                "direction": direction,
+                "confidence": confidence,
+                "entry_price": entry_price,
+                "target_price": target_price,
+                "stop_loss": stop_loss_price,
+                "edge": edge,
+                "reason": f"{'Strong bullish' if direction == 'LONG' else 'Strong bearish'} momentum ({price_change:+.1f}%)",
+                "funding_rate": funding_rate,
+                "volume_24h": volume,
+                "price_change_24h": price_change
+            })
+        
+        # Sort by confidence and take top N
+        opportunities.sort(key=lambda x: x['confidence'], reverse=True)
+        signals = opportunities[:limit]
+        
+    except Exception as e:
+        logger.error(f"Error getting AI signals: {e}")
+    
+    return {"signals": signals}
+
+
 @router.get("/positions")
 async def get_positions():
     """Get real open positions from connected exchange"""
@@ -1620,6 +1727,78 @@ async def close_single_position(symbol: str):
         
     except Exception as e:
         logger.error(f"Close position error for {symbol}: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@router.post("/close-all-positions")
+async def close_all_positions():
+    """Close ALL open positions at once"""
+    
+    if "default" not in exchange_connections:
+        return {"success": False, "error": "No exchange connected"}
+    
+    client = exchange_connections["default"]
+    
+    try:
+        # Get current positions
+        positions_result = await client.get_positions()
+        
+        if not positions_result.get('success'):
+            return {"success": False, "error": "Failed to get positions"}
+        
+        positions = positions_result.get('data', {}).get('list', [])
+        open_positions = [p for p in positions if float(p.get('size', 0)) > 0]
+        
+        if not open_positions:
+            return {"success": True, "closed": 0, "message": "No open positions to close"}
+        
+        closed = 0
+        errors = []
+        total_pnl = 0
+        
+        r = await redis.from_url(settings.REDIS_URL)
+        
+        for pos in open_positions:
+            symbol = pos.get('symbol')
+            size = float(pos.get('size', 0))
+            side = pos.get('side')
+            unrealized_pnl = float(pos.get('unrealisedPnl', 0))
+            
+            # Close position (opposite side)
+            close_side = 'Sell' if side == 'Buy' else 'Buy'
+            
+            try:
+                order_result = await client.place_order(
+                    symbol=symbol,
+                    side=close_side,
+                    order_type='Market',
+                    qty=str(size),
+                    reduce_only=True
+                )
+                
+                if order_result.get('success'):
+                    closed += 1
+                    total_pnl += unrealized_pnl
+                    # Clear peak tracking
+                    await r.delete(f'peak:default:{symbol}')
+                    logger.info(f"SELL ALL: Closed {symbol} {side} size={size} PnL={unrealized_pnl:.2f}")
+                else:
+                    errors.append(f"{symbol}: {order_result.get('error', 'Unknown error')}")
+            except Exception as e:
+                errors.append(f"{symbol}: {str(e)}")
+        
+        await r.close()
+        
+        return {
+            "success": True,
+            "closed": closed,
+            "total_pnl": total_pnl,
+            "errors": errors if errors else None,
+            "message": f"Closed {closed}/{len(open_positions)} positions"
+        }
+        
+    except Exception as e:
+        logger.error(f"Close all positions error: {e}")
         return {"success": False, "error": str(e)}
 
 

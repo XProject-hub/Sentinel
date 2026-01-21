@@ -101,12 +101,26 @@ interface TraderStats {
   worst_trade: number
 }
 
+interface AISignal {
+  symbol: string
+  direction: 'LONG' | 'SHORT'
+  confidence: number
+  entry_price: number
+  target_price: number
+  stop_loss: number
+  edge: number
+  reason: string
+  funding_rate?: number
+  long_short_ratio?: number
+}
+
 // EUR/USD rate (approximate)
 const USDT_TO_EUR = 0.92
 
 export default function DashboardPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [news, setNews] = useState<NewsItem[]>([])
+  const [aiSignals, setAiSignals] = useState<AISignal[]>([])
   const [hasExchangeConnection, setHasExchangeConnection] = useState(false)
   const [isAdmin, setIsAdmin] = useState(false)
   const [positions, setPositions] = useState<Position[]>([])
@@ -262,6 +276,15 @@ export default function DashboardPage() {
         }
       } catch {}
 
+      // Get AI Signals (top opportunities)
+      try {
+        const signalsRes = await fetch('/ai/exchange/signals?limit=5')
+        if (signalsRes.ok) {
+          const data = await signalsRes.json()
+          setAiSignals(data.signals || [])
+        }
+      } catch {}
+
     } catch (error) {
       console.error('Failed to load dashboard data:', error)
     }
@@ -327,6 +350,35 @@ export default function DashboardPage() {
         next.delete(symbol)
         return next
       })
+    }
+  }
+
+  const [isSellingAll, setIsSellingAll] = useState(false)
+
+  const sellAllPositions = async () => {
+    if (positions.length === 0) return
+    
+    const confirmed = window.confirm(`Are you sure you want to close ALL ${positions.length} positions?`)
+    if (!confirmed) return
+
+    setIsSellingAll(true)
+    try {
+      const response = await fetch('/ai/exchange/close-all-positions', {
+        method: 'POST'
+      })
+      if (response.ok) {
+        const result = await response.json()
+        alert(`Successfully closed ${result.closed || positions.length} positions`)
+        setTimeout(() => loadDashboardData(), 1000)
+      } else {
+        const error = await response.json()
+        alert(`Failed to close all positions: ${error.detail || 'Unknown error'}`)
+      }
+    } catch (error) {
+      console.error('Failed to close all positions:', error)
+      alert('Failed to close all positions. Check console for details.')
+    } finally {
+      setIsSellingAll(false)
     }
   }
 
@@ -508,17 +560,28 @@ export default function DashboardPage() {
               <Zap className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-gray-400" />
               <span className="text-[10px] sm:text-xs text-gray-500">Control</span>
             </div>
-            <button
-              onClick={isTrading ? stopTrading : startTrading}
-              disabled={isTogglingBot}
-              className={`w-full py-2 sm:py-2.5 rounded-lg font-semibold text-xs sm:text-sm flex items-center justify-center gap-1.5 sm:gap-2 transition-all ${
-                isTrading 
-                  ? 'bg-red-500/20 text-red-400 hover:bg-red-500/30 border border-red-500/30' 
-                  : 'bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 border border-emerald-500/30'
-              }`}
-            >
-              {isTogglingBot ? <Loader2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 animate-spin" /> : isTrading ? <><Square className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> Stop</> : <><Play className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> Start</>}
-            </button>
+            <div className="flex flex-col gap-2">
+              <button
+                onClick={isTrading ? stopTrading : startTrading}
+                disabled={isTogglingBot}
+                className={`w-full py-2 sm:py-2.5 rounded-lg font-semibold text-xs sm:text-sm flex items-center justify-center gap-1.5 sm:gap-2 transition-all ${
+                  isTrading 
+                    ? 'bg-red-500/20 text-red-400 hover:bg-red-500/30 border border-red-500/30' 
+                    : 'bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 border border-emerald-500/30'
+                }`}
+              >
+                {isTogglingBot ? <Loader2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 animate-spin" /> : isTrading ? <><Square className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> Stop</> : <><Play className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> Start</>}
+              </button>
+              {positions.length > 0 && (
+                <button
+                  onClick={sellAllPositions}
+                  disabled={isSellingAll}
+                  className="w-full py-2 sm:py-2.5 rounded-lg font-semibold text-xs sm:text-sm flex items-center justify-center gap-1.5 sm:gap-2 transition-all bg-amber-500/20 text-amber-400 hover:bg-amber-500/30 border border-amber-500/30"
+                >
+                  {isSellingAll ? <Loader2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 animate-spin" /> : <><XCircle className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> Sell All</>}
+                </button>
+              )}
+            </div>
           </div>
         </div>
 
@@ -640,34 +703,81 @@ export default function DashboardPage() {
             )}
           </div>
 
-          {/* Market News */}
-          <div className="bg-white/[0.02] rounded-xl border border-white/5 overflow-hidden">
-            <div className="px-4 py-3 border-b border-white/5 flex items-center gap-2">
-              <Activity className="w-4 h-4 text-cyan-400" />
-              <h2 className="font-medium text-white text-sm">Market News</h2>
-            </div>
-            <div className="overflow-y-auto divide-y divide-white/5" style={{ maxHeight: '360px' }}>
-              {news.length === 0 ? (
-                <div className="p-4 text-gray-600 text-xs text-center">Loading news...</div>
-              ) : (
-                news.map((item, i) => (
-                  <div key={i} className="px-3 py-2 hover:bg-white/[0.02]">
-                    <div className="flex items-start gap-2">
-                      <span className={`text-[9px] px-1.5 py-0.5 rounded flex-shrink-0 mt-0.5 ${
-                        item.sentiment === 'bullish' ? 'bg-emerald-500/20 text-emerald-400' :
-                        item.sentiment === 'bearish' ? 'bg-red-500/20 text-red-400' :
-                        'bg-gray-500/20 text-gray-400'
-                      }`}>
-                        {item.sentiment === 'bullish' ? '↑' : item.sentiment === 'bearish' ? '↓' : '•'}
-                      </span>
-                      <div>
-                        <p className="text-[11px] text-gray-300 leading-tight">{item.title}</p>
-                        <p className="text-[9px] text-gray-600 mt-1">{item.source}</p>
+          {/* AI Signals + Market News */}
+          <div className="space-y-3">
+            {/* AI Signals */}
+            <div className="bg-white/[0.02] rounded-xl border border-white/5 overflow-hidden">
+              <div className="px-3 py-2 border-b border-white/5 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Zap className="w-4 h-4 text-amber-400" />
+                  <h2 className="font-medium text-white text-xs">AI Signals</h2>
+                </div>
+                <span className="text-[9px] text-gray-500">Top Opportunities</span>
+              </div>
+              <div className="divide-y divide-white/5" style={{ maxHeight: '150px', overflowY: 'auto' }}>
+                {aiSignals.length === 0 ? (
+                  <div className="p-3 text-gray-600 text-[10px] text-center">Scanning for signals...</div>
+                ) : (
+                  aiSignals.map((signal, i) => (
+                    <div key={i} className="px-3 py-2 hover:bg-white/[0.02]">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium text-white text-xs">{signal.symbol.replace('USDT', '')}</span>
+                          <span className={`text-[9px] px-1.5 py-0.5 rounded ${
+                            signal.direction === 'LONG' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'
+                          }`}>
+                            {signal.direction}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[9px] text-gray-500">Edge: {signal.edge.toFixed(1)}%</span>
+                          <span className={`text-[9px] font-medium ${
+                            signal.confidence >= 70 ? 'text-emerald-400' : signal.confidence >= 50 ? 'text-amber-400' : 'text-gray-400'
+                          }`}>
+                            {signal.confidence}%
+                          </span>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3 mt-1 text-[9px] text-gray-500">
+                        <span>Entry: ${signal.entry_price.toFixed(4)}</span>
+                        <span className="text-emerald-400/70">TP: ${signal.target_price.toFixed(4)}</span>
+                        <span className="text-red-400/70">SL: ${signal.stop_loss.toFixed(4)}</span>
                       </div>
                     </div>
-                  </div>
-                ))
-              )}
+                  ))
+                )}
+              </div>
+            </div>
+
+            {/* Market News */}
+            <div className="bg-white/[0.02] rounded-xl border border-white/5 overflow-hidden">
+              <div className="px-3 py-2 border-b border-white/5 flex items-center gap-2">
+                <Activity className="w-4 h-4 text-cyan-400" />
+                <h2 className="font-medium text-white text-xs">Market News</h2>
+              </div>
+              <div className="overflow-y-auto divide-y divide-white/5" style={{ maxHeight: '200px' }}>
+                {news.length === 0 ? (
+                  <div className="p-3 text-gray-600 text-[10px] text-center">Loading news...</div>
+                ) : (
+                  news.map((item, i) => (
+                    <div key={i} className="px-2 py-1.5 hover:bg-white/[0.02]">
+                      <div className="flex items-start gap-1.5">
+                        <span className={`text-[8px] px-1 py-0.5 rounded flex-shrink-0 mt-0.5 ${
+                          item.sentiment === 'bullish' ? 'bg-emerald-500/20 text-emerald-400' :
+                          item.sentiment === 'bearish' ? 'bg-red-500/20 text-red-400' :
+                          'bg-gray-500/20 text-gray-400'
+                        }`}>
+                          {item.sentiment === 'bullish' ? '↑' : item.sentiment === 'bearish' ? '↓' : '•'}
+                        </span>
+                        <div>
+                          <p className="text-[10px] text-gray-300 leading-tight">{item.title}</p>
+                          <p className="text-[8px] text-gray-600">{item.source}</p>
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
             </div>
           </div>
         </div>
