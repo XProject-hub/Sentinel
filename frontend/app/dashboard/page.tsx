@@ -713,10 +713,10 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* Middle Row - Positions & Recent Trades */}
-        <div className="grid lg:grid-cols-2 gap-4 mb-6">
+        {/* Middle Row - Open Positions & Market News */}
+        <div className="grid lg:grid-cols-4 gap-4 mb-6">
           {/* Open Positions */}
-          <div className="bg-white/[0.02] rounded-xl border border-white/5 overflow-hidden">
+          <div className="lg:col-span-3 bg-white/[0.02] rounded-xl border border-white/5 overflow-hidden">
             <div className="p-4 border-b border-white/5 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Target className="w-5 h-5 text-cyan-400" />
@@ -738,21 +738,42 @@ export default function DashboardPage() {
                 <p className="text-gray-600 text-xs mt-1">AI is scanning...</p>
               </div>
             ) : (
-              <div className="overflow-x-auto max-h-64">
+              <div className="overflow-x-auto max-h-72">
                 <table className="w-full">
                   <thead className="sticky top-0 bg-[#060a13]">
                     <tr className="border-b border-white/5">
                       <th className="text-left text-[10px] font-medium text-gray-500 px-4 py-2">PAIR</th>
                       <th className="text-left text-[10px] font-medium text-gray-500 px-4 py-2">SIDE</th>
-                      <th className="text-right text-[10px] font-medium text-gray-500 px-4 py-2">SIZE</th>
+                      <th className="text-right text-[10px] font-medium text-gray-500 px-4 py-2">VALUE</th>
+                      <th className="text-right text-[10px] font-medium text-gray-500 px-4 py-2">ENTRY</th>
+                      <th className="text-right text-[10px] font-medium text-gray-500 px-4 py-2">MARK</th>
                       <th className="text-right text-[10px] font-medium text-gray-500 px-4 py-2">P&L</th>
                     </tr>
                   </thead>
                   <tbody>
                     {positions.map((pos, i) => {
-                      const pnl = parseFloat(pos.unrealisedPnl || '0')
+                      const entryPrice = parseFloat(pos.entryPrice || '0')
+                      const markPrice = parseFloat(pos.markPrice || '0')
                       const posValue = parseFloat(pos.positionValue || '0')
-                      const pnlPercent = posValue > 0 ? (pnl / posValue) * 100 : 0
+                      const leverage = parseFloat(pos.leverage || '1')
+                      
+                      // Calculate P&L percentage based on price change and side
+                      let pnlPercent = 0
+                      if (entryPrice > 0 && markPrice > 0) {
+                        if (pos.side === 'Buy') {
+                          pnlPercent = ((markPrice - entryPrice) / entryPrice) * 100 * leverage
+                        } else {
+                          pnlPercent = ((entryPrice - markPrice) / entryPrice) * 100 * leverage
+                        }
+                      }
+                      
+                      // Calculate actual P&L in EUR from position value and percentage
+                      const pnlEur = posValue * (pnlPercent / 100)
+                      
+                      // If API provides unrealisedPnl, use it instead
+                      const apiPnl = parseFloat(pos.unrealisedPnl || '0')
+                      const finalPnl = apiPnl !== 0 ? apiPnl : pnlEur
+                      const finalPnlPercent = apiPnl !== 0 && posValue > 0 ? (apiPnl / posValue) * 100 : pnlPercent
                       
                       return (
                         <tr key={i} className="border-b border-white/5 hover:bg-white/[0.02]">
@@ -767,15 +788,21 @@ export default function DashboardPage() {
                               {pos.side === 'Buy' ? 'LONG' : 'SHORT'} {pos.leverage}x
                             </span>
                           </td>
+                          <td className="px-4 py-3 text-right">
+                            <span className="text-sm text-white font-medium">€{posValue.toFixed(2)}</span>
+                          </td>
                           <td className="px-4 py-3 text-right text-sm text-gray-400">
-                            €{posValue.toFixed(2)}
+                            €{entryPrice.toFixed(4)}
+                          </td>
+                          <td className="px-4 py-3 text-right text-sm text-gray-400">
+                            €{markPrice.toFixed(4)}
                           </td>
                           <td className="px-4 py-3 text-right">
-                            <div className={`text-sm font-medium ${pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                              {pnl >= 0 ? '+' : ''}€{pnl.toFixed(2)}
+                            <div className={`text-sm font-medium ${finalPnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                              {finalPnl >= 0 ? '+' : ''}€{finalPnl.toFixed(2)}
                             </div>
-                            <div className={`text-[10px] ${pnl >= 0 ? 'text-emerald-400/60' : 'text-red-400/60'}`}>
-                              {pnlPercent >= 0 ? '+' : ''}{pnlPercent.toFixed(2)}%
+                            <div className={`text-[10px] ${finalPnlPercent >= 0 ? 'text-emerald-400/60' : 'text-red-400/60'}`}>
+                              {finalPnlPercent >= 0 ? '+' : ''}{finalPnlPercent.toFixed(2)}%
                             </div>
                           </td>
                         </tr>
@@ -787,52 +814,74 @@ export default function DashboardPage() {
             )}
           </div>
 
+          {/* Market News - Same row as Open Positions */}
+          <div className="bg-white/[0.02] rounded-xl border border-white/5 overflow-hidden">
+            <div className="px-4 py-3 border-b border-white/5 flex items-center gap-2">
+              <Activity className="w-4 h-4 text-cyan-400" />
+              <h2 className="font-medium text-white text-sm">Market News</h2>
+            </div>
+            
+            <div className="max-h-72 overflow-y-auto divide-y divide-white/5">
+              {news.length === 0 ? (
+                <div className="p-4 text-gray-600 text-xs text-center">Loading news...</div>
+              ) : (
+                news.slice(0, 10).map((item, i) => (
+                  <div key={i} className="px-3 py-2 hover:bg-white/[0.02]">
+                    <div className="flex items-start gap-2">
+                      <span className={`text-[9px] px-1.5 py-0.5 rounded flex-shrink-0 mt-0.5 ${
+                        item.sentiment === 'bullish' ? 'bg-emerald-500/20 text-emerald-400' :
+                        item.sentiment === 'bearish' ? 'bg-red-500/20 text-red-400' :
+                        'bg-gray-500/20 text-gray-400'
+                      }`}>
+                        {item.sentiment === 'bullish' ? '↑' : item.sentiment === 'bearish' ? '↓' : '•'}
+                      </span>
+                      <p className="text-[10px] text-gray-300 leading-tight line-clamp-2">{item.title}</p>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Bottom Row - Recent Trades, Console, Whales */}
+        <div className="grid lg:grid-cols-3 gap-4">
           {/* Recent Trades (Last 10) */}
           <div className="bg-white/[0.02] rounded-xl border border-white/5 overflow-hidden">
             <div className="p-4 border-b border-white/5 flex items-center gap-2">
               <Clock className="w-5 h-5 text-cyan-400" />
-              <h2 className="font-semibold text-white">Recent Trades</h2>
-              <span className="text-xs text-gray-500 ml-1">(Last 10)</span>
+              <h2 className="font-semibold text-white text-sm">Recent Trades</h2>
+              <span className="text-xs text-gray-500 ml-1">(10)</span>
             </div>
             
             {recentTrades.length === 0 ? (
-              <div className="p-8 text-center">
-                <Clock className="w-10 h-10 text-gray-700 mx-auto mb-3" />
-                <p className="text-gray-500 text-sm">No recent trades</p>
+              <div className="p-6 text-center">
+                <Clock className="w-8 h-8 text-gray-700 mx-auto mb-2" />
+                <p className="text-gray-500 text-xs">No recent trades</p>
               </div>
             ) : (
-              <div className="overflow-y-auto max-h-64">
+              <div className="overflow-y-auto max-h-48">
                 {recentTrades.slice(0, 10).map((trade, i) => (
-                  <div key={i} className="px-4 py-3 border-b border-white/5 hover:bg-white/[0.02] flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                  <div key={i} className="px-3 py-2 border-b border-white/5 hover:bg-white/[0.02] flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className={`w-6 h-6 rounded flex items-center justify-center ${
                         trade.pnl >= 0 ? 'bg-emerald-500/10' : 'bg-red-500/10'
                       }`}>
                         {trade.pnl >= 0 ? (
-                          <CheckCircle className="w-4 h-4 text-emerald-400" />
+                          <CheckCircle className="w-3 h-3 text-emerald-400" />
                         ) : (
-                          <XCircle className="w-4 h-4 text-red-400" />
+                          <XCircle className="w-3 h-3 text-red-400" />
                         )}
                       </div>
                       <div>
-                        <div className="flex items-center gap-2">
-                          <span className="font-medium text-white text-sm">{trade.symbol.replace('USDT', '')}</span>
-                          <span className={`text-[9px] px-1.5 py-0.5 rounded ${
-                            trade.pnl >= 0 ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'
-                          }`}>
-                            {trade.pnl >= 0 ? 'WIN' : 'LOSS'}
-                          </span>
-                        </div>
-                        <div className="text-[10px] text-gray-600 truncate max-w-[150px]">
-                          {trade.close_reason}
-                        </div>
+                        <span className="font-medium text-white text-xs">{trade.symbol.replace('USDT', '')}</span>
                       </div>
                     </div>
                     <div className="text-right">
-                      <div className={`font-medium text-sm ${trade.pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                      <div className={`font-medium text-xs ${trade.pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                         {trade.pnl >= 0 ? '+' : ''}€{trade.pnl.toFixed(2)}
                       </div>
-                      <div className={`text-[10px] ${trade.pnl >= 0 ? 'text-emerald-400/60' : 'text-red-400/60'}`}>
+                      <div className={`text-[9px] ${trade.pnl >= 0 ? 'text-emerald-400/60' : 'text-red-400/60'}`}>
                         {trade.pnl_percent >= 0 ? '+' : ''}{trade.pnl_percent.toFixed(2)}%
                       </div>
                     </div>
@@ -841,10 +890,7 @@ export default function DashboardPage() {
               </div>
             )}
           </div>
-        </div>
 
-        {/* Bottom Row - Console, Whales, News */}
-        <div className="grid lg:grid-cols-3 gap-4">
           {/* AI Console */}
           <div className="bg-white/[0.02] rounded-xl border border-white/5 overflow-hidden">
             <div className="px-4 py-3 border-b border-white/5 flex items-center gap-2">
@@ -852,7 +898,7 @@ export default function DashboardPage() {
               <h2 className="font-medium text-white text-sm">AI Console</h2>
             </div>
             
-            <div ref={consoleRef} className="h-40 overflow-y-auto p-3 font-mono text-[10px] space-y-1">
+            <div ref={consoleRef} className="h-48 overflow-y-auto p-3 font-mono text-[10px] space-y-1">
               {consoleLogs.length === 0 ? (
                 <div className="text-gray-600">Waiting for activity...</div>
               ) : (
@@ -883,11 +929,11 @@ export default function DashboardPage() {
               <h2 className="font-medium text-white text-sm">Whale Activity</h2>
             </div>
             
-            <div className="h-40 overflow-y-auto divide-y divide-white/5">
+            <div className="h-48 overflow-y-auto divide-y divide-white/5">
               {whaleAlerts.length === 0 ? (
                 <div className="p-4 text-gray-600 text-xs text-center">No whale activity detected</div>
               ) : (
-                whaleAlerts.slice(0, 6).map((alert, i) => (
+                whaleAlerts.slice(0, 8).map((alert, i) => (
                   <div key={i} className="px-3 py-2 hover:bg-white/[0.02]">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
@@ -901,35 +947,6 @@ export default function DashboardPage() {
                       <span className="text-[9px] text-gray-600">
                         {new Date(alert.timestamp).toLocaleTimeString()}
                       </span>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-
-          {/* Market News */}
-          <div className="bg-white/[0.02] rounded-xl border border-white/5 overflow-hidden">
-            <div className="px-4 py-3 border-b border-white/5 flex items-center gap-2">
-              <Activity className="w-4 h-4 text-cyan-400" />
-              <h2 className="font-medium text-white text-sm">Market News</h2>
-            </div>
-            
-            <div className="h-40 overflow-y-auto divide-y divide-white/5">
-              {news.length === 0 ? (
-                <div className="p-4 text-gray-600 text-xs text-center">Loading news...</div>
-              ) : (
-                news.slice(0, 8).map((item, i) => (
-                  <div key={i} className="px-3 py-2 hover:bg-white/[0.02]">
-                    <div className="flex items-start gap-2">
-                      <span className={`text-[9px] px-1.5 py-0.5 rounded flex-shrink-0 mt-0.5 ${
-                        item.sentiment === 'bullish' ? 'bg-emerald-500/20 text-emerald-400' :
-                        item.sentiment === 'bearish' ? 'bg-red-500/20 text-red-400' :
-                        'bg-gray-500/20 text-gray-400'
-                      }`}>
-                        {item.sentiment === 'bullish' ? '↑' : item.sentiment === 'bearish' ? '↓' : '•'}
-                      </span>
-                      <p className="text-[10px] text-gray-300 leading-tight line-clamp-2">{item.title}</p>
                     </div>
                   </div>
                 ))
