@@ -934,22 +934,48 @@ class AutonomousTraderV2:
                 if volume < min_volume or last_price <= 0:
                     continue
                 
-                # BREAKOUT DETECTION
+                # BREAKOUT DETECTION - Now handles ALL big moves
                 is_breakout = False
                 direction = None
                 breakout_strength = 0
+                size_multiplier = 1.0  # Reduce size for extreme moves
                 
-                # Bullish breakout (+5% to +25%)
-                if 5 <= price_change <= 25:
+                # Bullish breakout (+5% and up)
+                if price_change >= 5:
                     is_breakout = True
                     direction = 'long'
-                    breakout_strength = min(100, price_change * 10)  # Scale 5-10% to 50-100
                     
-                # Bearish breakout (-5% to -25%)
-                elif -25 <= price_change <= -5:
+                    # Tiered approach: bigger move = more caution
+                    if price_change >= 50:
+                        # EXTREME breakout (+50%+) - very risky, small size
+                        breakout_strength = 60
+                        size_multiplier = 0.3  # Only 30% of normal size
+                        logger.warning(f"⚠️ EXTREME breakout {symbol} +{price_change:.1f}% - using 30% size")
+                    elif price_change >= 25:
+                        # BIG breakout (+25-50%) - risky, reduced size
+                        breakout_strength = 75
+                        size_multiplier = 0.5  # 50% of normal size
+                    else:
+                        # NORMAL breakout (+5-25%) - ideal
+                        breakout_strength = min(100, price_change * 10)
+                        size_multiplier = 1.0
+                    
+                # Bearish breakout (-5% and down)
+                elif price_change <= -5:
                     is_breakout = True
                     direction = 'short'
-                    breakout_strength = min(100, abs(price_change) * 10)
+                    
+                    abs_change = abs(price_change)
+                    if abs_change >= 50:
+                        breakout_strength = 60
+                        size_multiplier = 0.3
+                        logger.warning(f"⚠️ EXTREME dump {symbol} {price_change:.1f}% - using 30% size")
+                    elif abs_change >= 25:
+                        breakout_strength = 75
+                        size_multiplier = 0.5
+                    else:
+                        breakout_strength = min(100, abs_change * 10)
+                        size_multiplier = 1.0
                 
                 if is_breakout:
                     # Create opportunity with HIGH edge/confidence to bypass normal filters
@@ -958,28 +984,31 @@ class AutonomousTraderV2:
                         direction=direction,
                         edge_score=0.8,  # High edge to pass filters
                         confidence=breakout_strength,
-                        opportunity_score=breakout_strength,
+                        opportunity_score=breakout_strength * size_multiplier,  # Adjust score by risk
                         current_price=last_price,
                         price_change_24h=price_change,
                         volume_24h=volume,
                         should_trade=True,
-                        reasons=[f"🚀 BREAKOUT: {price_change:+.1f}% move detected!"],
+                        reasons=[f"🚀 BREAKOUT: {price_change:+.1f}% move (size: {size_multiplier*100:.0f}%)"],
                         timestamp=datetime.utcnow().isoformat()
                     )
+                    # Store size multiplier for position sizing
+                    opp.size_multiplier = size_multiplier
                     breakouts.append(opp)
-                    logger.info(f"🚀 BREAKOUT DETECTED: {symbol} {price_change:+.1f}% | Vol: ${volume/1000000:.1f}M")
+                    logger.info(f"🚀 BREAKOUT: {symbol} {price_change:+.1f}% | Vol: ${volume/1000000:.1f}M | Size: {size_multiplier*100:.0f}%")
             
-            # Sort by strength (biggest moves first)
-            breakouts.sort(key=lambda x: abs(x.price_change_24h), reverse=True)
+            # Sort by opportunity score (balances size and strength)
+            breakouts.sort(key=lambda x: x.opportunity_score, reverse=True)
             
             # Log if we found breakouts
             if breakouts:
-                await self._log_to_console(f"🚀 {len(breakouts)} BREAKOUTS detected! Top: {breakouts[0].symbol} {breakouts[0].price_change_24h:+.1f}%", "SIGNAL")
+                await self._log_to_console(f"🚀 {len(breakouts)} BREAKOUTS! Best: {breakouts[0].symbol} {breakouts[0].price_change_24h:+.1f}%", "SIGNAL")
             
         except Exception as e:
             logger.error(f"Breakout detection error: {e}")
         
-        return breakouts[:5]  # Return top 5 breakouts
+        # Return more breakouts for trading (up to 10)
+        return breakouts[:10]
     
     async def _find_opportunities(self, user_id: str, client: BybitV5Client, wallet: Dict):
         """Find and execute new trading opportunities"""
@@ -995,11 +1024,21 @@ class AutonomousTraderV2:
             
             for opp in breakouts:
                 num_positions = len(self.active_positions.get(user_id, {}))
+                
+                # Check if max positions reached
                 if self.max_open_positions > 0 and num_positions >= self.max_open_positions:
+                    logger.info(f"⚠️ BREAKOUT {opp.symbol} skipped - max positions ({self.max_open_positions}) reached")
+                    await self._log_to_console(f"⚠️ {opp.symbol} {opp.price_change_24h:+.1f}% skipped - max positions", "WARNING")
                     break
+                
+                # Check if already in this position
+                if opp.symbol in self.active_positions.get(user_id, {}):
+                    logger.debug(f"⚠️ BREAKOUT {opp.symbol} skipped - already in position")
+                    continue
                 
                 # Breakouts skip most validation - they're already high-conviction
                 logger.info(f"🚀 BREAKOUT TRADE: {opp.symbol} | {opp.price_change_24h:+.1f}%")
+                await self._log_to_console(f"🚀 TRADING BREAKOUT: {opp.symbol} {opp.price_change_24h:+.1f}%", "TRADE")
                 await self._execute_trade(user_id, client, opp, wallet)
             
             # === NORMAL OPPORTUNITY SCAN ===
