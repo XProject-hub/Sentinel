@@ -87,6 +87,9 @@ class ActivePosition:
     
     # Smart exit features (MICRO PROFIT)
     breakeven_active: bool = False  # SL moved to entry price
+    
+    # Breakout flag - to identify breakout positions on dashboard
+    is_breakout: bool = False
     partial_exit_done: bool = False  # 50% already taken
     original_size: float = 0.0  # Track original size for partial exits
 
@@ -810,6 +813,10 @@ class AutonomousTraderV2:
                 if user_id in self.active_positions:
                     if position.symbol in self.active_positions[user_id]:
                         del self.active_positions[user_id][position.symbol]
+                
+                # Remove breakout flag from Redis
+                if self.redis_client:
+                    await self.redis_client.hdel("positions:breakout", position.symbol)
                 
                 # ADD COOLDOWN: Prevent reopening this symbol for 60 seconds
                 self._cooldown_symbols[position.symbol] = datetime.utcnow()
@@ -1849,11 +1856,16 @@ class AutonomousTraderV2:
                     trailing_active=False,
                     position_value=position_value,
                     kelly_fraction=pos_size.kelly_fraction if pos_size else 0.5,
-                    leverage=leverage
+                    leverage=leverage,
+                    is_breakout=is_breakout  # Track if this was a breakout trade
                 )
                 
                 # Register in position sizer
                 await self.position_sizer.register_position(opp.symbol, position_value)
+                
+                # Store breakout flag in Redis for dashboard display
+                if is_breakout and self.redis_client:
+                    await self.redis_client.hset("positions:breakout", opp.symbol, "1")
                 
                 # Store trade event
                 await self._store_trade_event(opp.symbol, 'opened', 0, opp.direction)

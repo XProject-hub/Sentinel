@@ -43,6 +43,7 @@ interface Position {
   estimatedExitFee?: string
   leverage: string
   positionValue: string
+  isBreakout?: boolean  // Flag for breakout positions (+2 extra slots)
 }
 
 interface WalletData {
@@ -692,8 +693,15 @@ export default function DashboardPage() {
                       return (
                         <tr key={i} className="border-b border-white/5 hover:bg-white/[0.02]">
                           <td className="px-3 py-2">
-                            <span className="font-medium text-white text-sm">{pos.symbol.replace('USDT', '')}</span>
-                            <span className="text-gray-600 text-[10px]">/USDT</span>
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-medium text-white text-sm">{pos.symbol.replace('USDT', '')}</span>
+                              <span className="text-gray-600 text-[10px]">/USDT</span>
+                              {pos.isBreakout && (
+                                <span className="px-1.5 py-0.5 rounded bg-violet-500/20 text-violet-400 text-[8px] font-bold animate-pulse">
+                                  BREAKOUT
+                                </span>
+                              )}
+                            </div>
                           </td>
                           <td className="px-3 py-2">
                             <span className={`px-1.5 py-0.5 rounded text-[9px] font-medium ${

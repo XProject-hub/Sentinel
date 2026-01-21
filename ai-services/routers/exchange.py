@@ -885,6 +885,19 @@ async def get_positions():
     
     if not result.get("success"):
         return result
+    
+    # Get breakout positions from Redis
+    breakout_symbols = set()
+    try:
+        r = await get_redis()
+        breakout_data = await r.hgetall("positions:breakout")
+        for symbol, _ in breakout_data.items():
+            if isinstance(symbol, bytes):
+                breakout_symbols.add(symbol.decode())
+            else:
+                breakout_symbols.add(symbol)
+    except Exception as e:
+        logger.warning(f"Failed to get breakout positions: {e}")
         
     # Parse positions
     positions = []
@@ -893,6 +906,7 @@ async def get_positions():
     for pos in data.get("list", []):
         size = float(pos.get("size", 0))
         if size > 0:
+            symbol = pos.get("symbol")
             mark_price = float(pos.get("markPrice", 0))
             entry_price = float(pos.get("avgPrice", 0))
             # Calculate position value: size * mark price
@@ -912,7 +926,7 @@ async def get_positions():
             estimated_net_pnl = unrealized_pnl_gross - estimated_exit_fee
             
             positions.append({
-                "symbol": pos.get("symbol"),
+                "symbol": symbol,
                 "side": pos.get("side"),
                 "size": size,
                 "entryPrice": entry_price,
@@ -927,6 +941,7 @@ async def get_positions():
                 "stopLoss": pos.get("stopLoss"),
                 "createdTime": pos.get("createdTime"),
                 "updatedTime": pos.get("updatedTime"),
+                "isBreakout": symbol in breakout_symbols,  # Flag for breakout positions
             })
     
     # Sort by createdTime (oldest first) for stable display order
