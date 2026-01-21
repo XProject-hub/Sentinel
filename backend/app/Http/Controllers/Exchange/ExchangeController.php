@@ -42,73 +42,90 @@ class ExchangeController extends Controller
      */
     public function store(Request $request)
     {
-        $validated = $request->validate([
-            'exchange' => 'required|string|in:bybit,binance,okx',
-            'name' => 'required|string|max:50',
-            'api_key' => 'required|string|min:10',
-            'api_secret' => 'required|string|min:10',
-            'is_testnet' => 'boolean',
-        ]);
+        try {
+            $validated = $request->validate([
+                'exchange' => 'required|string|in:bybit,binance,okx',
+                'name' => 'required|string|max:50',
+                'api_key' => 'required|string|min:10',
+                'api_secret' => 'required|string|min:10',
+                'is_testnet' => 'boolean',
+            ]);
 
-        // Check if user already has a connection for this exchange
-        $existing = $request->user()->exchangeConnections()
-            ->where('exchange', $validated['exchange'])
-            ->first();
+            // Check if user already has a connection for this exchange
+            $existing = $request->user()->exchangeConnections()
+                ->where('exchange', $validated['exchange'])
+                ->first();
 
-        if ($existing) {
+            if ($existing) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'You already have a connection for this exchange. Please update or delete the existing one.',
+                ], 422);
+            }
+
+            // Verify API credentials before saving
+            $verification = $this->verifyCredentials(
+                $validated['exchange'],
+                $validated['api_key'],
+                $validated['api_secret'],
+                $validated['is_testnet'] ?? false
+            );
+
+            if (!$verification['valid']) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Invalid API credentials: ' . ($verification['error'] ?? 'Unknown error'),
+                ], 422);
+            }
+
+            // Create the connection
+            $connection = $request->user()->exchangeConnections()->create([
+                'exchange' => $validated['exchange'],
+                'name' => $validated['name'],
+                'api_key' => $validated['api_key'],
+                'api_secret' => $validated['api_secret'],
+                'is_testnet' => $validated['is_testnet'] ?? false,
+                'is_active' => true,
+                'permissions' => $verification['permissions'] ?? [],
+            ]);
+
+            // Sync to AI services (don't fail if this errors)
+            try {
+                $this->syncToAiServices($request->user()->id, $connection);
+            } catch (\Exception $syncError) {
+                Log::warning('Failed to sync to AI services', ['error' => $syncError->getMessage()]);
+            }
+
+            Log::info('Exchange connection created', [
+                'user_id' => $request->user()->id,
+                'exchange' => $validated['exchange'],
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Exchange connected successfully',
+                'data' => [
+                    'id' => $connection->id,
+                    'exchange' => $connection->exchange,
+                    'name' => $connection->name,
+                    'is_testnet' => $connection->is_testnet,
+                    'is_active' => $connection->is_active,
+                    'api_key_masked' => $connection->getMaskedApiKey(),
+                    'balance' => $verification['balance'] ?? null,
+                ],
+            ], 201);
+            
+        } catch (\Exception $e) {
+            Log::error('Exchange connection failed', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+            
             return response()->json([
                 'success' => false,
-                'message' => 'You already have a connection for this exchange. Please update or delete the existing one.',
-            ], 422);
+                'message' => 'Failed to connect exchange: ' . $e->getMessage(),
+            ], 500);
         }
-
-        // Verify API credentials before saving
-        $verification = $this->verifyCredentials(
-            $validated['exchange'],
-            $validated['api_key'],
-            $validated['api_secret'],
-            $validated['is_testnet'] ?? false
-        );
-
-        if (!$verification['valid']) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Invalid API credentials: ' . $verification['error'],
-            ], 422);
-        }
-
-        // Create the connection
-        $connection = $request->user()->exchangeConnections()->create([
-            'exchange' => $validated['exchange'],
-            'name' => $validated['name'],
-            'api_key' => $validated['api_key'],
-            'api_secret' => $validated['api_secret'],
-            'is_testnet' => $validated['is_testnet'] ?? false,
-            'is_active' => true,
-            'permissions' => $verification['permissions'] ?? [],
-        ]);
-
-        // Sync to AI services
-        $this->syncToAiServices($request->user()->id, $connection);
-
-        Log::info('Exchange connection created', [
-            'user_id' => $request->user()->id,
-            'exchange' => $validated['exchange'],
-        ]);
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Exchange connected successfully',
-            'data' => [
-                'id' => $connection->id,
-                'exchange' => $connection->exchange,
-                'name' => $connection->name,
-                'is_testnet' => $connection->is_testnet,
-                'is_active' => $connection->is_active,
-                'api_key_masked' => $connection->getMaskedApiKey(),
-                'balance' => $verification['balance'] ?? null,
-            ],
-        ], 201);
     }
 
     /**

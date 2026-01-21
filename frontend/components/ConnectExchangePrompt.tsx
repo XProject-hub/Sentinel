@@ -167,16 +167,16 @@ export default function ConnectExchangePrompt() {
               ))}
             </div>
 
-            {/* IP Whitelist Notice */}
-            <div className="p-4 bg-amber-500/5 border border-amber-500/20 rounded-xl mb-8 text-left">
+            {/* Optional IP Info */}
+            <div className="p-4 bg-gray-500/5 border border-gray-500/20 rounded-xl mb-8 text-left">
               <div className="flex items-start gap-3">
-                <Info className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" />
+                <Info className="w-5 h-5 text-gray-400 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="text-sm text-gray-300 mb-2">
-                    Add this IP to your Bybit API whitelist:
+                  <p className="text-sm text-gray-400 mb-2">
+                    <span className="text-gray-300">Optional:</span> If you enabled IP restrictions on your API key, add this IP:
                   </p>
                   <div className="flex items-center gap-2">
-                    <code className="px-3 py-1.5 bg-black/30 rounded-lg text-amber-400 font-mono text-sm">
+                    <code className="px-3 py-1.5 bg-black/30 rounded-lg text-gray-400 font-mono text-sm">
                       {SERVER_IP}
                     </code>
                     <button
@@ -190,6 +190,9 @@ export default function ConnectExchangePrompt() {
                       )}
                     </button>
                   </div>
+                  <p className="text-xs text-gray-500 mt-2">
+                    Tip: Leave IP whitelist empty on Bybit for unrestricted access
+                  </p>
                 </div>
               </div>
             </div>

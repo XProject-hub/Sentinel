@@ -163,7 +163,7 @@ export default function ConnectExchangePage() {
           ))}
         </div>
 
-        {/* Step 1: Whitelist IP */}
+        {/* Step 1: Setup Info */}
         {step === 1 && (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -173,39 +173,13 @@ export default function ConnectExchangePage() {
             <div className="text-center">
               <h1 className="text-3xl font-bold mb-4">Connect Your Exchange</h1>
               <p className="text-sentinel-text-secondary">
-                First, whitelist our server IP in your Bybit API settings
+                Create an API key on Bybit to connect your account
               </p>
-            </div>
-
-            {/* Server IP Card */}
-            <div className="p-6 rounded-2xl glass-card border-2 border-sentinel-accent-cyan">
-              <div className="flex items-center gap-3 mb-4">
-                <Server className="w-6 h-6 text-sentinel-accent-cyan" />
-                <span className="font-semibold">Server IP for Whitelisting</span>
-              </div>
-              
-              <div className="flex items-center gap-4">
-                <div className="flex-1 p-4 rounded-xl bg-sentinel-bg-primary font-mono text-2xl text-center">
-                  {SERVER_IP}
-                </div>
-                <button
-                  onClick={copyServerIP}
-                  className="p-4 rounded-xl bg-sentinel-accent-cyan text-sentinel-bg-primary hover:bg-opacity-90 transition-all"
-                >
-                  {copied ? <Check className="w-6 h-6" /> : <Copy className="w-6 h-6" />}
-                </button>
-              </div>
-
-              {copied && (
-                <p className="text-sentinel-accent-emerald text-sm mt-2 text-center">
-                  IP copied to clipboard!
-                </p>
-              )}
             </div>
 
             {/* Instructions */}
             <div className="p-6 rounded-2xl glass-card">
-              <h3 className="font-semibold mb-4">How to whitelist on Bybit:</h3>
+              <h3 className="font-semibold mb-4">How to create API key on Bybit:</h3>
               <ol className="space-y-3 text-sentinel-text-secondary">
                 <li className="flex gap-3">
                   <span className="w-6 h-6 rounded-full bg-sentinel-bg-tertiary flex items-center justify-center text-sm font-bold">1</span>
@@ -217,15 +191,15 @@ export default function ConnectExchangePage() {
                 </li>
                 <li className="flex gap-3">
                   <span className="w-6 h-6 rounded-full bg-sentinel-bg-tertiary flex items-center justify-center text-sm font-bold">3</span>
-                  <span>Create new API key or edit existing one</span>
+                  <span>Click <strong>Create New Key</strong></span>
                 </li>
                 <li className="flex gap-3">
                   <span className="w-6 h-6 rounded-full bg-sentinel-bg-tertiary flex items-center justify-center text-sm font-bold">4</span>
-                  <span>Add IP <strong>{SERVER_IP}</strong> to the whitelist</span>
+                  <span>Enable: <strong>Read</strong> and <strong>Trade</strong> permissions</span>
                 </li>
                 <li className="flex gap-3">
                   <span className="w-6 h-6 rounded-full bg-sentinel-bg-tertiary flex items-center justify-center text-sm font-bold">5</span>
-                  <span>Enable: <strong>Read</strong>, <strong>Trade</strong> (NO Withdraw!)</span>
+                  <span>Leave IP whitelist <strong>empty</strong> (for unrestricted access)</span>
                 </li>
               </ol>
 
@@ -239,6 +213,20 @@ export default function ConnectExchangePage() {
               </a>
             </div>
 
+            {/* Optional IP Info */}
+            <div className="p-4 rounded-xl bg-sentinel-bg-tertiary/50 border border-sentinel-bg-tertiary flex gap-3">
+              <Server className="w-5 h-5 text-gray-400 flex-shrink-0 mt-0.5" />
+              <div className="text-sm">
+                <p className="text-gray-400">
+                  <strong className="text-gray-300">Optional:</strong> If you prefer IP restrictions, add: 
+                  <code className="ml-2 px-2 py-0.5 bg-black/30 rounded text-gray-300">{SERVER_IP}</code>
+                  <button onClick={copyServerIP} className="ml-2 text-sentinel-accent-cyan hover:underline">
+                    {copied ? 'Copied!' : 'Copy'}
+                  </button>
+                </p>
+              </div>
+            </div>
+
             {/* Warning */}
             <div className="p-4 rounded-xl bg-sentinel-accent-amber/10 border border-sentinel-accent-amber/30 flex gap-3">
               <AlertTriangle className="w-5 h-5 text-sentinel-accent-amber flex-shrink-0 mt-0.5" />
@@ -246,7 +234,6 @@ export default function ConnectExchangePage() {
                 <strong className="text-sentinel-accent-amber">Security Notice:</strong>
                 <p className="text-sentinel-text-secondary mt-1">
                   NEVER enable Withdraw permissions. SENTINEL only needs Read and Trade access.
-                  Your funds remain safe on your exchange.
                 </p>
               </div>
             </div>
@@ -255,7 +242,7 @@ export default function ConnectExchangePage() {
               onClick={() => setStep(2)}
               className="w-full py-4 rounded-xl bg-gradient-to-r from-sentinel-accent-cyan to-sentinel-accent-emerald text-sentinel-bg-primary font-bold text-lg flex items-center justify-center gap-3"
             >
-              I've Whitelisted the IP <ArrowRight className="w-5 h-5" />
+              I Have My API Key <ArrowRight className="w-5 h-5" />
             </button>
           </motion.div>
         )}
