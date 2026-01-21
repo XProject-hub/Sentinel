@@ -344,10 +344,20 @@ export default function DashboardPage() {
   const startTrading = async () => {
     setIsTogglingBot(true)
     try {
-      await fetch(`/ai/exchange/trading/resume?user_id=${userId}`, { method: 'POST' })
-      setTradingStatus(prev => prev ? { ...prev, is_autonomous_trading: true, is_paused: false } : null)
+      console.log('Starting trading for user:', userId)
+      const response = await fetch(`/ai/exchange/trading/resume?user_id=${userId}`, { method: 'POST' })
+      const result = await response.json()
+      console.log('Start trading response:', result)
+      
+      if (result.success) {
+        setTradingStatus(prev => prev ? { ...prev, is_autonomous_trading: true, is_paused: false } : null)
+      } else {
+        console.error('Start trading failed:', result.error)
+        alert(`Failed to start trading: ${result.error || 'Unknown error'}`)
+      }
     } catch (error) {
       console.error('Failed to start:', error)
+      alert('Failed to start trading - check console for details')
     } finally {
       setIsTogglingBot(false)
     }

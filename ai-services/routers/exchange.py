@@ -1294,37 +1294,55 @@ async def resume_autonomous_trading(user_id: str = "default"):
     if user_id not in trader.user_clients:
         logger.info(f"User {user_id} not connected, attempting to connect...")
         
-        # Try to get credentials from Redis
         r = await get_redis()
-        creds = await r.hgetall(f"user:{user_id}:exchange:bybit")
+        api_key = None
+        api_secret = None
+        is_testnet = False
         
+        # Try multiple credential sources in order:
+        # 1. User-specific credentials (new format)
+        creds = await r.hgetall(f"user:{user_id}:exchange:bybit")
         if creds:
             api_key = simple_decrypt(creds.get(b"api_key", b"").decode())
             api_secret = simple_decrypt(creds.get(b"api_secret", b"").decode())
             is_testnet = creds.get(b"is_testnet", b"0").decode() == "1"
-            
-            if api_key and api_secret:
-                connected = await trader.connect_user(user_id, api_key, api_secret, is_testnet)
-                if connected:
-                    logger.info(f"User {user_id} auto-connected on resume")
-                else:
-                    return {"success": False, "error": "Failed to connect - check API credentials"}
-            else:
-                return {"success": False, "error": "No valid credentials found"}
-        else:
-            # Try legacy "default" credentials
+            logger.info(f"Found credentials for user:{user_id}:exchange:bybit")
+        
+        # 2. Try user:default:exchange:bybit (admin might use this)
+        if not api_key:
+            creds = await r.hgetall("user:default:exchange:bybit")
+            if creds:
+                api_key = simple_decrypt(creds.get(b"api_key", b"").decode())
+                api_secret = simple_decrypt(creds.get(b"api_secret", b"").decode())
+                is_testnet = creds.get(b"is_testnet", b"0").decode() == "1"
+                logger.info("Found credentials for user:default:exchange:bybit")
+        
+        # 3. Try legacy format (exchange:credentials:default)
+        if not api_key:
             legacy_creds = await r.hgetall("exchange:credentials:default")
-            if legacy_creds and user_id == "default":
+            if legacy_creds:
                 api_key = simple_decrypt(legacy_creds.get(b"api_key", b"").decode())
                 api_secret = simple_decrypt(legacy_creds.get(b"api_secret", b"").decode())
                 is_testnet = legacy_creds.get(b"testnet", b"0").decode() == "1"
-                
-                if api_key and api_secret:
-                    connected = await trader.connect_user(user_id, api_key, api_secret, is_testnet)
-                    if connected:
-                        logger.info(f"User {user_id} auto-connected from legacy credentials")
+                logger.info("Found credentials in legacy exchange:credentials:default")
+        
+        # 4. Try trading:enabled:{user_id} (old auto-reconnect format)
+        if not api_key:
+            enabled_creds = await r.hgetall(f"trading:enabled:{user_id}")
+            if enabled_creds:
+                api_key = simple_decrypt(enabled_creds.get(b"api_key", b"").decode())
+                api_secret = simple_decrypt(enabled_creds.get(b"api_secret", b"").decode())
+                logger.info(f"Found credentials in trading:enabled:{user_id}")
+        
+        if api_key and api_secret:
+            connected = await trader.connect_user(user_id, api_key, api_secret, is_testnet)
+            if connected:
+                logger.info(f"User {user_id} auto-connected on resume")
             else:
-                return {"success": False, "error": "No credentials found - please connect exchange first"}
+                return {"success": False, "error": "Failed to connect - check API credentials"}
+        else:
+            logger.error(f"No credentials found for user {user_id}")
+            return {"success": False, "error": "No credentials found - please connect exchange first"}
     
     # Now resume trading
     await trader.resume_trading(user_id)
