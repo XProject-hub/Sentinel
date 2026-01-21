@@ -2,168 +2,196 @@
 
 import { useState } from 'react'
 import { motion } from 'framer-motion'
-import { Eye, EyeOff, ArrowRight, Check, AlertCircle } from 'lucide-react'
 import Link from 'next/link'
+import { 
+  Brain, 
+  Mail, 
+  Lock, 
+  User,
+  Eye, 
+  EyeOff, 
+  ArrowRight,
+  AlertCircle,
+  Loader2,
+  CheckCircle,
+  Zap,
+  Shield,
+  TrendingUp
+} from 'lucide-react'
 
 export default function RegisterPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
-  const [error, setError] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const [success, setSuccess] = useState(false)
+  
   const [formData, setFormData] = useState({
     name: '',
     email: '',
     password: '',
-    confirmPassword: '',
+    password_confirmation: ''
   })
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsLoading(true)
-    setError('')
+    setError(null)
 
     // Validate passwords match
-    if (formData.password !== formData.confirmPassword) {
+    if (formData.password !== formData.password_confirmation) {
       setError('Passwords do not match')
       setIsLoading(false)
       return
     }
 
     // Validate password strength
-    if (passwordStrength() < 2) {
-      setError('Password is too weak. Use at least 8 characters with uppercase and numbers.')
+    if (formData.password.length < 8) {
+      setError('Password must be at least 8 characters')
       setIsLoading(false)
       return
     }
 
     try {
-      // Call real backend API
       const response = await fetch('/api/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: formData.name,
-          email: formData.email,
-          password: formData.password,
-          password_confirmation: formData.confirmPassword,
-        })
+        body: JSON.stringify(formData)
       })
 
       const data = await response.json()
 
-      if (data.success) {
-        // Store user session
-        localStorage.setItem('sentinel_user', JSON.stringify({
-          ...data.data.user,
-          token: data.data.token,
-          isAdmin: false
-        }))
-        window.location.href = '/dashboard'
+      if (response.ok) {
+        setSuccess(true)
       } else {
-        // Handle validation errors
-        if (data.errors) {
-          const firstError = Object.values(data.errors)[0]
-          setError(Array.isArray(firstError) ? firstError[0] : String(firstError))
-        } else {
-          setError(data.message || 'Registration failed. Please try again.')
-        }
+        setError(data.message || data.error || 'Registration failed')
       }
     } catch (err) {
-      setError('Unable to connect to server. Please try again later.')
+      setError('Connection failed. Please try again.')
     } finally {
       setIsLoading(false)
     }
   }
 
-  const passwordStrength = () => {
-    const password = formData.password
-    let strength = 0
-    if (password.length >= 8) strength++
-    if (/[A-Z]/.test(password)) strength++
-    if (/[0-9]/.test(password)) strength++
-    if (/[^A-Za-z0-9]/.test(password)) strength++
-    return strength
+  // Success Screen
+  if (success) {
+    return (
+      <div className="min-h-screen bg-[#0a0f1a] flex items-center justify-center p-8">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 0.5 }}
+          className="w-full max-w-md text-center"
+        >
+          <div className="w-20 h-20 rounded-full bg-gradient-to-br from-emerald-500 to-green-600 flex items-center justify-center mx-auto mb-8 shadow-2xl shadow-emerald-500/30">
+            <CheckCircle className="w-10 h-10 text-white" />
+          </div>
+          
+          <h1 className="text-3xl font-bold text-white mb-4">Registration Successful!</h1>
+          <p className="text-gray-400 mb-8 leading-relaxed">
+            Your account has been created successfully. 
+            Please sign in to access your trading dashboard.
+          </p>
+          
+          <Link 
+            href="/login" 
+            className="inline-flex items-center gap-2 px-8 py-4 bg-gradient-to-r from-cyan-500 to-blue-600 text-white rounded-xl font-semibold hover:shadow-lg hover:shadow-cyan-500/25 transition-all"
+          >
+            Continue to Sign In
+            <ArrowRight className="w-5 h-5" />
+          </Link>
+          
+          <p className="mt-8 text-sm text-gray-500">
+            Check your email for verification link (if enabled)
+          </p>
+        </motion.div>
+      </div>
+    )
   }
 
-  const strengthColors = ['bg-sentinel-accent-crimson', 'bg-sentinel-accent-amber', 'bg-sentinel-accent-amber', 'bg-sentinel-accent-emerald']
-  const strengthLabels = ['Weak', 'Fair', 'Good', 'Strong']
-
   return (
-    <div className="min-h-screen flex">
-      {/* Left Panel - Visual */}
-      <div className="hidden lg:flex flex-1 bg-sentinel-bg-secondary relative overflow-hidden">
-        <div className="absolute inset-0 bg-grid-pattern bg-grid opacity-20" />
-        <div className="absolute top-1/3 left-1/4 w-[500px] h-[500px] bg-glow-cyan opacity-40" />
-        <div className="absolute bottom-1/3 right-1/4 w-[400px] h-[400px] bg-glow-emerald opacity-30" />
+    <div className="min-h-screen bg-[#0a0f1a] flex">
+      {/* Left Side - Visual */}
+      <div className="hidden lg:flex w-1/2 bg-gradient-to-br from-cyan-500/10 via-blue-500/5 to-violet-500/10 items-center justify-center p-12 relative overflow-hidden">
+        {/* Background Effects */}
+        <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.02)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.02)_1px,transparent_1px)] bg-[size:48px_48px]" />
+        <div className="absolute top-1/4 left-1/4 w-72 h-72 bg-cyan-500/20 rounded-full blur-3xl" />
+        <div className="absolute bottom-1/4 right-1/4 w-72 h-72 bg-violet-500/20 rounded-full blur-3xl" />
         
-        <div className="relative z-10 flex flex-col justify-center px-16">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.3, duration: 0.6 }}
-          >
-            <h2 className="text-4xl font-display font-bold mb-6 leading-tight">
-              Your Autonomous
-              <br />
-              <span className="text-gradient-emerald">Digital Trader</span>
-            </h2>
-            <p className="text-xl text-sentinel-text-secondary leading-relaxed max-w-md mb-12">
-              Join thousands of traders who trust SENTINEL AI to protect and grow their capital.
-            </p>
-
-            {/* Features */}
-            <div className="space-y-4">
-              {[
-                'Real-time market intelligence',
-                'AI-powered strategy selection',
-                'Automated risk management',
-                'Capital protection system',
-              ].map((feature, idx) => (
-                <motion.div
-                  key={feature}
-                  initial={{ opacity: 0, x: -20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: 0.5 + idx * 0.1 }}
-                  className="flex items-center gap-3"
-                >
-                  <div className="w-6 h-6 rounded-full bg-sentinel-accent-emerald/20 flex items-center justify-center">
-                    <Check className="w-4 h-4 text-sentinel-accent-emerald" />
-                  </div>
-                  <span className="text-sentinel-text-primary">{feature}</span>
-                </motion.div>
-              ))}
-            </div>
-          </motion.div>
-        </div>
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 0.6, delay: 0.2 }}
+          className="relative max-w-lg"
+        >
+          <h2 className="text-4xl font-bold text-white mb-6">
+            Start Your
+            <span className="block text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-violet-400">
+              AI Trading Journey
+            </span>
+          </h2>
+          
+          <p className="text-gray-400 mb-10 leading-relaxed">
+            Join thousands of traders who trust Sentinel to automate their trading strategy 
+            with advanced artificial intelligence.
+          </p>
+          
+          <div className="space-y-4">
+            {[
+              { icon: Zap, title: '24/7 Autonomous Trading', desc: 'AI never sleeps - trades execute around the clock' },
+              { icon: Shield, title: 'Risk Management', desc: 'Intelligent position sizing and stop losses' },
+              { icon: TrendingUp, title: 'Continuous Learning', desc: 'AI improves with every trade execution' }
+            ].map((item, i) => (
+              <motion.div
+                key={i}
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ duration: 0.5, delay: 0.3 + i * 0.1 }}
+                className="flex items-start gap-4 p-4 bg-white/5 rounded-xl border border-white/10"
+              >
+                <div className="w-10 h-10 rounded-lg bg-cyan-500/20 flex items-center justify-center flex-shrink-0">
+                  <item.icon className="w-5 h-5 text-cyan-400" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-white mb-1">{item.title}</h3>
+                  <p className="text-sm text-gray-400">{item.desc}</p>
+                </div>
+              </motion.div>
+            ))}
+          </div>
+        </motion.div>
       </div>
 
-      {/* Right Panel - Form */}
-      <div className="flex-1 flex flex-col justify-center px-8 lg:px-16 xl:px-24">
+      {/* Right Side - Form */}
+      <div className="w-full lg:w-1/2 flex items-center justify-center p-8">
         <motion.div
           initial={{ opacity: 0, x: 20 }}
           animate={{ opacity: 1, x: 0 }}
           transition={{ duration: 0.5 }}
-          className="max-w-md w-full mx-auto"
+          className="w-full max-w-md"
         >
           {/* Logo */}
           <Link href="/" className="inline-flex items-center gap-3 mb-12">
-            <span className="font-display font-bold text-3xl text-white">SENTINEL</span>
+            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center">
+              <Brain className="w-7 h-7 text-white" />
+            </div>
+            <span className="text-2xl font-bold text-white tracking-tight">SENTINEL</span>
           </Link>
 
           {/* Header */}
-          <h1 className="text-3xl font-bold mb-2">Create Account</h1>
-          <p className="text-sentinel-text-secondary mb-8">
-            Start your journey with autonomous AI trading.
-          </p>
+          <div className="mb-8">
+            <h1 className="text-3xl font-bold text-white mb-2">Create account</h1>
+            <p className="text-gray-400">Start your AI trading journey today</p>
+          </div>
 
           {/* Error Message */}
           {error && (
             <motion.div
               initial={{ opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}
-              className="flex items-center gap-3 p-4 rounded-xl bg-sentinel-accent-crimson/10 border border-sentinel-accent-crimson/30 mb-6"
+              className="mb-6 p-4 bg-red-500/10 border border-red-500/20 rounded-xl flex items-center gap-3"
             >
-              <AlertCircle className="w-5 h-5 text-sentinel-accent-crimson flex-shrink-0" />
-              <span className="text-sentinel-accent-crimson text-sm">{error}</span>
+              <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0" />
+              <span className="text-red-400 text-sm">{error}</span>
             </motion.div>
           )}
 
@@ -171,127 +199,100 @@ export default function RegisterPage() {
           <form onSubmit={handleSubmit} className="space-y-5">
             {/* Name */}
             <div>
-              <label className="block text-sm font-medium text-sentinel-text-secondary mb-2">
+              <label className="block text-sm font-medium text-gray-300 mb-2">
                 Full Name
               </label>
-              <input
-                type="text"
-                value={formData.name}
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                className="w-full px-4 py-3 rounded-xl bg-sentinel-bg-secondary border border-sentinel-border focus:border-sentinel-accent-cyan focus:outline-none focus:ring-1 focus:ring-sentinel-accent-cyan transition-all text-sentinel-text-primary"
-                placeholder="John Doe"
-                required
-              />
+              <div className="relative">
+                <User className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
+                <input
+                  type="text"
+                  value={formData.name}
+                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  className="w-full pl-12 pr-4 py-3.5 bg-white/5 border border-white/10 rounded-xl text-white placeholder-gray-500 focus:border-cyan-500/50 focus:ring-2 focus:ring-cyan-500/20 focus:outline-none transition-all"
+                  placeholder="John Doe"
+                  required
+                />
+              </div>
             </div>
 
             {/* Email */}
             <div>
-              <label className="block text-sm font-medium text-sentinel-text-secondary mb-2">
+              <label className="block text-sm font-medium text-gray-300 mb-2">
                 Email Address
               </label>
-              <input
-                type="email"
-                value={formData.email}
-                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                className="w-full px-4 py-3 rounded-xl bg-sentinel-bg-secondary border border-sentinel-border focus:border-sentinel-accent-cyan focus:outline-none focus:ring-1 focus:ring-sentinel-accent-cyan transition-all text-sentinel-text-primary"
-                placeholder="you@example.com"
-                required
-              />
+              <div className="relative">
+                <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
+                <input
+                  type="email"
+                  value={formData.email}
+                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                  className="w-full pl-12 pr-4 py-3.5 bg-white/5 border border-white/10 rounded-xl text-white placeholder-gray-500 focus:border-cyan-500/50 focus:ring-2 focus:ring-cyan-500/20 focus:outline-none transition-all"
+                  placeholder="you@example.com"
+                  required
+                />
+              </div>
             </div>
 
             {/* Password */}
             <div>
-              <label className="block text-sm font-medium text-sentinel-text-secondary mb-2">
+              <label className="block text-sm font-medium text-gray-300 mb-2">
                 Password
               </label>
               <div className="relative">
+                <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
                 <input
                   type={showPassword ? 'text' : 'password'}
                   value={formData.password}
                   onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                  className="w-full px-4 py-3 pr-12 rounded-xl bg-sentinel-bg-secondary border border-sentinel-border focus:border-sentinel-accent-cyan focus:outline-none focus:ring-1 focus:ring-sentinel-accent-cyan transition-all text-sentinel-text-primary"
-                  placeholder="Create a strong password"
+                  className="w-full pl-12 pr-12 py-3.5 bg-white/5 border border-white/10 rounded-xl text-white placeholder-gray-500 focus:border-cyan-500/50 focus:ring-2 focus:ring-cyan-500/20 focus:outline-none transition-all"
+                  placeholder="Min. 8 characters"
                   required
-                  minLength={8}
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-4 top-1/2 -translate-y-1/2 text-sentinel-text-muted hover:text-sentinel-text-secondary"
+                  className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300 transition-colors"
                 >
                   {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                 </button>
               </div>
-              
-              {/* Password Strength */}
-              {formData.password && (
-                <div className="mt-3">
-                  <div className="flex gap-1 mb-2">
-                    {[0, 1, 2, 3].map((idx) => (
-                      <div
-                        key={idx}
-                        className={`h-1 flex-1 rounded-full transition-all ${
-                          idx < passwordStrength() ? strengthColors[passwordStrength() - 1] : 'bg-sentinel-bg-tertiary'
-                        }`}
-                      />
-                    ))}
-                  </div>
-                  <span className={`text-xs ${
-                    passwordStrength() >= 3 ? 'text-sentinel-accent-emerald' : 
-                    passwordStrength() >= 2 ? 'text-sentinel-accent-amber' : 'text-sentinel-accent-crimson'
-                  }`}>
-                    {strengthLabels[passwordStrength() - 1] || 'Too weak'}
-                  </span>
-                </div>
-              )}
             </div>
 
             {/* Confirm Password */}
             <div>
-              <label className="block text-sm font-medium text-sentinel-text-secondary mb-2">
+              <label className="block text-sm font-medium text-gray-300 mb-2">
                 Confirm Password
               </label>
-              <input
-                type="password"
-                value={formData.confirmPassword}
-                onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })}
-                className={`w-full px-4 py-3 rounded-xl bg-sentinel-bg-secondary border focus:outline-none focus:ring-1 transition-all text-sentinel-text-primary ${
-                  formData.confirmPassword && formData.confirmPassword !== formData.password
-                    ? 'border-sentinel-accent-crimson focus:border-sentinel-accent-crimson focus:ring-sentinel-accent-crimson'
-                    : 'border-sentinel-border focus:border-sentinel-accent-cyan focus:ring-sentinel-accent-cyan'
-                }`}
-                placeholder="Confirm your password"
-                required
-              />
-              {formData.confirmPassword && formData.confirmPassword !== formData.password && (
-                <p className="text-xs text-sentinel-accent-crimson mt-2">Passwords do not match</p>
-              )}
+              <div className="relative">
+                <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  value={formData.password_confirmation}
+                  onChange={(e) => setFormData({ ...formData, password_confirmation: e.target.value })}
+                  className="w-full pl-12 pr-4 py-3.5 bg-white/5 border border-white/10 rounded-xl text-white placeholder-gray-500 focus:border-cyan-500/50 focus:ring-2 focus:ring-cyan-500/20 focus:outline-none transition-all"
+                  placeholder="Repeat your password"
+                  required
+                />
+              </div>
             </div>
 
             {/* Terms */}
-            <div className="flex items-start gap-3 pt-2">
-              <input
-                type="checkbox"
-                id="terms"
-                required
-                className="mt-1 w-4 h-4 rounded border-sentinel-border bg-sentinel-bg-secondary text-sentinel-accent-cyan focus:ring-sentinel-accent-cyan"
-              />
-              <label htmlFor="terms" className="text-sm text-sentinel-text-secondary">
-                I agree to the{' '}
-                <Link href="/terms" className="text-sentinel-accent-cyan hover:underline">Terms of Service</Link>
-                {' '}and{' '}
-                <Link href="/privacy" className="text-sentinel-accent-cyan hover:underline">Privacy Policy</Link>
-              </label>
-            </div>
+            <p className="text-xs text-gray-500">
+              By creating an account, you agree to our Terms of Service and Privacy Policy. 
+              Trading involves risk.
+            </p>
 
             {/* Submit Button */}
             <button
               type="submit"
-              disabled={isLoading || formData.password !== formData.confirmPassword}
-              className="w-full py-4 rounded-xl bg-gradient-to-r from-sentinel-accent-cyan to-sentinel-accent-emerald text-sentinel-bg-primary font-bold text-lg flex items-center justify-center gap-3 hover:shadow-glow-cyan transition-all disabled:opacity-50"
+              disabled={isLoading}
+              className="w-full py-4 bg-gradient-to-r from-cyan-500 to-blue-600 text-white rounded-xl font-semibold hover:shadow-lg hover:shadow-cyan-500/25 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
             >
               {isLoading ? (
-                <div className="w-6 h-6 border-2 border-sentinel-bg-primary border-t-transparent rounded-full animate-spin" />
+                <>
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  Creating account...
+                </>
               ) : (
                 <>
                   Create Account
@@ -302,9 +303,9 @@ export default function RegisterPage() {
           </form>
 
           {/* Login Link */}
-          <p className="text-center text-sentinel-text-secondary mt-8">
+          <p className="mt-8 text-center text-gray-400">
             Already have an account?{' '}
-            <Link href="/login" className="text-sentinel-accent-cyan hover:underline font-medium">
+            <Link href="/login" className="text-cyan-400 hover:text-cyan-300 font-medium transition-colors">
               Sign in
             </Link>
           </p>

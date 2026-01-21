@@ -1,880 +1,471 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
+import Link from 'next/link'
 import { 
-  Users, 
-  Brain, 
+  Brain,
+  ArrowLeft,
+  Users,
   Activity,
   Server,
-  Database,
-  TrendingUp,
-  AlertTriangle,
-  ChevronRight,
-  Settings,
-  LogOut,
   RefreshCw,
   Loader2,
+  CheckCircle,
+  AlertTriangle,
+  TrendingUp,
+  Target,
+  Database,
   Cpu,
   HardDrive,
+  Zap,
   BarChart3,
-  Clock
+  Clock,
+  Shield,
+  LogOut
 } from 'lucide-react'
-import Link from 'next/link'
+
+interface User {
+  id: string
+  email: string
+  name: string
+  exchange: string | null
+  exchangeConnected: boolean
+  isActive: boolean
+  isPaused: boolean
+  isAdmin: boolean
+  createdAt: string
+  totalTrades: number
+  totalPnl: number
+  winRate: number
+}
+
+interface AIModel {
+  name: string
+  progress: number
+  dataPoints: number
+  status: 'learning' | 'ready' | 'expert'
+  lastUpdate: string
+}
 
 interface SystemStats {
+  cpu_percent: number
+  memory_percent: number
+  disk_percent: number
+  data_disk_percent: number
   uptime: string
-  cpuUsage: number
-  memoryUsage: number
-  diskUsage: number
-  activeConnections: number
+  services: { name: string; status: string; healthy: boolean }[]
 }
 
 export default function AdminPage() {
-  const [activeTab, setActiveTab] = useState('overview')
+  const [activeTab, setActiveTab] = useState<'users' | 'ai' | 'system'>('users')
   const [isLoading, setIsLoading] = useState(true)
-  const [isRefreshing, setIsRefreshing] = useState(false)
-  const [initialLoadDone, setInitialLoadDone] = useState(false)
-  const [user, setUser] = useState<any>(null)
+  const [users, setUsers] = useState<User[]>([])
+  const [aiModels, setAiModels] = useState<AIModel[]>([])
   const [systemStats, setSystemStats] = useState<SystemStats | null>(null)
-  const [users, setUsers] = useState<any[]>([])
-  const [aiStats, setAiStats] = useState<any>(null)
-  const [serviceHealth, setServiceHealth] = useState<any>(null)
-  const [lastUpdate, setLastUpdate] = useState<Date>(new Date())
 
   useEffect(() => {
-    // Check if admin
-    const storedUser = localStorage.getItem('sentinel_user')
-    if (storedUser) {
-      const userData = JSON.parse(storedUser)
-      if (!userData.isAdmin) {
-        window.location.href = '/dashboard'
-        return
-      }
-      setUser(userData)
-    } else {
-      window.location.href = '/login'
-      return
-    }
-    
-    // Initial load
-    loadData(true)
-    
-    // Auto-refresh every 5 seconds - SILENT background update
-    const interval = setInterval(() => {
-      loadData(false)
-    }, 5000)
-    
+    loadData()
+    const interval = setInterval(loadData, 10000)
     return () => clearInterval(interval)
-  }, [])
-  
-  const loadData = async (showLoading: boolean = false) => {
-    // Only show loading spinner on initial load
-    if (showLoading && !initialLoadDone) {
-      setIsLoading(true)
-    }
-    
-    try {
-      // Load all data in parallel for speed
-      const [statsRes, usersRes, aiAdminRes, aiRes, eventsRes, learningStatusRes, servicesRes] = await Promise.all([
-        fetch('/ai/admin/system'),
-        fetch('/ai/admin/users'),
-        fetch('/ai/admin/ai-stats'),
-        fetch('/ai/learning/stats'),
-        fetch('/ai/learning/events?limit=10'),
-        fetch('/ai/exchange/learning/status'),
-        fetch('/ai/admin/services')
-      ])
-      
-      const [statsData, usersData, aiAdminData, aiData, eventsData, learningStatusData, servicesData] = await Promise.all([
-        statsRes.json(),
-        usersRes.json(),
-        aiAdminRes.json(),
-        aiRes.json(),
-        eventsRes.json(),
-        learningStatusRes.json(),
-        servicesRes.json()
-      ])
-      
-      if (statsData.success) {
-        setSystemStats(statsData.data)
-      }
+  }, [activeTab])
 
-      if (usersData.success) {
-        setUsers(usersData.data.users || [])
+  const loadData = async () => {
+    try {
+      if (activeTab === 'users') {
+        const response = await fetch('/ai/admin/users')
+        if (response.ok) {
+          const data = await response.json()
+          setUsers(data.data?.users || [])
+        }
+      } else if (activeTab === 'ai') {
+        const response = await fetch('/ai/admin/ai-stats')
+        if (response.ok) {
+          const data = await response.json()
+          if (data.models) {
+            setAiModels(data.models)
+          }
+        }
+      } else if (activeTab === 'system') {
+        const response = await fetch('/ai/admin/system')
+        if (response.ok) {
+          const data = await response.json()
+          setSystemStats(data)
+        }
       }
-      
-      if (servicesData.success) {
-        setServiceHealth(servicesData.data)
-      }
-      
-      // Combine all AI data
-      setAiStats({
-        ...(aiData.success ? aiData.data : {}),
-        ...(aiAdminData.success ? aiAdminData.data : {}),
-        recentDecisions: eventsData.success ? eventsData.data : [],
-        learningStatus: learningStatusData.success ? learningStatusData.data : null
-      })
-      
-      setLastUpdate(new Date())
-      setInitialLoadDone(true)
     } catch (error) {
-      console.error('Failed to load admin data:', error)
+      console.error('Failed to load data:', error)
     } finally {
       setIsLoading(false)
-      setIsRefreshing(false)
     }
-  }
-
-  const refreshData = async () => {
-    setIsRefreshing(true)
-    await loadData(false) // Silent refresh, no loading spinner
   }
 
   const handleLogout = () => {
     localStorage.removeItem('sentinel_user')
+    localStorage.removeItem('token')
     window.location.href = '/login'
   }
 
   const tabs = [
-    { id: 'overview', label: 'Overview', icon: BarChart3 },
     { id: 'users', label: 'Users', icon: Users },
     { id: 'ai', label: 'AI Learning', icon: Brain },
-    { id: 'system', label: 'System', icon: Server },
+    { id: 'system', label: 'System', icon: Server }
   ]
 
-  if (isLoading) {
-    return (
-      <div className="min-h-screen bg-sentinel-bg-primary flex items-center justify-center">
-        <div className="text-center">
-          <Loader2 className="w-12 h-12 text-sentinel-accent-cyan animate-spin mx-auto mb-4" />
-          <p className="text-sentinel-text-secondary">Loading admin panel...</p>
-        </div>
-      </div>
-    )
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'learning': return 'text-amber-400 bg-amber-500/10'
+      case 'ready': return 'text-cyan-400 bg-cyan-500/10'
+      case 'expert': return 'text-emerald-400 bg-emerald-500/10'
+      default: return 'text-gray-400 bg-gray-500/10'
+    }
   }
 
   return (
-    <div className="min-h-screen bg-sentinel-bg-primary">
-      {/* Top Navigation */}
-      <nav className="sticky top-0 z-50 glass-card border-b border-sentinel-border">
-        <div className="w-full max-w-[2000px] mx-auto px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="font-display font-bold text-xl text-white">SENTINEL</span>
-                <span className="text-sentinel-text-muted">|</span>
-                <span className="font-display font-bold text-lg">Admin</span>
+    <div className="min-h-screen bg-[#0a0f1a]">
+      {/* Header */}
+      <header className="sticky top-0 z-50 bg-[#0a0f1a]/95 backdrop-blur-xl border-b border-white/5">
+        <div className="w-full px-6 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <Link 
+                href="/dashboard" 
+                className="p-2 rounded-lg bg-white/5 hover:bg-white/10 transition-colors"
+              >
+                <ArrowLeft className="w-5 h-5 text-gray-400" />
+              </Link>
+              <div>
+                <h1 className="text-xl font-bold text-white">Admin Panel</h1>
+                <p className="text-sm text-gray-500">System management & monitoring</p>
               </div>
-              <div className="flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-sentinel-accent-emerald live-pulse" />
-                <span className="text-xs text-sentinel-text-muted">System Management</span>
-              </div>
+            </div>
+            
+            <div className="flex items-center gap-3">
+              <button
+                onClick={loadData}
+                className="p-2.5 rounded-lg bg-white/5 hover:bg-white/10 transition-colors"
+              >
+                <RefreshCw className={`w-5 h-5 text-gray-400 ${isLoading ? 'animate-spin' : ''}`} />
+              </button>
+              
+              <Link
+                href="/dashboard"
+                className="px-4 py-2 rounded-lg bg-cyan-500/10 text-cyan-400 text-sm font-medium hover:bg-cyan-500/20 transition-colors"
+              >
+                Dashboard
+              </Link>
+              
+              <button 
+                onClick={handleLogout}
+                className="p-2.5 rounded-lg bg-white/5 hover:bg-white/10 transition-colors"
+              >
+                <LogOut className="w-5 h-5 text-gray-400" />
+              </button>
             </div>
           </div>
 
-          <div className="flex items-center gap-4">
-            <button 
-              onClick={refreshData}
-              className={`p-2 rounded-lg hover:bg-sentinel-bg-tertiary transition-colors ${isRefreshing ? 'animate-spin' : ''}`}
-            >
-              <RefreshCw className="w-5 h-5 text-sentinel-text-secondary" />
-            </button>
-            <Link href="/dashboard" className="px-3 py-1.5 rounded-lg bg-sentinel-accent-cyan/20 text-sentinel-accent-cyan text-sm font-medium hover:bg-sentinel-accent-cyan/30 transition-colors">
-              Dashboard
-            </Link>
-            <div className="w-px h-8 bg-sentinel-border" />
-            <button onClick={handleLogout} className="p-2 rounded-lg hover:bg-sentinel-bg-tertiary transition-colors">
-              <LogOut className="w-5 h-5 text-sentinel-text-secondary" />
-            </button>
+          {/* Tabs */}
+          <div className="flex gap-1 mt-4">
+            {tabs.map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => { setActiveTab(tab.id as any); setIsLoading(true) }}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                  activeTab === tab.id
+                    ? 'bg-white/10 text-white'
+                    : 'text-gray-400 hover:text-white hover:bg-white/5'
+                }`}
+              >
+                <tab.icon className="w-4 h-4" />
+                {tab.label}
+              </button>
+            ))}
           </div>
         </div>
-      </nav>
+      </header>
 
-      <div className="flex">
-        {/* Sidebar */}
-        <aside className="w-64 min-h-[calc(100vh-4rem)] border-r border-sentinel-border p-4">
-          <nav className="space-y-1">
-            {tabs.map((tab) => {
-              const Icon = tab.icon
-              return (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
-                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
-                    activeTab === tab.id 
-                      ? 'bg-sentinel-accent-cyan/10 text-sentinel-accent-cyan' 
-                      : 'text-sentinel-text-secondary hover:bg-sentinel-bg-tertiary'
-                  }`}
-                >
-                  <Icon className="w-5 h-5" />
-                  <span className="font-medium">{tab.label}</span>
-                </button>
-              )
-            })}
-          </nav>
-        </aside>
+      {/* Main Content */}
+      <main className="p-6">
+        {/* Users Tab */}
+        {activeTab === 'users' && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="bg-white/[0.02] rounded-2xl border border-white/5 overflow-hidden"
+          >
+            <div className="p-5 border-b border-white/5 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Users className="w-5 h-5 text-cyan-400" />
+                <h2 className="font-semibold text-white">Registered Users</h2>
+              </div>
+              <span className="text-sm text-gray-500">Total: {users.length}</span>
+            </div>
 
-        {/* Main Content */}
-        <main className="flex-1 p-8">
-          {activeTab === 'overview' && (
-            <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-            >
-              <div className="flex items-center justify-between mb-8">
-                <h1 className="text-2xl font-bold">Overview</h1>
-                <div className="flex items-center gap-2 text-sm text-sentinel-text-muted">
-                  <span className="w-2 h-2 rounded-full bg-sentinel-accent-emerald live-pulse" />
-                  Real-time • {lastUpdate.toLocaleTimeString()}
-                </div>
+            {isLoading ? (
+              <div className="p-12 flex justify-center">
+                <Loader2 className="w-8 h-8 text-cyan-400 animate-spin" />
+              </div>
+            ) : users.length === 0 ? (
+              <div className="p-12 text-center">
+                <Users className="w-12 h-12 text-gray-600 mx-auto mb-4" />
+                <p className="text-gray-500">No users found</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-white/5">
+                      <th className="text-left text-xs font-medium text-gray-500 px-5 py-3">User</th>
+                      <th className="text-left text-xs font-medium text-gray-500 px-5 py-3">Exchange</th>
+                      <th className="text-left text-xs font-medium text-gray-500 px-5 py-3">Status</th>
+                      <th className="text-right text-xs font-medium text-gray-500 px-5 py-3">Trades</th>
+                      <th className="text-right text-xs font-medium text-gray-500 px-5 py-3">Win Rate</th>
+                      <th className="text-right text-xs font-medium text-gray-500 px-5 py-3">P&L</th>
+                      <th className="text-right text-xs font-medium text-gray-500 px-5 py-3">Joined</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {users.map((user) => (
+                      <tr key={user.id} className="border-b border-white/5 hover:bg-white/[0.02]">
+                        <td className="px-5 py-4">
+                          <div className="flex items-center gap-3">
+                            <div className={`w-2 h-2 rounded-full ${user.isActive ? 'bg-emerald-400' : 'bg-gray-500'}`} />
+                            <div>
+                              <span className="font-medium text-white">{user.name}</span>
+                              {user.isAdmin && (
+                                <span className="ml-2 px-1.5 py-0.5 text-[10px] bg-cyan-500/20 text-cyan-400 rounded">
+                                  ADMIN
+                                </span>
+                              )}
+                              <div className="text-xs text-gray-500">{user.email}</div>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-5 py-4">
+                          {user.exchangeConnected ? (
+                            <span className="text-emerald-400 text-sm">Bybit</span>
+                          ) : (
+                            <span className="text-gray-500 text-sm">Not connected</span>
+                          )}
+                        </td>
+                        <td className="px-5 py-4">
+                          <span className={`px-2 py-1 rounded-full text-xs font-medium flex items-center gap-1.5 w-fit ${
+                            user.isActive ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30' :
+                            user.isPaused ? 'bg-amber-500/10 text-amber-400 border border-amber-500/30' :
+                            'bg-gray-500/10 text-gray-400 border border-gray-500/30'
+                          }`}>
+                            <span className={`w-1.5 h-1.5 rounded-full ${
+                              user.isActive ? 'bg-emerald-400' :
+                              user.isPaused ? 'bg-amber-400' :
+                              'bg-gray-400'
+                            }`} />
+                            {user.isActive ? 'Trading' : user.isPaused ? 'Paused' : 'Inactive'}
+                          </span>
+                        </td>
+                        <td className="px-5 py-4 text-right">
+                          <span className="font-mono text-white">{user.totalTrades.toLocaleString()}</span>
+                        </td>
+                        <td className="px-5 py-4 text-right">
+                          <span className={`font-mono ${user.winRate >= 50 ? 'text-emerald-400' : 'text-red-400'}`}>
+                            {user.winRate.toFixed(1)}%
+                          </span>
+                        </td>
+                        <td className="px-5 py-4 text-right">
+                          <span className={`font-mono ${user.totalPnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                            {user.totalPnl >= 0 ? '+' : ''}€{user.totalPnl.toFixed(2)}
+                          </span>
+                        </td>
+                        <td className="px-5 py-4 text-right text-gray-400 text-sm">
+                          {new Date(user.createdAt).toLocaleDateString()}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </motion.div>
+        )}
+
+        {/* AI Learning Tab */}
+        {activeTab === 'ai' && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="space-y-6"
+          >
+            {/* AI Overview */}
+            <div className="bg-white/[0.02] rounded-2xl border border-white/5 p-6">
+              <div className="flex items-center gap-2 mb-4">
+                <Brain className="w-5 h-5 text-cyan-400" />
+                <h2 className="font-semibold text-white">AI Learning Overview</h2>
               </div>
               
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-                <div className="p-6 rounded-2xl glass-card">
-                  <div className="flex items-center gap-3 mb-4">
-                    <div className="p-3 rounded-xl bg-sentinel-accent-cyan/10">
-                      <Users className="w-6 h-6 text-sentinel-accent-cyan" />
-                    </div>
-                    <span className="text-sentinel-text-secondary">Total Users</span>
-                  </div>
-                  <div className="text-3xl font-bold">{users.length || 0}</div>
-                </div>
-
-                <div className="p-6 rounded-2xl glass-card">
-                  <div className="flex items-center gap-3 mb-4">
-                    <div className="p-3 rounded-xl bg-sentinel-accent-emerald/10">
-                      <Activity className="w-6 h-6 text-sentinel-accent-emerald" />
-                    </div>
-                    <span className="text-sentinel-text-secondary">Active Connections</span>
-                  </div>
-                  <div className="text-3xl font-bold">{systemStats?.activeConnections || 0}</div>
-                </div>
-
-                <div className="p-6 rounded-2xl glass-card">
-                  <div className="flex items-center gap-3 mb-4">
-                    <div className="p-3 rounded-xl bg-sentinel-accent-amber/10">
-                      <Brain className="w-6 h-6 text-sentinel-accent-amber" />
-                    </div>
-                    <span className="text-sentinel-text-secondary">AI Models</span>
-                  </div>
-                  <div className="text-3xl font-bold">{aiStats?.modelsLoaded || 0}</div>
-                </div>
-
-                <div className="p-6 rounded-2xl glass-card">
-                  <div className="flex items-center gap-3 mb-4">
-                    <div className="p-3 rounded-xl bg-sentinel-accent-violet/10">
-                      <Clock className="w-6 h-6 text-sentinel-accent-violet" />
-                    </div>
-                    <span className="text-sentinel-text-secondary">Uptime</span>
-                  </div>
-                  <div className="text-xl font-bold">{systemStats?.uptime || 'N/A'}</div>
-                </div>
+              <div className="p-4 bg-cyan-500/5 border border-cyan-500/20 rounded-xl mb-6">
+                <p className="text-sm text-gray-300 leading-relaxed">
+                  <span className="text-cyan-400 font-medium">How AI Learning Works:</span> Sentinel's AI 
+                  continuously learns from market data and trade outcomes. Progress shows data accumulation - 
+                  more data means more accurate predictions. "Expert" status indicates the model has enough 
+                  historical data for reliable decision-making, but learning never stops.
+                </p>
               </div>
 
-              <div className="p-6 rounded-2xl glass-card">
-                <h2 className="text-lg font-semibold mb-4">System Status</h2>
-                <div className="grid grid-cols-3 gap-6">
-                  <div>
-                    <div className="flex justify-between mb-2">
-                      <span className="text-sentinel-text-secondary">CPU Usage</span>
-                      <span className="font-medium">{systemStats?.cpuUsage?.toFixed(1) || 0}%</span>
-                    </div>
-                    <div className="h-2 bg-sentinel-bg-tertiary rounded-full overflow-hidden">
-                      <div 
-                        className="h-full bg-sentinel-accent-cyan rounded-full transition-all"
-                        style={{ width: `${systemStats?.cpuUsage || 0}%` }}
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <div className="flex justify-between mb-2">
-                      <span className="text-sentinel-text-secondary">Memory</span>
-                      <span className="font-medium">{systemStats?.memoryUsage?.toFixed(1) || 0}%</span>
-                    </div>
-                    <div className="h-2 bg-sentinel-bg-tertiary rounded-full overflow-hidden">
-                      <div 
-                        className="h-full bg-sentinel-accent-emerald rounded-full transition-all"
-                        style={{ width: `${systemStats?.memoryUsage || 0}%` }}
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <div className="flex justify-between mb-2">
-                      <span className="text-sentinel-text-secondary">Disk</span>
-                      <span className="font-medium">{systemStats?.diskUsage?.toFixed(1) || 0}%</span>
-                    </div>
-                    <div className="h-2 bg-sentinel-bg-tertiary rounded-full overflow-hidden">
-                      <div 
-                        className="h-full bg-sentinel-accent-amber rounded-full transition-all"
-                        style={{ width: `${systemStats?.diskUsage || 0}%` }}
-                      />
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </motion.div>
-          )}
-
-          {activeTab === 'users' && (
-            <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-            >
-              <div className="flex items-center justify-between mb-8">
-                <h1 className="text-2xl font-bold">Users</h1>
-                <div className="flex items-center gap-4">
-                  <span className="text-sentinel-text-muted">Total: {users.length}</span>
-                  <span className="w-2 h-2 rounded-full bg-sentinel-accent-emerald live-pulse" />
-                </div>
-              </div>
-              
-              {users.length === 0 ? (
-                <div className="p-12 rounded-2xl glass-card text-center">
-                  <Users className="w-16 h-16 mx-auto mb-4 text-sentinel-text-muted opacity-30" />
-                  <h3 className="text-xl font-semibold mb-2">No Users Yet</h3>
-                  <p className="text-sentinel-text-secondary mb-4">Users will appear here when they register and connect an exchange.</p>
-                  <div className="p-4 rounded-xl bg-sentinel-bg-tertiary max-w-md mx-auto">
-                    <p className="text-sm text-sentinel-text-muted">
-                      <strong>Note:</strong> You (admin) are currently using the default trading account.
-                      New users will appear here once they sign up at <span className="text-sentinel-accent-cyan">sentinel.xproject.live/register</span>
-                    </p>
-                  </div>
+              {isLoading ? (
+                <div className="py-12 flex justify-center">
+                  <Loader2 className="w-8 h-8 text-cyan-400 animate-spin" />
                 </div>
               ) : (
-                <div className="rounded-2xl glass-card overflow-hidden">
-                  <table className="w-full">
-                    <thead>
-                      <tr className="text-left text-sm text-sentinel-text-muted border-b border-sentinel-border">
-                        <th className="px-6 py-4 font-medium">User</th>
-                        <th className="px-6 py-4 font-medium">Exchange</th>
-                        <th className="px-6 py-4 font-medium">Status</th>
-                        <th className="px-6 py-4 font-medium">Trades</th>
-                        <th className="px-6 py-4 font-medium">Win Rate</th>
-                        <th className="px-6 py-4 font-medium">P&L</th>
-                        <th className="px-6 py-4 font-medium">Created</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {users.map((user, idx) => (
-                        <tr key={idx} className="border-b border-sentinel-border/50 last:border-0 hover:bg-sentinel-bg-tertiary/30 transition-colors">
-                          <td className="px-6 py-4">
-                            <div className="flex flex-col gap-1">
-                              <div className="flex items-center gap-2">
-                                <div className={`w-2 h-2 rounded-full ${user.isActive ? 'bg-sentinel-accent-emerald live-pulse' : 'bg-sentinel-text-muted'}`} />
-                                <span className="font-medium">{user.name || user.id}</span>
-                                {user.isAdmin && (
-                                  <span className="px-2 py-0.5 rounded text-xs bg-sentinel-accent-amber/20 text-sentinel-accent-amber border border-sentinel-accent-amber/30">
-                                    ADMIN
-                                  </span>
-                                )}
-                              </div>
-                              <span className="text-xs text-sentinel-text-muted">{user.email}</span>
-                            </div>
-                          </td>
-                          <td className="px-6 py-4">
-                            {user.exchangeConnected ? (
-                              <span className="flex items-center gap-2 text-sentinel-accent-emerald">
-                                <span className="w-2 h-2 rounded-full bg-sentinel-accent-emerald" />
-                                {user.exchange}
-                              </span>
-                            ) : (
-                              <span className="text-sentinel-text-muted">Not connected</span>
-                            )}
-                          </td>
-                          <td className="px-6 py-4">
-                            <span className={`px-3 py-1 rounded-full text-xs font-medium flex items-center gap-1.5 w-fit ${
-                              user.isActive ? 'bg-sentinel-accent-emerald/10 text-sentinel-accent-emerald border border-sentinel-accent-emerald/30' :
-                              user.isPaused ? 'bg-sentinel-accent-amber/10 text-sentinel-accent-amber border border-sentinel-accent-amber/30' :
-                              'bg-sentinel-text-muted/10 text-sentinel-text-muted border border-sentinel-text-muted/30'
-                            }`}>
-                              <span className={`w-2 h-2 rounded-full ${
-                                user.isActive ? 'bg-sentinel-accent-emerald' :
-                                user.isPaused ? 'bg-sentinel-accent-amber' :
-                                'bg-sentinel-text-muted'
-                              }`} />
-                              {user.isActive ? 'Trading' : user.isPaused ? 'Paused' : 'Inactive'}
-                            </span>
-                          </td>
-                          <td className="px-6 py-4">
-                            <div className="flex flex-col">
-                              <span className="font-mono font-medium">{user.totalTrades?.toLocaleString() || 0}</span>
-                              {user.winningTrades > 0 && (
-                                <span className="text-xs text-sentinel-text-muted">{user.winningTrades} wins</span>
-                              )}
-                            </div>
-                          </td>
-                          <td className="px-6 py-4">
-                            <span className={`font-mono font-medium ${
-                              (user.winRate || 0) >= 60 ? 'text-sentinel-accent-emerald' :
-                              (user.winRate || 0) >= 50 ? 'text-sentinel-accent-amber' :
-                              'text-sentinel-text-secondary'
-                            }`}>
-                              {(user.winRate || 0).toFixed(1)}%
-                            </span>
-                          </td>
-                          <td className="px-6 py-4">
-                            <span className={`font-mono font-medium ${(user.totalPnl || 0) >= 0 ? 'text-sentinel-accent-emerald' : 'text-sentinel-accent-crimson'}`}>
-                              {(user.totalPnl || 0) >= 0 ? '+' : ''}€{(user.totalPnl || 0).toFixed(2)}
-                            </span>
-                          </td>
-                          <td className="px-6 py-4 text-sentinel-text-secondary text-sm">
-                            {user.createdAt ? new Date(user.createdAt).toLocaleDateString() : 'N/A'}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </motion.div>
-          )}
-
-          {activeTab === 'ai' && (
-            <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-            >
-              <div className="flex items-center justify-between mb-8">
-                <h1 className="text-2xl font-bold">AI Learning Statistics</h1>
-                <div className="flex items-center gap-2 text-sm text-sentinel-text-muted">
-                  <span className="w-2 h-2 rounded-full bg-sentinel-accent-emerald live-pulse" />
-                  Auto-updating • {lastUpdate.toLocaleTimeString()}
-                </div>
-              </div>
-              
-              {/* AI Models Status */}
-              <div className="p-6 rounded-2xl glass-card mb-8">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-lg font-semibold">AI Learning Models</h3>
-                  <div className="text-2xl font-bold text-sentinel-accent-cyan">
-                    {aiStats?.modelsLoaded || 0} / {aiStats?.totalModels || 5} Active
-                  </div>
-                </div>
-                <div className="grid grid-cols-5 gap-4">
-                  <div className={`p-4 rounded-xl text-center ${aiStats?.strategyModel === 'active' ? 'bg-sentinel-accent-emerald/10 border border-sentinel-accent-emerald/30' : 'bg-sentinel-bg-tertiary'}`}>
-                    <div className={`w-3 h-3 rounded-full mx-auto mb-2 ${aiStats?.strategyModel === 'active' ? 'bg-sentinel-accent-emerald' : 'bg-sentinel-text-muted'}`} />
-                    <div className="text-sm font-medium">Strategy</div>
-                    <div className="text-xs text-sentinel-text-muted capitalize">{aiStats?.strategyModel || 'loading'}</div>
-                  </div>
-                  <div className={`p-4 rounded-xl text-center ${aiStats?.patternModel === 'active' ? 'bg-sentinel-accent-emerald/10 border border-sentinel-accent-emerald/30' : 'bg-sentinel-bg-tertiary'}`}>
-                    <div className={`w-3 h-3 rounded-full mx-auto mb-2 ${aiStats?.patternModel === 'active' ? 'bg-sentinel-accent-emerald' : 'bg-sentinel-text-muted'}`} />
-                    <div className="text-sm font-medium">Patterns</div>
-                    <div className="text-xs text-sentinel-text-muted capitalize">{aiStats?.patternModel || 'loading'}</div>
-                  </div>
-                  <div className={`p-4 rounded-xl text-center ${aiStats?.marketModel === 'active' ? 'bg-sentinel-accent-emerald/10 border border-sentinel-accent-emerald/30' : 'bg-sentinel-bg-tertiary'}`}>
-                    <div className={`w-3 h-3 rounded-full mx-auto mb-2 ${aiStats?.marketModel === 'active' ? 'bg-sentinel-accent-emerald' : 'bg-sentinel-text-muted'}`} />
-                    <div className="text-sm font-medium">Market</div>
-                    <div className="text-xs text-sentinel-text-muted capitalize">{aiStats?.marketModel || 'loading'}</div>
-                  </div>
-                  <div className={`p-4 rounded-xl text-center ${aiStats?.sentimentModel === 'active' ? 'bg-sentinel-accent-emerald/10 border border-sentinel-accent-emerald/30' : 'bg-sentinel-bg-tertiary'}`}>
-                    <div className={`w-3 h-3 rounded-full mx-auto mb-2 ${aiStats?.sentimentModel === 'active' ? 'bg-sentinel-accent-emerald' : 'bg-sentinel-text-muted'}`} />
-                    <div className="text-sm font-medium">Sentiment</div>
-                    <div className="text-xs text-sentinel-text-muted capitalize">{aiStats?.sentimentModel || 'loading'}</div>
-                  </div>
-                  <div className={`p-4 rounded-xl text-center ${aiStats?.technicalModel === 'active' ? 'bg-sentinel-accent-emerald/10 border border-sentinel-accent-emerald/30' : 'bg-sentinel-bg-tertiary'}`}>
-                    <div className={`w-3 h-3 rounded-full mx-auto mb-2 ${aiStats?.technicalModel === 'active' ? 'bg-sentinel-accent-emerald' : 'bg-sentinel-text-muted'}`} />
-                    <div className="text-sm font-medium">Technical</div>
-                    <div className="text-xs text-sentinel-text-muted capitalize">{aiStats?.technicalModel || 'loading'}</div>
-                  </div>
-                </div>
-                <div className="mt-4 pt-4 border-t border-sentinel-border">
-                  <div className="flex justify-between text-sm mb-2">
-                    <span className="text-sentinel-text-muted">Training Progress</span>
-                    <span className="font-mono">{aiStats?.trainingProgress?.toFixed(1) || 0}%</span>
-                  </div>
-                  <div className="h-2 rounded-full bg-sentinel-bg-tertiary overflow-hidden">
-                    <div 
-                      className="h-full bg-gradient-to-r from-sentinel-accent-violet via-sentinel-accent-cyan to-sentinel-accent-emerald transition-all"
-                      style={{ width: `${aiStats?.trainingProgress || 0}%` }}
-                    />
-                  </div>
-                  <div className="text-xs text-sentinel-text-muted mt-2">
-                    Learning Iteration #{aiStats?.learningIterations || 0} | {aiStats?.totalStatesLearned || 0} total states learned
-                  </div>
-                </div>
-              </div>
-              
-              {/* DETAILED LEARNING PROGRESS */}
-              {aiStats?.learningStatus && (
-                <div className="p-6 rounded-2xl glass-card mb-8 border-2 border-sentinel-accent-violet/30">
-                  <div className="flex items-center justify-between mb-6">
-                    <div className="flex items-center gap-3">
-                      <div className="p-3 rounded-xl bg-sentinel-accent-violet/10">
-                        <Brain className="w-6 h-6 text-sentinel-accent-violet" />
+                <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {aiModels.map((model, i) => (
+                    <div key={i} className="p-4 bg-white/[0.02] rounded-xl border border-white/10">
+                      <div className="flex items-center justify-between mb-3">
+                        <span className="font-medium text-white">{model.name}</span>
+                        <span className={`px-2 py-0.5 rounded text-xs font-medium ${getStatusColor(model.status)}`}>
+                          {model.status.toUpperCase()}
+                        </span>
                       </div>
-                      <div>
-                        <h3 className="text-lg font-semibold">AI Learning Progress</h3>
-                        <p className="text-sm text-sentinel-text-muted">{aiStats.learningStatus.expert_level}</p>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <div className="text-3xl font-bold text-sentinel-accent-violet">
-                        {aiStats.learningStatus.overall_progress?.toFixed(0) || 0}%
-                      </div>
-                      <div className="text-xs text-sentinel-text-muted">Overall Progress</div>
-                    </div>
-                  </div>
-
-                  {/* Overall Progress Bar */}
-                  <div className="mb-6">
-                    <div className="h-4 rounded-full bg-sentinel-bg-tertiary overflow-hidden">
-                      <div 
-                        className="h-full bg-gradient-to-r from-sentinel-accent-crimson via-sentinel-accent-amber via-sentinel-accent-cyan to-sentinel-accent-emerald transition-all duration-500"
-                        style={{ width: `${aiStats.learningStatus.overall_progress || 0}%` }}
-                      />
-                    </div>
-                    <div className="flex justify-between text-xs text-sentinel-text-muted mt-1">
-                      <span>Beginner</span>
-                      <span>Learning</span>
-                      <span>Expert</span>
-                    </div>
-                  </div>
-
-                  {/* Individual Model Progress */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {aiStats.learningStatus.models && Object.entries(aiStats.learningStatus.models).map(([key, model]: [string, any]) => (
-                      <div key={key} className="p-4 rounded-xl bg-sentinel-bg-tertiary">
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="font-medium">{model.name}</span>
-                          <span className={`text-xs px-2 py-0.5 rounded ${
-                            model.status === 'expert' ? 'bg-sentinel-accent-emerald/20 text-sentinel-accent-emerald' :
-                            model.status === 'learning' || model.status === 'active' ? 'bg-sentinel-accent-amber/20 text-sentinel-accent-amber' :
-                            'bg-sentinel-accent-crimson/20 text-sentinel-accent-crimson'
-                          }`}>
-                            {model.status?.toUpperCase()}
-                          </span>
+                      
+                      <div className="mb-3">
+                        <div className="flex justify-between text-xs mb-1">
+                          <span className="text-gray-500">Progress</span>
+                          <span className="text-cyan-400">{model.progress.toFixed(0)}%</span>
                         </div>
-                        <div className="h-2 rounded-full bg-sentinel-bg-secondary overflow-hidden mb-2">
+                        <div className="h-2 bg-white/5 rounded-full overflow-hidden">
                           <div 
                             className={`h-full rounded-full transition-all ${
-                              model.status === 'expert' ? 'bg-sentinel-accent-emerald' :
-                              model.status === 'learning' || model.status === 'active' ? 'bg-sentinel-accent-amber' :
-                              'bg-sentinel-accent-crimson'
+                              model.status === 'expert' ? 'bg-emerald-500' :
+                              model.status === 'ready' ? 'bg-cyan-500' :
+                              'bg-amber-500'
                             }`}
-                            style={{ width: `${model.progress || 0}%` }}
+                            style={{ width: `${Math.min(model.progress, 100)}%` }}
                           />
                         </div>
-                        <div className="flex justify-between text-xs text-sentinel-text-muted">
-                          <span>{model.description || '-'}</span>
-                          <span className="font-mono">{model.progress?.toFixed(0) || 0}%</span>
-                        </div>
-                        {model.needed_for_expert > 0 && (
-                          <div className="text-xs text-sentinel-accent-amber mt-1">
-                            Need {model.needed_for_expert.toLocaleString()} more for expert
-                          </div>
-                        )}
-                        {/* Specific stats */}
-                        {model.total_trades !== undefined && (
-                          <div className="text-xs text-sentinel-text-muted mt-1">
-                            Trades: {model.total_trades.toLocaleString()} | Win Rate: {model.win_rate}%
-                          </div>
-                        )}
-                        {model.trades_collected !== undefined && (
-                          <div className="text-xs text-sentinel-text-muted mt-1">
-                            Collected: {model.trades_collected.toLocaleString()} trades
-                          </div>
-                        )}
-                        {model.episodes_completed !== undefined && (
-                          <div className="text-xs text-sentinel-text-muted mt-1">
-                            Episodes: {model.episodes_completed.toLocaleString()} | Strategies: {model.strategies_learned || 0}
-                          </div>
-                        )}
                       </div>
-                    ))}
-                  </div>
-
-                  {/* Recommendations */}
-                  {aiStats.learningStatus.recommendations?.length > 0 && (
-                    <div className="mt-4 p-4 rounded-xl bg-sentinel-accent-amber/10 border border-sentinel-accent-amber/30">
-                      <h4 className="font-medium text-sentinel-accent-amber mb-2">📋 Recommendations</h4>
-                      <ul className="text-sm text-sentinel-text-secondary space-y-1">
-                        {aiStats.learningStatus.recommendations.map((rec: string, idx: number) => (
-                          <li key={idx}>• {rec}</li>
-                        ))}
-                      </ul>
+                      
+                      <div className="flex justify-between text-xs">
+                        <span className="text-gray-500">{model.dataPoints.toLocaleString()} data points</span>
+                        <span className="text-gray-500">{model.lastUpdate}</span>
+                      </div>
                     </div>
-                  )}
+                  ))}
                 </div>
               )}
+            </div>
 
-              {/* Learning Stats */}
-              <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-8">
-                <div className="p-4 rounded-2xl glass-card text-center">
-                  <div className="text-2xl font-bold text-sentinel-accent-cyan">{aiStats?.qStates || 0}</div>
-                  <div className="text-xs text-sentinel-text-muted">Q-States</div>
+            {/* Learning Explanation */}
+            <div className="grid md:grid-cols-3 gap-4">
+              <div className="p-4 bg-amber-500/5 border border-amber-500/20 rounded-xl">
+                <div className="flex items-center gap-2 mb-2">
+                  <Clock className="w-4 h-4 text-amber-400" />
+                  <span className="font-medium text-amber-400">Learning</span>
                 </div>
-                <div className="p-4 rounded-2xl glass-card text-center">
-                  <div className="text-2xl font-bold text-sentinel-accent-amber">{aiStats?.patternsLearned || 0}</div>
-                  <div className="text-xs text-sentinel-text-muted">Patterns</div>
-                </div>
-                <div className="p-4 rounded-2xl glass-card text-center">
-                  <div className="text-2xl font-bold text-sentinel-accent-emerald">{aiStats?.marketStates || 0}</div>
-                  <div className="text-xs text-sentinel-text-muted">Market States</div>
-                </div>
-                <div className="p-4 rounded-2xl glass-card text-center">
-                  <div className="text-2xl font-bold text-sentinel-accent-crimson">{aiStats?.sentimentStates || 0}</div>
-                  <div className="text-xs text-sentinel-text-muted">Sentiment</div>
-                </div>
-                <div className="p-4 rounded-2xl glass-card text-center">
-                  <div className="text-2xl font-bold">{aiStats?.totalTrades || 0}</div>
-                  <div className="text-xs text-sentinel-text-muted">Trades</div>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-                <div className="p-6 rounded-2xl glass-card">
-                  <div className="text-3xl font-bold text-sentinel-accent-cyan">{aiStats?.totalTrades || aiStats?.total_trades || 0}</div>
-                  <div className="text-sm text-sentinel-text-muted">Total Trades</div>
-                </div>
-                <div className="p-6 rounded-2xl glass-card">
-                  <div className="text-3xl font-bold text-sentinel-accent-emerald">{(aiStats?.winRate || aiStats?.win_rate || 0).toFixed(1)}%</div>
-                  <div className="text-sm text-sentinel-text-muted">Win Rate</div>
-                </div>
-                <div className="p-6 rounded-2xl glass-card">
-                  <div className={`text-3xl font-bold ${(aiStats?.total_pnl || 0) >= 0 ? 'text-sentinel-accent-emerald' : 'text-sentinel-accent-crimson'}`}>
-                    {aiStats?.totalPnl || `€${(aiStats?.total_pnl || 0).toFixed(2)}`}
-                  </div>
-                  <div className="text-sm text-sentinel-text-muted">Total P&L</div>
-                </div>
-                <div className="p-6 rounded-2xl glass-card">
-                  <div className="text-3xl font-bold text-sentinel-accent-amber">{aiStats?.totalStatesLearned || aiStats?.strategies_learned || 0}</div>
-                  <div className="text-sm text-sentinel-text-muted">States Learned</div>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-                <div className="p-6 rounded-2xl glass-card">
-                  <h3 className="text-lg font-semibold mb-4">Exploration Rate</h3>
-                  <div className="space-y-4">
-                    <div>
-                      <div className="flex justify-between mb-2">
-                        <span className="text-sentinel-text-secondary">AI Exploration</span>
-                        <span className="font-medium">{aiStats?.exploration_rate?.toFixed(1) || 10}%</span>
-                      </div>
-                      <div className="h-3 bg-sentinel-bg-tertiary rounded-full overflow-hidden">
-                        <div 
-                          className="h-full bg-gradient-to-r from-sentinel-accent-cyan to-sentinel-accent-emerald rounded-full"
-                          style={{ width: `${aiStats?.exploration_rate || 10}%` }}
-                        />
-                      </div>
-                      <p className="text-xs text-sentinel-text-muted mt-2">
-                        Higher = more experimentation, Lower = more exploitation of learned strategies
-                      </p>
-                    </div>
-                    <div>
-                      <div className="flex justify-between mb-2">
-                        <span className="text-sentinel-text-secondary">Max Drawdown</span>
-                        <span className="font-medium text-sentinel-accent-crimson">{aiStats?.max_drawdown?.toFixed(2) || 0}%</span>
-                      </div>
-                      <div className="h-3 bg-sentinel-bg-tertiary rounded-full overflow-hidden">
-                        <div 
-                          className="h-full bg-sentinel-accent-crimson rounded-full"
-                          style={{ width: `${Math.min(100, (aiStats?.max_drawdown || 0) * 10)}%` }}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="p-6 rounded-2xl glass-card">
-                  <h3 className="text-lg font-semibold mb-4">Best Performing Strategies</h3>
-                  {aiStats?.best_performing?.length ? (
-                    <div className="space-y-3">
-                      {aiStats.best_performing.map((item: any, idx: number) => (
-                        <div key={idx} className="flex items-center justify-between p-3 rounded-xl bg-sentinel-bg-tertiary">
-                          <div>
-                            <span className="font-medium capitalize">{item.strategy}</span>
-                            <span className="text-sentinel-text-muted ml-2 text-sm">in {item.regime.replace('_', ' ')}</span>
-                          </div>
-                          <div className="text-right">
-                            <div className="text-sentinel-accent-emerald font-mono">{item.confidence.toFixed(0)}%</div>
-                            <div className="text-xs text-sentinel-text-muted">confidence</div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="text-center py-8 text-sentinel-text-muted">
-                      <Brain className="w-10 h-10 mx-auto mb-3 opacity-30" />
-                      <p>Learning in progress...</p>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <div className="p-6 rounded-2xl glass-card">
-                <h3 className="text-lg font-semibold mb-4">Recent Learning Events</h3>
-                {aiStats?.recentDecisions?.length ? (
-                  <div className="space-y-3">
-                    {aiStats.recentDecisions.map((event: any, idx: number) => (
-                      <div key={idx} className="flex items-center justify-between p-4 rounded-xl bg-sentinel-bg-tertiary">
-                        <div className="flex items-center gap-3">
-                          <div className={`w-2 h-2 rounded-full ${
-                            event.reward > 0 ? 'bg-sentinel-accent-emerald' :
-                            event.reward < 0 ? 'bg-sentinel-accent-crimson' :
-                            'bg-sentinel-accent-amber'
-                          }`} />
-                          <span className="font-mono capitalize">{event.strategy}</span>
-                          <span className="text-sentinel-text-secondary text-sm">in {event.regime?.replace('_', ' ')}</span>
-                        </div>
-                        <div className="flex items-center gap-4">
-                          <div className={`font-mono ${event.reward >= 0 ? 'text-sentinel-accent-emerald' : 'text-sentinel-accent-crimson'}`}>
-                            {event.reward >= 0 ? '+' : ''}{event.reward?.toFixed(2)} reward
-                          </div>
-                          <div className="text-sm text-sentinel-text-muted">
-                            Q={event.new_q?.toFixed(2)}
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="text-center py-8 text-sentinel-text-muted">
-                    <Brain className="w-12 h-12 mx-auto mb-3 opacity-30" />
-                    <p>No learning events yet - AI will learn from trades</p>
-                  </div>
-                )}
-              </div>
-            </motion.div>
-          )}
-
-          {activeTab === 'system' && (
-            <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-            >
-              <div className="flex items-center justify-between mb-8">
-                <h1 className="text-2xl font-bold">System Status</h1>
-                <div className="flex items-center gap-2 text-sm text-sentinel-text-muted">
-                  <span className="w-2 h-2 rounded-full bg-sentinel-accent-emerald live-pulse" />
-                  Last update: {lastUpdate.toLocaleTimeString()}
-                </div>
+                <p className="text-sm text-gray-400">
+                  Collecting initial data. Predictions may be less accurate.
+                </p>
               </div>
               
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-                <div className="p-6 rounded-2xl glass-card">
-                  <h3 className="text-lg font-semibold mb-4">Server Information</h3>
-                  <div className="space-y-3">
-                    <div className="flex justify-between py-2 border-b border-sentinel-border/30">
-                      <span className="text-sentinel-text-secondary">IP Address</span>
-                      <span className="font-mono">109.104.154.183</span>
-                    </div>
-                    <div className="flex justify-between py-2 border-b border-sentinel-border/30">
-                      <span className="text-sentinel-text-secondary">Uptime</span>
-                      <span className="font-medium text-sentinel-accent-emerald">{systemStats?.uptime || 'N/A'}</span>
-                    </div>
-                    <div className="flex justify-between py-2 border-b border-sentinel-border/30">
-                      <span className="text-sentinel-text-secondary">OS</span>
-                      <span>Ubuntu 22.04 LTS</span>
-                    </div>
-                    <div className="flex justify-between py-2 border-b border-sentinel-border/30">
-                      <span className="text-sentinel-text-secondary">Memory</span>
-                      <span>{systemStats?.memoryUsedGB?.toFixed(1) || 0} / {systemStats?.memoryTotalGB?.toFixed(0) || 0} GB</span>
-                    </div>
-                    <div className="flex justify-between py-2 border-b border-sentinel-border/30">
-                      <span className="text-sentinel-text-secondary">Root Disk</span>
-                      <span>{systemStats?.rootDiskUsedGB?.toFixed(0) || systemStats?.diskUsedGB?.toFixed(0) || 0} / {systemStats?.rootDiskTotalGB?.toFixed(0) || systemStats?.diskTotalGB?.toFixed(0) || 0} GB</span>
-                    </div>
-                    <div className="flex justify-between py-2">
-                      <span className="text-sentinel-text-secondary">Data Disk (1.8TB)</span>
-                      <span className="text-sentinel-accent-cyan font-medium">
-                        {systemStats?.diskPath === '/mnt/sentinel-data' 
-                          ? `${systemStats?.diskUsedGB?.toFixed(0) || 0} / ${systemStats?.diskTotalGB?.toFixed(0) || 0} GB`
-                          : 'Checking...'}
-                      </span>
-                    </div>
+              <div className="p-4 bg-cyan-500/5 border border-cyan-500/20 rounded-xl">
+                <div className="flex items-center gap-2 mb-2">
+                  <Zap className="w-4 h-4 text-cyan-400" />
+                  <span className="font-medium text-cyan-400">Ready</span>
+                </div>
+                <p className="text-sm text-gray-400">
+                  Has enough data for good predictions. Still improving.
+                </p>
+              </div>
+              
+              <div className="p-4 bg-emerald-500/5 border border-emerald-500/20 rounded-xl">
+                <div className="flex items-center gap-2 mb-2">
+                  <CheckCircle className="w-4 h-4 text-emerald-400" />
+                  <span className="font-medium text-emerald-400">Expert</span>
+                </div>
+                <p className="text-sm text-gray-400">
+                  Fully calibrated with extensive data. Highest accuracy.
+                </p>
+              </div>
+            </div>
+          </motion.div>
+        )}
+
+        {/* System Tab */}
+        {activeTab === 'system' && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="space-y-6"
+          >
+            {/* System Stats */}
+            <div className="grid md:grid-cols-4 gap-4">
+              {[
+                { label: 'CPU Usage', value: systemStats?.cpu_percent || 0, icon: Cpu, color: 'cyan' },
+                { label: 'Memory', value: systemStats?.memory_percent || 0, icon: Activity, color: 'violet' },
+                { label: 'System Disk', value: systemStats?.disk_percent || 0, icon: HardDrive, color: 'amber' },
+                { label: 'Data Disk', value: systemStats?.data_disk_percent || 0, icon: Database, color: 'emerald' }
+              ].map((stat, i) => (
+                <div key={i} className="p-5 bg-white/[0.02] rounded-2xl border border-white/5">
+                  <div className="flex items-center gap-2 mb-3">
+                    <stat.icon className={`w-4 h-4 text-${stat.color}-400`} />
+                    <span className="text-sm text-gray-500">{stat.label}</span>
+                  </div>
+                  <div className="text-2xl font-bold text-white mb-2">{stat.value.toFixed(1)}%</div>
+                  <div className="h-1.5 bg-white/5 rounded-full overflow-hidden">
+                    <div 
+                      className={`h-full bg-${stat.color}-500 rounded-full`}
+                      style={{ width: `${stat.value}%` }}
+                    />
                   </div>
                 </div>
+              ))}
+            </div>
 
-                <div className="p-6 rounded-2xl glass-card">
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-lg font-semibold">Service Health</h3>
-                    <span className={`text-sm font-medium ${serviceHealth?.allHealthy ? 'text-sentinel-accent-emerald' : 'text-sentinel-accent-amber'}`}>
-                      {serviceHealth?.healthyCount || 0}/{serviceHealth?.totalCount || 0} Healthy
-                    </span>
-                  </div>
-                  <div className="space-y-3">
-                    {serviceHealth?.services && Object.entries(serviceHealth.services).map(([name, info]: [string, any]) => (
-                      <div key={name} className="flex items-center justify-between py-2 border-b border-sentinel-border/30 last:border-0">
-                        <span className="text-sentinel-text-secondary">{name}</span>
-                        <div className="flex items-center gap-2">
-                          <span className={`w-2 h-2 rounded-full ${
-                            info.status === 'healthy' ? 'bg-sentinel-accent-emerald' :
-                            info.status === 'restarting' ? 'bg-sentinel-accent-amber animate-pulse' :
-                            info.status === 'stopped' ? 'bg-sentinel-text-muted' :
-                            'bg-sentinel-accent-crimson'
+            {/* Services */}
+            <div className="bg-white/[0.02] rounded-2xl border border-white/5 overflow-hidden">
+              <div className="p-5 border-b border-white/5 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Server className="w-5 h-5 text-cyan-400" />
+                  <h2 className="font-semibold text-white">Services</h2>
+                </div>
+                <span className="text-sm text-gray-500">
+                  Uptime: {systemStats?.uptime || 'N/A'}
+                </span>
+              </div>
+              
+              {isLoading ? (
+                <div className="p-12 flex justify-center">
+                  <Loader2 className="w-8 h-8 text-cyan-400 animate-spin" />
+                </div>
+              ) : (
+                <div className="p-5 grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {(systemStats?.services || []).map((service, i) => (
+                    <div 
+                      key={i} 
+                      className={`p-4 rounded-xl border ${
+                        service.healthy 
+                          ? 'bg-emerald-500/5 border-emerald-500/20' 
+                          : 'bg-red-500/5 border-red-500/20'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium text-white">{service.name}</span>
+                        <div className="flex items-center gap-1.5">
+                          <div className={`w-2 h-2 rounded-full ${
+                            service.healthy ? 'bg-emerald-400' : 'bg-red-400'
                           }`} />
-                          <span className={`text-sm capitalize ${
-                            info.status === 'healthy' ? 'text-sentinel-accent-emerald' :
-                            info.status === 'restarting' ? 'text-sentinel-accent-amber' :
-                            info.status === 'stopped' ? 'text-sentinel-text-muted' :
-                            'text-sentinel-accent-crimson'
-                          }`}>{info.status}</span>
+                          <span className={`text-xs ${
+                            service.healthy ? 'text-emerald-400' : 'text-red-400'
+                          }`}>
+                            {service.status}
+                          </span>
                         </div>
                       </div>
-                    ))}
-                    {!serviceHealth?.services && (
-                      <div className="text-center py-4 text-sentinel-text-muted">Loading services...</div>
-                    )}
-                  </div>
+                    </div>
+                  ))}
                 </div>
-              </div>
-
-              <div className="p-6 rounded-2xl glass-card">
-                <h3 className="text-lg font-semibold mb-4">Resource Usage</h3>
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                  <div className="p-6 rounded-xl bg-sentinel-bg-tertiary text-center">
-                    <Cpu className="w-8 h-8 text-sentinel-accent-cyan mx-auto mb-3" />
-                    <div className="text-3xl font-bold">{systemStats?.cpuUsage?.toFixed(1) || 0}%</div>
-                    <div className="text-sentinel-text-muted">CPU Usage</div>
-                    <div className="h-2 bg-sentinel-bg-secondary rounded-full mt-3 overflow-hidden">
-                      <div 
-                        className="h-full bg-sentinel-accent-cyan rounded-full transition-all duration-500"
-                        style={{ width: `${systemStats?.cpuUsage || 0}%` }}
-                      />
-                    </div>
-                  </div>
-                  <div className="p-6 rounded-xl bg-sentinel-bg-tertiary text-center">
-                    <Server className="w-8 h-8 text-sentinel-accent-emerald mx-auto mb-3" />
-                    <div className="text-3xl font-bold">{systemStats?.memoryUsage?.toFixed(1) || 0}%</div>
-                    <div className="text-sentinel-text-muted">Memory ({systemStats?.memoryTotalGB?.toFixed(0) || 0} GB)</div>
-                    <div className="h-2 bg-sentinel-bg-secondary rounded-full mt-3 overflow-hidden">
-                      <div 
-                        className="h-full bg-sentinel-accent-emerald rounded-full transition-all duration-500"
-                        style={{ width: `${systemStats?.memoryUsage || 0}%` }}
-                      />
-                    </div>
-                  </div>
-                  <div className="p-6 rounded-xl bg-sentinel-bg-tertiary text-center">
-                    <HardDrive className="w-8 h-8 text-sentinel-accent-amber mx-auto mb-3" />
-                    <div className="text-3xl font-bold">{((systemStats?.rootDiskUsedGB || 0) / (systemStats?.rootDiskTotalGB || 1) * 100).toFixed(1)}%</div>
-                    <div className="text-sentinel-text-muted">Root Disk ({systemStats?.rootDiskTotalGB?.toFixed(0) || 0} GB)</div>
-                    <div className="h-2 bg-sentinel-bg-secondary rounded-full mt-3 overflow-hidden">
-                      <div 
-                        className="h-full bg-sentinel-accent-amber rounded-full transition-all duration-500"
-                        style={{ width: `${((systemStats?.rootDiskUsedGB || 0) / (systemStats?.rootDiskTotalGB || 1) * 100)}%` }}
-                      />
-                    </div>
-                  </div>
-                  <div className="p-6 rounded-xl bg-sentinel-bg-tertiary text-center border-2 border-sentinel-accent-cyan/30">
-                    <Database className="w-8 h-8 text-sentinel-accent-cyan mx-auto mb-3" />
-                    <div className="text-3xl font-bold text-sentinel-accent-cyan">{systemStats?.diskUsage?.toFixed(1) || 0}%</div>
-                    <div className="text-sentinel-text-muted">Data Disk (1.8 TB)</div>
-                    <div className="h-2 bg-sentinel-bg-secondary rounded-full mt-3 overflow-hidden">
-                      <div 
-                        className="h-full bg-sentinel-accent-cyan rounded-full transition-all duration-500"
-                        style={{ width: `${systemStats?.diskUsage || 0}%` }}
-                      />
-                    </div>
-                    <div className="text-xs text-sentinel-text-muted mt-2">{systemStats?.diskPath || '/mnt/sentinel-data'}</div>
-                  </div>
-                </div>
-              </div>
-            </motion.div>
-          )}
-        </main>
-      </div>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </main>
     </div>
   )
 }

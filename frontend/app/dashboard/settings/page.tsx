@@ -1,456 +1,121 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
+import Link from 'next/link'
 import { 
-  Settings, 
-  ShieldCheck,
-  Zap, 
-  TrendingUp,
-  AlertTriangle,
-  Save,
-  RotateCcw,
-  ArrowLeft,
-  DollarSign,
-  Percent,
-  Target,
-  StopCircle,
-  Wallet,
-  PieChart,
-  Loader2,
-  CheckCircle,
-  XCircle,
-  Activity,
-  BarChart3,
-  Coins,
-  Building2,
   Brain,
-  Layers,
-  Gauge,
+  ArrowLeft,
+  Save,
+  Loader2,
+  Shield,
+  Target,
+  Percent,
+  AlertTriangle,
+  Zap,
+  TrendingUp,
+  Settings,
+  ChevronDown,
+  CheckCircle,
   Info,
-  Infinity,
-  Cpu,
-  LineChart,
-  MessageSquare,
-  Sparkles,
-  TrendingDown,
   RefreshCw
 } from 'lucide-react'
-import Link from 'next/link'
 
 interface BotSettings {
-  // Risk Mode
-  riskMode: 'safe' | 'normal' | 'aggressive' | 'lock_profit' | 'micro_profit'
-  
-  // Trading Parameters
+  riskMode: 'NORMAL' | 'LOCK_PROFIT' | 'MICRO_PROFIT'
   takeProfitPercent: number
   stopLossPercent: number
   trailingStopPercent: number
   minProfitToTrail: number
-  minConfidence: number
-  minEdge: number
-  
-  // Position Sizing
+  maxOpenPositions: number
   maxPositionPercent: number
-  maxOpenPositions: number  // 0 = unlimited
-  maxDailyDrawdown: number
-  maxTotalExposure: number
-  
-  // Leverage
-  leverageMode: '1x' | '2x' | '3x' | '5x' | '10x' | 'auto'
-  
-  // Budget - Unified
-  totalBudget: number
-  
-  // AI Core Features
-  useAiSignals: boolean
-  learnFromTrades: boolean
-  useRegimeDetection: boolean
-  useEdgeEstimation: boolean
+  minEdge: number
+  minConfidence: number
+  leverageMode: string
   useDynamicSizing: boolean
-  
-  // AI Models (V3.0)
-  useCryptoBert: boolean     // CryptoBERT sentiment
-  useXgboostClassifier: boolean  // XGBoost signal classifier
-  usePricePredictor: boolean // Chronos price predictor
-  
-  // Smart Exit (MICRO PROFIT)
-  breakevenTrigger?: number     // Move SL to 0% when profit reaches this
-  partialExitTrigger?: number   // Take partial profit at this level
-  partialExitPercent?: number   // How much to close (50%)
-  useSmartExit?: boolean        // Enable breakeven + partial exits
-  momentumThreshold?: number    // Minimum momentum % to buy (0.05 = 0.05%)
-  
-  // Time Stop (MICRO PROFIT)
-  timeStopMinutes?: number      // Close trade after X minutes
-  timeStopMinPnl?: number       // Only if PnL below this %
+  momentumThreshold: number
 }
 
 const defaultSettings: BotSettings = {
-  riskMode: 'normal',
-  takeProfitPercent: 3.0,
+  riskMode: 'NORMAL',
+  takeProfitPercent: 0,
   stopLossPercent: 1.5,
-  trailingStopPercent: 1.0,
-  minProfitToTrail: 0.8,
+  trailingStopPercent: 0.13,
+  minProfitToTrail: 0.35,
+  maxOpenPositions: 5,
+  maxPositionPercent: 10,
+  minEdge: 0.10,
   minConfidence: 60,
-  minEdge: 0.15,
-  maxPositionPercent: 5,
-  maxOpenPositions: 0, // 0 = unlimited
-  maxDailyDrawdown: 3,
-  maxTotalExposure: 50,
-  leverageMode: 'auto', // auto = bot decides
-  totalBudget: 0,
-  useAiSignals: true,
-  learnFromTrades: true,
-  useRegimeDetection: true,
-  useEdgeEstimation: true,
+  leverageMode: 'AUTO',
   useDynamicSizing: true,
-  useCryptoBert: true,
-  useXgboostClassifier: true,
-  usePricePredictor: true,
-  momentumThreshold: 0.05, // 0.05% min price rise to buy
+  momentumThreshold: 0
 }
 
-// === RISK PRESETS ===
 const riskPresets = {
-  safe: {
-    name: 'SAFE',
-    description: 'Conservative trading with high confidence requirements. Trades only when AI is very confident.',
-    color: 'emerald',
-    icon: ShieldCheck,
-    params: {
-      takeProfitPercent: 1.5,
-      stopLossPercent: 0.5,
-      trailingStopPercent: 0.5,
-      minProfitToTrail: 0.3,
-      minConfidence: 80,
-      minEdge: 0.30,
-      maxPositionPercent: 2,
-      maxOpenPositions: 5,
-      maxDailyDrawdown: 1,
-      maxTotalExposure: 20,
-      leverageMode: '1x' as const,  // No leverage - safest
-      useCryptoBert: true,
-      useXgboostClassifier: true,
-      usePricePredictor: true,
-    },
-    features: [
-      'Min 80% AI Confidence',
-      'Min 0.30 Edge Score',
-      'Max 2% per position',
-      'Max 1% daily drawdown',
-      'Max 5 positions',
-      'No leverage (1x)'
-    ]
+  NORMAL: {
+    takeProfitPercent: 0,
+    stopLossPercent: 1.5,
+    trailingStopPercent: 0.13,
+    minProfitToTrail: 0.35,
+    description: 'Balanced risk/reward. Uses trailing stops for exits.'
   },
-  normal: {
-    name: 'NORMAL',
-    description: 'Balanced risk/reward. Good for steady growth with moderate risk.',
-    color: 'amber',
-    icon: Activity,
-    params: {
-      takeProfitPercent: 3.0,
-      stopLossPercent: 1.5,
-      trailingStopPercent: 1.0,
-      minProfitToTrail: 0.8,
-      minConfidence: 60,
-      minEdge: 0.15,
-      maxPositionPercent: 5,
-      maxOpenPositions: 0, // Unlimited
-      maxDailyDrawdown: 3,
-      maxTotalExposure: 50,
-      leverageMode: 'auto' as const,  // AI decides leverage
-      useCryptoBert: true,
-      useXgboostClassifier: true,
-      usePricePredictor: true,
-    },
-    features: [
-      'Min 60% AI Confidence',
-      'Min 0.15 Edge Score',
-      'Max 5% per position',
-      'Max 3% daily drawdown',
-      'Unlimited positions',
-      'Auto leverage (AI decides)'
-    ]
+  LOCK_PROFIT: {
+    takeProfitPercent: 2.0,
+    stopLossPercent: 1.0,
+    trailingStopPercent: 0.25,
+    minProfitToTrail: 0.5,
+    description: 'Locks in profits quickly with tighter stops.'
   },
-  aggressive: {
-    name: 'HIGH RISK',
-    description: 'Aggressive trading for maximum gains. Higher risk tolerance.',
-    color: 'crimson',
-    icon: Zap,
-    params: {
-      takeProfitPercent: 8.0,
-      stopLossPercent: 3.0,
-      trailingStopPercent: 2.0,
-      minProfitToTrail: 1.5,
-      minConfidence: 45,
-      minEdge: 0.08,
-      maxPositionPercent: 10,
-      maxOpenPositions: 0, // Unlimited
-      maxDailyDrawdown: 8,
-      maxTotalExposure: 80,
-      leverageMode: '3x' as const,  // 3x leverage for aggressive
-      useCryptoBert: true,
-      useXgboostClassifier: true,
-      usePricePredictor: true,
-    },
-    features: [
-      'Min 45% AI Confidence',
-      'Min 0.08 Edge Score',
-      'Max 10% per position',
-      'Max 8% daily drawdown',
-      'Unlimited positions',
-      '3x Leverage (High Risk)'
-    ]
-  },
-  lock_profit: {
-    name: 'LOCK PROFIT',
-    description: 'AI predicts profitable trades, tight trailing stop locks in ANY profit immediately!',
-    color: 'cyan',
-    icon: TrendingDown,
-    params: {
-      takeProfitPercent: 50.0,  // High TP - let trailing do the work
-      stopLossPercent: 1.0,     // Tight stop loss
-      trailingStopPercent: 0.05, // 0.05% drop from peak = SELL
-      minProfitToTrail: 0.01,   // Trail activates almost immediately (0.01% profit)
-      minConfidence: 40,        // AI must be 40%+ confident of profit
-      minEdge: 0.05,            // 5% edge - AI sees profit potential
-      maxPositionPercent: 5,
-      maxOpenPositions: 0,      // Unlimited
-      maxDailyDrawdown: 5,      // Higher tolerance for LOCK PROFIT
-      maxTotalExposure: 100,    // Use full budget
-      leverageMode: 'auto' as const,  // AI decides leverage
-      useCryptoBert: true,      // AI sentiment analysis
-      useXgboostClassifier: true, // AI profit prediction
-      usePricePredictor: true,  // AI price forecast
-    },
-    features: [
-      'AI predicts profitable entries',
-      'Locks ANY profit immediately',
-      'Sells on 0.05% drop from peak',
-      'Tight 1% stop loss',
-      'Unlimited positions',
-      'Auto leverage (AI decides)'
-    ]
-  },
-  micro_profit: {
-    name: 'MICRO PROFIT',
-    description: 'PRO scalping: Scale-out at +0.30%/+0.60%, breakeven at +0.25%, time-stop at 4min. Optimized for range markets!',
-    color: 'purple',
-    icon: Coins,
-    params: {
-      takeProfitPercent: 0.6,   // Final TP at +0.60% (TP2)
-      stopLossPercent: 0.4,     // SL at -0.40% (tight!)
-      trailingStopPercent: 0,   // Trailing OFF for MICRO
-      minProfitToTrail: 0.6,    // Only if trailing enabled
-      minConfidence: 55,        // 55% confidence
-      minEdge: 0.20,            // 20% edge - strong signals
-      maxPositionPercent: 12,   // 10-12% per position
-      maxOpenPositions: 5,      // Max 5 positions
-      maxDailyDrawdown: 2.5,    // Stop if losing 2.5% daily
-      maxTotalExposure: 75,     // Use 75% of budget
-      leverageMode: '1x' as const,  // No leverage for scalping
-      useCryptoBert: true,
-      useXgboostClassifier: true,
-      usePricePredictor: true,
-      // Smart exit settings - SCALE OUT
-      breakevenTrigger: 0.25,   // Move SL to entry at +0.25%
-      partialExitTrigger: 0.30, // TP1: Take 50% at +0.30%
-      partialExitPercent: 50,   // Close 50% of position
-      useSmartExit: true,       // Enable breakeven + partial exits
-      momentumThreshold: 0.02,  // Momentum filter
-      // Time stop settings
-      timeStopMinutes: 4,       // Close after 4 minutes
-      timeStopMinPnl: 0.15,     // Only if PnL < +0.15%
-    },
-    features: [
-      'SCALE-OUT: 50% at +0.30%, rest at +0.60%',
-      'BREAKEVEN at +0.25% (worst = 0%)',
-      'TIME-STOP: Close at 4min if PnL < 0.15%',
-      'Tight -0.40% stop loss',
-      'No leverage (1x) - safer',
-      'Momentum + ADX filter'
-    ]
+  MICRO_PROFIT: {
+    takeProfitPercent: 0.5,
+    stopLossPercent: 0.3,
+    trailingStopPercent: 0.10,
+    minProfitToTrail: 0.2,
+    description: 'Many small profits with minimal risk per trade.'
   }
-}
-
-interface AIModelStatus {
-  cryptobert: { loaded: boolean; lastUpdate: string | null }
-  xgboost: { loaded: boolean; accuracy: number }
-  pricePredictor: { loaded: boolean; lastPrediction: string | null }
-  regimeDetector: { loaded: boolean; currentRegime: string }
 }
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState<BotSettings>(defaultSettings)
   const [isSaving, setIsSaving] = useState(false)
+  const [isLoading, setIsLoading] = useState(true)
   const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'error'>('idle')
-  const [isSellingAll, setIsSellingAll] = useState(false)
-  const [sellAllStatus, setSellAllStatus] = useState<string | null>(null)
-  const [equity, setEquity] = useState<number>(0)
-  const [usdtEurRate, setUsdtEurRate] = useState<number>(0.86) // Default rate
-  const [showAdvanced, setShowAdvanced] = useState(false)
-  const [aiModelStatus, setAiModelStatus] = useState<AIModelStatus | null>(null)
-  const [isLoadingModels, setIsLoadingModels] = useState(true)
+  const [hasChanges, setHasChanges] = useState(false)
 
   useEffect(() => {
     loadSettings()
-    loadEquity()
-    loadAIModelStatus()
-    fetchUsdtEurRate()
   }, [])
 
   const loadSettings = async () => {
+    setIsLoading(true)
     try {
-      const res = await fetch('/ai/exchange/settings')
-      const data = await res.json()
-      if (data.success && data.data) {
-        // Validate riskMode - map 'neutral' or any invalid value to 'normal'
-        let riskMode = data.data.riskMode || 'normal'
-        if (!['safe', 'normal', 'aggressive', 'lock_profit', 'micro_profit'].includes(riskMode)) {
-          riskMode = 'normal' // Default to normal if invalid value
+      const response = await fetch('/ai/exchange/settings?user_id=default')
+      if (response.ok) {
+        const data = await response.json()
+        if (data.data) {
+          setSettings(prev => ({ ...prev, ...data.data }))
         }
-        
-        // Validate leverageMode
-        let leverageMode = data.data.leverageMode || 'auto'
-        if (!['1x', '2x', '3x', '5x', '10x', 'auto'].includes(leverageMode)) {
-          leverageMode = 'auto'
-        }
-        
-        setSettings(prev => ({ 
-          ...prev, 
-          ...data.data,
-          riskMode: riskMode as 'safe' | 'normal' | 'aggressive' | 'lock_profit' | 'micro_profit',
-          leverageMode: leverageMode as '1x' | '2x' | '3x' | '5x' | '10x' | 'auto',
-          // Map backend field names to frontend
-          useCryptoBert: data.data.enableFinbertSentiment ?? data.data.useCryptoBert ?? true,
-          useXgboostClassifier: data.data.enableXgboostClassifier ?? data.data.useXgboostClassifier ?? true,
-          usePricePredictor: data.data.enablePricePrediction ?? data.data.usePricePredictor ?? true,
-          useRegimeDetection: data.data.enableRegimeDetection ?? data.data.useRegimeDetection ?? true,
-          useEdgeEstimation: data.data.enableEdgeEstimation ?? data.data.useEdgeEstimation ?? true,
-          useDynamicSizing: data.data.enableDynamicSizing ?? data.data.useDynamicSizing ?? true,
-        }))
       }
     } catch (error) {
       console.error('Failed to load settings:', error)
-    }
-  }
-
-  const loadEquity = async () => {
-    try {
-      const res = await fetch('/ai/exchange/balance')
-      const data = await res.json()
-      if (data.success) {
-        setEquity(data.data.totalEquity || 0)
-        setSettings(prev => ({
-          ...prev,
-          totalBudget: Math.round(data.data.totalEquity || 0)
-        }))
-      }
-    } catch (error) {
-      console.error('Failed to load equity:', error)
-    }
-  }
-
-  // Fetch USDT to EUR exchange rate
-  const fetchUsdtEurRate = async () => {
-    try {
-      const response = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=tether&vs_currencies=eur')
-      const data = await response.json()
-      if (data?.tether?.eur) {
-        setUsdtEurRate(data.tether.eur)
-      }
-    } catch (error) {
-      console.log('Using default USDT/EUR rate')
-    }
-  }
-
-  const loadAIModelStatus = async () => {
-    setIsLoadingModels(true)
-    try {
-      // Load status of all AI models
-      const [cryptobertRes, xgboostRes, regimeRes] = await Promise.all([
-        fetch('/ai/crypto-sentiment/stats').catch(() => null),
-        fetch('/ai/xgboost/stats').catch(() => null),
-        fetch('/ai/market/regime').catch(() => null)
-      ])
-
-      const cryptobertData = cryptobertRes ? await cryptobertRes.json().catch(() => ({})) : {}
-      const xgboostData = xgboostRes ? await xgboostRes.json().catch(() => ({})) : {}
-      const regimeData = regimeRes ? await regimeRes.json().catch(() => ({})) : {}
-
-      setAiModelStatus({
-        cryptobert: {
-          loaded: cryptobertData.success !== false,
-          lastUpdate: cryptobertData.data?.last_update || null
-        },
-        xgboost: {
-          loaded: xgboostData.success !== false,
-          accuracy: xgboostData.data?.accuracy || 0
-        },
-        pricePredictor: {
-          loaded: true, // Assuming it's loaded
-          lastPrediction: null
-        },
-        regimeDetector: {
-          loaded: regimeData.success !== false,
-          currentRegime: regimeData.regime || 'Unknown'
-        }
-      })
-    } catch (error) {
-      console.error('Failed to load AI model status:', error)
     } finally {
-      setIsLoadingModels(false)
+      setIsLoading(false)
     }
   }
 
   const saveSettings = async () => {
     setIsSaving(true)
     setSaveStatus('idle')
-    
     try {
-      // Map frontend settings to backend field names
-      const backendSettings = {
-        riskMode: settings.riskMode,
-        takeProfitPercent: settings.takeProfitPercent,
-        stopLossPercent: settings.stopLossPercent,
-        trailingStopPercent: settings.trailingStopPercent,
-        minProfitToTrail: settings.minProfitToTrail,
-        minConfidence: settings.minConfidence,
-        minEdge: settings.minEdge,
-        maxPositionPercent: settings.maxPositionPercent,
-        maxOpenPositions: settings.maxOpenPositions,
-        maxDailyDrawdown: settings.maxDailyDrawdown,
-        maxTotalExposure: settings.maxTotalExposure,
-        leverageMode: settings.leverageMode,  // 1x, 2x, 3x, 5x, 10x, auto
-        useAiSignals: settings.useAiSignals,
-        learnFromTrades: settings.learnFromTrades,
-        enableRegimeDetection: settings.useRegimeDetection,
-        enableEdgeEstimation: settings.useEdgeEstimation,
-        enableDynamicSizing: settings.useDynamicSizing,
-        enableFinbertSentiment: settings.useCryptoBert, // Backend uses this name
-        enableXgboostClassifier: settings.useXgboostClassifier,
-        enablePricePrediction: settings.usePricePredictor,
-        // Smart exit settings (MICRO PROFIT)
-        breakevenTrigger: settings.breakevenTrigger || 0.3,
-        partialExitTrigger: settings.partialExitTrigger || 0.4,
-        partialExitPercent: settings.partialExitPercent || 50,
-        useSmartExit: settings.useSmartExit || false,
-        momentumThreshold: settings.momentumThreshold ?? 0.02,  // Allow 0 (disabled)
-      }
-
-      const res = await fetch('/ai/exchange/settings', {
+      const response = await fetch('/ai/exchange/settings?user_id=default', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(backendSettings)
+        body: JSON.stringify(settings)
       })
-      
-      const data = await res.json()
-      
-      if (data.success) {
+
+      if (response.ok) {
         setSaveStatus('success')
-        // Store in localStorage for dashboard
-        localStorage.setItem('sentinel_settings', JSON.stringify(settings))
+        setHasChanges(false)
         setTimeout(() => setSaveStatus('idle'), 3000)
       } else {
         setSaveStatus('error')
@@ -462,1000 +127,369 @@ export default function SettingsPage() {
     }
   }
 
-  const sellAll = async () => {
-    if (!confirm('Are you sure you want to SELL ALL positions immediately? This cannot be undone!')) {
-      return
-    }
-    
-    setIsSellingAll(true)
-    setSellAllStatus('Closing all positions...')
-    
-    try {
-      const res = await fetch('/ai/exchange/sell-all', {
-        method: 'POST'
-      })
-      
-      const data = await res.json()
-      
-      if (data.success) {
-        setSellAllStatus(`Closed ${data.data.closedCount} positions. Total P&L: ${data.data.totalPnl?.toFixed(2)} USDT`)
-      } else {
-        setSellAllStatus(`Error: ${data.error}`)
-      }
-    } catch (error) {
-      setSellAllStatus('Failed to close positions')
-    } finally {
-      setIsSellingAll(false)
-    }
+  const updateSetting = <K extends keyof BotSettings>(key: K, value: BotSettings[K]) => {
+    setSettings(prev => ({ ...prev, [key]: value }))
+    setHasChanges(true)
   }
 
-  const applyRiskPreset = (mode: 'safe' | 'normal' | 'aggressive' | 'lock_profit' | 'micro_profit') => {
+  const applyPreset = (mode: keyof typeof riskPresets) => {
     const preset = riskPresets[mode]
     setSettings(prev => ({
       ...prev,
       riskMode: mode,
-      ...preset.params
+      ...preset
     }))
+    setHasChanges(true)
   }
 
-  const getColorClass = (color: string, type: 'text' | 'bg' | 'border') => {
-    const colors: Record<string, Record<string, string>> = {
-      emerald: {
-        text: 'text-sentinel-accent-emerald',
-        bg: 'bg-sentinel-accent-emerald',
-        border: 'border-sentinel-accent-emerald'
-      },
-      amber: {
-        text: 'text-sentinel-accent-amber',
-        bg: 'bg-sentinel-accent-amber',
-        border: 'border-sentinel-accent-amber'
-      },
-      crimson: {
-        text: 'text-sentinel-accent-crimson',
-        bg: 'bg-sentinel-accent-crimson',
-        border: 'border-sentinel-accent-crimson'
-      },
-      cyan: {
-        text: 'text-sentinel-accent-cyan',
-        bg: 'bg-sentinel-accent-cyan',
-        border: 'border-sentinel-accent-cyan'
-      }
-    }
-    return colors[color]?.[type] || ''
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-[#0a0f1a] flex items-center justify-center">
+        <Loader2 className="w-8 h-8 text-cyan-400 animate-spin" />
+      </div>
+    )
   }
-
-  // Get the current preset safely (fallback to 'normal' if riskMode is invalid)
-  const getCurrentPreset = () => {
-    const validModes = ['safe', 'normal', 'aggressive', 'lock_profit', 'micro_profit'] as const
-    const mode = validModes.includes(settings.riskMode as any) ? settings.riskMode : 'normal'
-    return { mode, preset: riskPresets[mode] }
-  }
-  
-  const { mode: currentMode, preset: currentPreset } = getCurrentPreset()
 
   return (
-    <div className="min-h-screen bg-sentinel-bg-primary">
+    <div className="min-h-screen bg-[#0a0f1a]">
       {/* Header */}
-      <nav className="sticky top-0 z-50 glass-card border-b border-sentinel-border">
-        <div className="w-full max-w-[2000px] mx-auto px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <Link href="/dashboard" className="p-2 rounded-lg hover:bg-sentinel-bg-tertiary transition-colors">
-              <ArrowLeft className="w-5 h-5" />
-            </Link>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="font-display font-bold text-xl text-white">SENTINEL</span>
-                <span className="text-sentinel-text-muted">|</span>
-                <span className="font-display font-bold text-xl">Settings</span>
-              </div>
-              <p className="text-xs text-sentinel-text-muted">Configure risk levels, AI models, and trading parameters</p>
-            </div>
-          </div>
-          
-          <div className="flex items-center gap-3">
-            <button
-              onClick={sellAll}
-              disabled={isSellingAll}
-              className="px-4 py-2 rounded-xl bg-sentinel-accent-crimson/20 text-sentinel-accent-crimson 
-                         font-semibold hover:bg-sentinel-accent-crimson/30 transition-all flex items-center gap-2
-                         disabled:opacity-50"
-            >
-              {isSellingAll ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <StopCircle className="w-4 h-4" />
-              )}
-              SELL ALL
-            </button>
-            
-            <button
-              onClick={saveSettings}
-              disabled={isSaving}
-              className="px-6 py-2 rounded-xl bg-sentinel-accent-emerald font-semibold 
-                         hover:bg-sentinel-accent-emerald/80 transition-all flex items-center gap-2
-                         disabled:opacity-50"
-            >
-              {isSaving ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : saveStatus === 'success' ? (
-                <CheckCircle className="w-4 h-4" />
-              ) : saveStatus === 'error' ? (
-                <XCircle className="w-4 h-4" />
-              ) : (
-                <Save className="w-4 h-4" />
-              )}
-              {saveStatus === 'success' ? 'Saved!' : saveStatus === 'error' ? 'Error' : 'Save Settings'}
-            </button>
-          </div>
-        </div>
-      </nav>
-
-      {/* Sell All Status */}
-      {sellAllStatus && (
-        <div className="w-full max-w-[2000px] mx-auto px-6 pt-4">
-          <div className={`p-4 rounded-xl ${
-            sellAllStatus.includes('Error') || sellAllStatus.includes('Failed') 
-              ? 'bg-sentinel-accent-crimson/10 border border-sentinel-accent-crimson/30' 
-              : 'bg-sentinel-accent-emerald/10 border border-sentinel-accent-emerald/30'
-          }`}>
-            {sellAllStatus}
-          </div>
-        </div>
-      )}
-
-      <main className="w-full max-w-[2000px] mx-auto px-6 py-8 space-y-8">
-        
-        {/* Balance & Budget Card */}
-        <div className="p-6 rounded-2xl glass-card">
+      <header className="sticky top-0 z-50 bg-[#0a0f1a]/95 backdrop-blur-xl border-b border-white/5">
+        <div className="w-full px-6 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
-              <div className="p-3 rounded-xl bg-sentinel-accent-cyan/20">
-                <Wallet className="w-8 h-8 text-sentinel-accent-cyan" />
-              </div>
+              <Link 
+                href="/dashboard" 
+                className="p-2 rounded-lg bg-white/5 hover:bg-white/10 transition-colors"
+              >
+                <ArrowLeft className="w-5 h-5 text-gray-400" />
+              </Link>
               <div>
-                <p className="text-sm text-sentinel-text-muted">Total Trading Budget</p>
-                <p className="text-3xl font-bold font-mono">{equity.toFixed(2)} <span className="text-xl text-sentinel-accent-cyan">USDT</span></p>
-                <p className="text-sm text-sentinel-text-secondary">
-                  ≈ €{(equity * usdtEurRate).toFixed(2)} EUR
-                </p>
-                <p className="text-xs text-sentinel-text-muted mt-1">
-                  Bot manages entire balance • Crypto & TradFi unified
-                </p>
+                <h1 className="text-xl font-bold text-white">Trading Settings</h1>
+                <p className="text-sm text-gray-500">Configure AI trading parameters</p>
               </div>
             </div>
-            <div className="text-right">
-              <p className="text-sm text-sentinel-text-muted">Current Risk Mode</p>
-              <p className={`text-2xl font-bold ${getColorClass(currentPreset.color, 'text')}`}>
-                {currentPreset.name}
-              </p>
-              <p className="text-xs text-sentinel-text-muted mt-1">
-                Max Exposure: {(equity * settings.maxTotalExposure / 100).toFixed(2)} USDT
+            
+            <div className="flex items-center gap-3">
+              <button
+                onClick={loadSettings}
+                className="p-2.5 rounded-lg bg-white/5 hover:bg-white/10 transition-colors"
+              >
+                <RefreshCw className="w-5 h-5 text-gray-400" />
+              </button>
+              
+              <button
+                onClick={saveSettings}
+                disabled={isSaving || !hasChanges}
+                className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-semibold text-sm transition-all ${
+                  hasChanges
+                    ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white hover:shadow-lg hover:shadow-cyan-500/25'
+                    : 'bg-white/5 text-gray-500 cursor-not-allowed'
+                }`}
+              >
+                {isSaving ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : saveStatus === 'success' ? (
+                  <CheckCircle className="w-4 h-4" />
+                ) : (
+                  <Save className="w-4 h-4" />
+                )}
+                {isSaving ? 'Saving...' : saveStatus === 'success' ? 'Saved!' : 'Save Changes'}
+              </button>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      {/* Main Content */}
+      <main className="p-6">
+        <div className="max-w-5xl mx-auto space-y-6">
+          
+          {/* Risk Mode Section */}
+          <section className="bg-white/[0.02] rounded-2xl border border-white/5 overflow-hidden">
+            <div className="p-5 border-b border-white/5">
+              <div className="flex items-center gap-2">
+                <Shield className="w-5 h-5 text-cyan-400" />
+                <h2 className="font-semibold text-white">Risk Mode</h2>
+              </div>
+              <p className="text-sm text-gray-500 mt-1">Select a trading strategy preset</p>
+            </div>
+            
+            <div className="p-5 grid md:grid-cols-3 gap-4">
+              {(Object.keys(riskPresets) as Array<keyof typeof riskPresets>).map((mode) => (
+                <button
+                  key={mode}
+                  onClick={() => applyPreset(mode)}
+                  className={`p-4 rounded-xl border text-left transition-all ${
+                    settings.riskMode === mode
+                      ? 'bg-cyan-500/10 border-cyan-500/30'
+                      : 'bg-white/[0.02] border-white/10 hover:border-white/20'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <span className={`font-semibold ${settings.riskMode === mode ? 'text-cyan-400' : 'text-white'}`}>
+                      {mode.replace('_', ' ')}
+                    </span>
+                    {settings.riskMode === mode && (
+                      <CheckCircle className="w-4 h-4 text-cyan-400" />
+                    )}
+                  </div>
+                  <p className="text-xs text-gray-500">{riskPresets[mode].description}</p>
+                </button>
+              ))}
+            </div>
+          </section>
+
+          {/* Exit Strategy */}
+          <section className="bg-white/[0.02] rounded-2xl border border-white/5 overflow-hidden">
+            <div className="p-5 border-b border-white/5">
+              <div className="flex items-center gap-2">
+                <Target className="w-5 h-5 text-cyan-400" />
+                <h2 className="font-semibold text-white">Exit Strategy</h2>
+              </div>
+              <p className="text-sm text-gray-500 mt-1">Configure take profit and stop loss settings</p>
+            </div>
+            
+            <div className="p-5 grid md:grid-cols-2 gap-6">
+              {/* Take Profit */}
+              <div>
+                <label className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-medium text-gray-300">Take Profit %</span>
+                  <span className="text-sm text-cyan-400 font-mono">
+                    {settings.takeProfitPercent === 0 ? 'OFF' : `${settings.takeProfitPercent}%`}
+                  </span>
+                </label>
+                <input
+                  type="range"
+                  min="0"
+                  max="10"
+                  step="0.5"
+                  value={settings.takeProfitPercent}
+                  onChange={(e) => updateSetting('takeProfitPercent', parseFloat(e.target.value))}
+                  className="w-full accent-cyan-500"
+                />
+                <p className="text-xs text-gray-600 mt-1">Set to 0 to use trailing stop only</p>
+              </div>
+
+              {/* Stop Loss */}
+              <div>
+                <label className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-medium text-gray-300">Stop Loss %</span>
+                  <span className="text-sm text-red-400 font-mono">{settings.stopLossPercent}%</span>
+                </label>
+                <input
+                  type="range"
+                  min="0.5"
+                  max="5"
+                  step="0.1"
+                  value={settings.stopLossPercent}
+                  onChange={(e) => updateSetting('stopLossPercent', parseFloat(e.target.value))}
+                  className="w-full accent-red-500"
+                />
+              </div>
+
+              {/* Trailing Stop */}
+              <div>
+                <label className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-medium text-gray-300">Trailing Stop %</span>
+                  <span className="text-sm text-amber-400 font-mono">{settings.trailingStopPercent}%</span>
+                </label>
+                <input
+                  type="range"
+                  min="0.05"
+                  max="2"
+                  step="0.01"
+                  value={settings.trailingStopPercent}
+                  onChange={(e) => updateSetting('trailingStopPercent', parseFloat(e.target.value))}
+                  className="w-full accent-amber-500"
+                />
+                <p className="text-xs text-gray-600 mt-1">Sell when price drops this % from peak</p>
+              </div>
+
+              {/* Min Profit to Trail */}
+              <div>
+                <label className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-medium text-gray-300">Min Profit to Trail</span>
+                  <span className="text-sm text-emerald-400 font-mono">{settings.minProfitToTrail}%</span>
+                </label>
+                <input
+                  type="range"
+                  min="0.1"
+                  max="3"
+                  step="0.05"
+                  value={settings.minProfitToTrail}
+                  onChange={(e) => updateSetting('minProfitToTrail', parseFloat(e.target.value))}
+                  className="w-full accent-emerald-500"
+                />
+                <p className="text-xs text-gray-600 mt-1">Trailing activates after this profit</p>
+              </div>
+            </div>
+          </section>
+
+          {/* Position Sizing */}
+          <section className="bg-white/[0.02] rounded-2xl border border-white/5 overflow-hidden">
+            <div className="p-5 border-b border-white/5">
+              <div className="flex items-center gap-2">
+                <Percent className="w-5 h-5 text-cyan-400" />
+                <h2 className="font-semibold text-white">Position Sizing</h2>
+              </div>
+              <p className="text-sm text-gray-500 mt-1">Control trade sizes and limits</p>
+            </div>
+            
+            <div className="p-5 grid md:grid-cols-2 gap-6">
+              {/* Max Open Positions */}
+              <div>
+                <label className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-medium text-gray-300">Max Open Positions</span>
+                  <span className="text-sm text-cyan-400 font-mono">{settings.maxOpenPositions}</span>
+                </label>
+                <input
+                  type="range"
+                  min="1"
+                  max="20"
+                  step="1"
+                  value={settings.maxOpenPositions}
+                  onChange={(e) => updateSetting('maxOpenPositions', parseInt(e.target.value))}
+                  className="w-full accent-cyan-500"
+                />
+              </div>
+
+              {/* Max Position Percent */}
+              <div>
+                <label className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-medium text-gray-300">Max Position Size %</span>
+                  <span className="text-sm text-cyan-400 font-mono">{settings.maxPositionPercent}%</span>
+                </label>
+                <input
+                  type="range"
+                  min="1"
+                  max="30"
+                  step="1"
+                  value={settings.maxPositionPercent}
+                  onChange={(e) => updateSetting('maxPositionPercent', parseInt(e.target.value))}
+                  className="w-full accent-cyan-500"
+                />
+                <p className="text-xs text-gray-600 mt-1">Max % of equity per trade</p>
+              </div>
+
+              {/* Dynamic Sizing Toggle */}
+              <div className="md:col-span-2 flex items-center justify-between p-4 bg-white/[0.02] rounded-xl border border-white/10">
+                <div>
+                  <span className="font-medium text-white">Dynamic Position Sizing</span>
+                  <p className="text-xs text-gray-500 mt-0.5">AI adjusts size based on confidence (Kelly Criterion)</p>
+                </div>
+                <button
+                  onClick={() => updateSetting('useDynamicSizing', !settings.useDynamicSizing)}
+                  className={`w-12 h-6 rounded-full transition-colors ${
+                    settings.useDynamicSizing ? 'bg-cyan-500' : 'bg-white/10'
+                  }`}
+                >
+                  <div className={`w-5 h-5 rounded-full bg-white shadow transition-transform ${
+                    settings.useDynamicSizing ? 'translate-x-6' : 'translate-x-0.5'
+                  }`} />
+                </button>
+              </div>
+            </div>
+          </section>
+
+          {/* AI Filters */}
+          <section className="bg-white/[0.02] rounded-2xl border border-white/5 overflow-hidden">
+            <div className="p-5 border-b border-white/5">
+              <div className="flex items-center gap-2">
+                <Brain className="w-5 h-5 text-cyan-400" />
+                <h2 className="font-semibold text-white">AI Filters</h2>
+              </div>
+              <p className="text-sm text-gray-500 mt-1">Control trade quality requirements</p>
+            </div>
+            
+            <div className="p-5 grid md:grid-cols-2 gap-6">
+              {/* Min Edge */}
+              <div>
+                <label className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-medium text-gray-300">Min Edge Score</span>
+                  <span className="text-sm text-cyan-400 font-mono">{settings.minEdge}</span>
+                </label>
+                <input
+                  type="range"
+                  min="0"
+                  max="0.5"
+                  step="0.01"
+                  value={settings.minEdge}
+                  onChange={(e) => updateSetting('minEdge', parseFloat(e.target.value))}
+                  className="w-full accent-cyan-500"
+                />
+                <p className="text-xs text-gray-600 mt-1">Higher = fewer but better trades</p>
+              </div>
+
+              {/* Min Confidence */}
+              <div>
+                <label className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-medium text-gray-300">Min Confidence %</span>
+                  <span className="text-sm text-cyan-400 font-mono">{settings.minConfidence}%</span>
+                </label>
+                <input
+                  type="range"
+                  min="40"
+                  max="90"
+                  step="5"
+                  value={settings.minConfidence}
+                  onChange={(e) => updateSetting('minConfidence', parseInt(e.target.value))}
+                  className="w-full accent-cyan-500"
+                />
+              </div>
+
+              {/* Leverage Mode */}
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Leverage Mode
+                </label>
+                <select
+                  value={settings.leverageMode}
+                  onChange={(e) => updateSetting('leverageMode', e.target.value)}
+                  className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white focus:border-cyan-500/50 focus:outline-none"
+                >
+                  <option value="AUTO">AUTO (AI decides)</option>
+                  <option value="1">1x (No leverage)</option>
+                  <option value="2">2x</option>
+                  <option value="3">3x</option>
+                  <option value="5">5x</option>
+                  <option value="10">10x</option>
+                </select>
+              </div>
+
+              {/* Momentum Threshold */}
+              <div>
+                <label className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-medium text-gray-300">Momentum Threshold</span>
+                  <span className="text-sm text-cyan-400 font-mono">
+                    {settings.momentumThreshold === 0 ? 'OFF' : `${settings.momentumThreshold}%`}
+                  </span>
+                </label>
+                <input
+                  type="range"
+                  min="0"
+                  max="0.1"
+                  step="0.01"
+                  value={settings.momentumThreshold}
+                  onChange={(e) => updateSetting('momentumThreshold', parseFloat(e.target.value))}
+                  className="w-full accent-cyan-500"
+                />
+                <p className="text-xs text-gray-600 mt-1">Min 24h momentum to trade</p>
+              </div>
+            </div>
+          </section>
+
+          {/* Warning */}
+          <div className="p-4 bg-amber-500/5 border border-amber-500/20 rounded-xl flex items-start gap-3">
+            <AlertTriangle className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" />
+            <div>
+              <span className="font-medium text-amber-400">Risk Warning</span>
+              <p className="text-sm text-gray-400 mt-1">
+                Trading involves significant risk. Past performance doesn't guarantee future results. 
+                Only trade with capital you can afford to lose.
               </p>
             </div>
           </div>
         </div>
-
-        {/* AI Models Status */}
-        <motion.section
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="p-6 rounded-2xl glass-card"
-        >
-          <div className="flex items-center justify-between mb-6">
-            <h2 className="text-lg font-semibold flex items-center gap-2">
-              <Cpu className="w-5 h-5 text-sentinel-accent-violet" />
-              AI Models Status
-            </h2>
-            <button 
-              onClick={loadAIModelStatus}
-              className="p-2 rounded-lg hover:bg-sentinel-bg-tertiary transition-colors"
-            >
-              <RefreshCw className={`w-4 h-4 ${isLoadingModels ? 'animate-spin' : ''}`} />
-            </button>
-          </div>
-          
-          <div className="grid grid-cols-4 gap-4">
-            {/* CryptoBERT */}
-            <div className={`p-4 rounded-xl ${settings.useCryptoBert ? 'bg-sentinel-accent-emerald/10 border border-sentinel-accent-emerald/30' : 'bg-sentinel-bg-tertiary'}`}>
-              <div className="flex items-center gap-2 mb-2">
-                <MessageSquare className={`w-5 h-5 ${settings.useCryptoBert ? 'text-sentinel-accent-emerald' : 'text-sentinel-text-muted'}`} />
-                <span className="font-medium text-sm">CryptoBERT</span>
-              </div>
-              <p className="text-xs text-sentinel-text-muted">Crypto Sentiment Analysis</p>
-              <div className="mt-2 flex items-center gap-1">
-                <span className={`w-2 h-2 rounded-full ${aiModelStatus?.cryptobert.loaded ? 'bg-sentinel-accent-emerald' : 'bg-sentinel-text-muted'}`} />
-                <span className="text-xs">{aiModelStatus?.cryptobert.loaded ? 'Active' : 'Inactive'}</span>
-              </div>
-            </div>
-
-            {/* XGBoost */}
-            <div className={`p-4 rounded-xl ${settings.useXgboostClassifier ? 'bg-sentinel-accent-emerald/10 border border-sentinel-accent-emerald/30' : 'bg-sentinel-bg-tertiary'}`}>
-              <div className="flex items-center gap-2 mb-2">
-                <BarChart3 className={`w-5 h-5 ${settings.useXgboostClassifier ? 'text-sentinel-accent-emerald' : 'text-sentinel-text-muted'}`} />
-                <span className="font-medium text-sm">XGBoost</span>
-              </div>
-              <p className="text-xs text-sentinel-text-muted">Signal Classification</p>
-              <div className="mt-2 flex items-center gap-1">
-                <span className={`w-2 h-2 rounded-full ${aiModelStatus?.xgboost.loaded ? 'bg-sentinel-accent-emerald' : 'bg-sentinel-text-muted'}`} />
-                <span className="text-xs">
-                  {aiModelStatus?.xgboost.accuracy ? `${(aiModelStatus.xgboost.accuracy * 100).toFixed(0)}% Acc` : 'Training...'}
-                </span>
-              </div>
-            </div>
-
-            {/* Price Predictor */}
-            <div className={`p-4 rounded-xl ${settings.usePricePredictor ? 'bg-sentinel-accent-emerald/10 border border-sentinel-accent-emerald/30' : 'bg-sentinel-bg-tertiary'}`}>
-              <div className="flex items-center gap-2 mb-2">
-                <LineChart className={`w-5 h-5 ${settings.usePricePredictor ? 'text-sentinel-accent-emerald' : 'text-sentinel-text-muted'}`} />
-                <span className="font-medium text-sm">Chronos</span>
-              </div>
-              <p className="text-xs text-sentinel-text-muted">Price Prediction</p>
-              <div className="mt-2 flex items-center gap-1">
-                <span className={`w-2 h-2 rounded-full ${aiModelStatus?.pricePredictor.loaded ? 'bg-sentinel-accent-emerald' : 'bg-sentinel-text-muted'}`} />
-                <span className="text-xs">{aiModelStatus?.pricePredictor.loaded ? 'Active' : 'Inactive'}</span>
-              </div>
-            </div>
-
-            {/* Regime Detector */}
-            <div className={`p-4 rounded-xl ${settings.useRegimeDetection ? 'bg-sentinel-accent-emerald/10 border border-sentinel-accent-emerald/30' : 'bg-sentinel-bg-tertiary'}`}>
-              <div className="flex items-center gap-2 mb-2">
-                <Sparkles className={`w-5 h-5 ${settings.useRegimeDetection ? 'text-sentinel-accent-emerald' : 'text-sentinel-text-muted'}`} />
-                <span className="font-medium text-sm">Regime</span>
-              </div>
-              <p className="text-xs text-sentinel-text-muted">Market Regime Detection</p>
-              <div className="mt-2 flex items-center gap-1">
-                <span className={`w-2 h-2 rounded-full ${aiModelStatus?.regimeDetector.loaded ? 'bg-sentinel-accent-emerald' : 'bg-sentinel-text-muted'}`} />
-                <span className="text-xs">{aiModelStatus?.regimeDetector.currentRegime || 'Detecting...'}</span>
-              </div>
-            </div>
-          </div>
-        </motion.section>
-
-        {/* Risk Mode Selection */}
-        <motion.section
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="p-6 rounded-2xl glass-card"
-        >
-          <h2 className="text-lg font-semibold mb-2 flex items-center gap-2">
-            <Gauge className="w-5 h-5 text-sentinel-accent-cyan" />
-            Risk Profile
-          </h2>
-          <p className="text-sm text-sentinel-text-muted mb-6">
-            Select a preset to automatically configure all parameters
-          </p>
-          
-          <div className="grid grid-cols-4 gap-4">
-            {(Object.keys(riskPresets) as Array<keyof typeof riskPresets>).map((mode) => {
-              const preset = riskPresets[mode]
-              const Icon = preset.icon
-              const isActive = settings.riskMode === mode
-              
-              return (
-                <button
-                  key={mode}
-                  onClick={() => applyRiskPreset(mode)}
-                  className={`p-6 rounded-xl border-2 transition-all text-left ${
-                    isActive
-                      ? `${getColorClass(preset.color, 'border')} ${getColorClass(preset.color, 'bg')}/10`
-                      : 'border-sentinel-border hover:border-sentinel-border-hover'
-                  }`}
-                >
-                  <div className="flex items-start justify-between mb-4">
-                    <div className={`p-3 rounded-xl ${
-                      isActive ? `${getColorClass(preset.color, 'bg')}/20` : 'bg-sentinel-bg-tertiary'
-                    }`}>
-                      <Icon className={`w-6 h-6 ${
-                        isActive ? getColorClass(preset.color, 'text') : 'text-sentinel-text-muted'
-                      }`} />
-                    </div>
-                    {isActive && (
-                      <CheckCircle className={`w-5 h-5 ${getColorClass(preset.color, 'text')}`} />
-                    )}
-                  </div>
-                  
-                  <h3 className={`font-bold text-lg mb-1 ${isActive ? getColorClass(preset.color, 'text') : ''}`}>
-                    {preset.name}
-                  </h3>
-                  <p className="text-xs text-sentinel-text-muted mb-4">
-                    {preset.description}
-                  </p>
-                  
-                  <ul className="space-y-1">
-                    {preset.features.slice(0, 4).map((feature, i) => (
-                      <li key={i} className="text-xs text-sentinel-text-secondary flex items-center gap-1">
-                        <span className={`w-1 h-1 rounded-full ${getColorClass(preset.color, 'bg')}`} />
-                        {feature}
-                      </li>
-                    ))}
-                  </ul>
-                </button>
-              )
-            })}
-          </div>
-        </motion.section>
-
-        {/* Current Settings Summary */}
-        <motion.section
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.1 }}
-          className="p-6 rounded-2xl glass-card"
-        >
-          <h2 className="text-lg font-semibold mb-6 flex items-center gap-2">
-            <Info className="w-5 h-5 text-sentinel-accent-cyan" />
-            Current Configuration
-          </h2>
-          
-          <div className="grid grid-cols-4 gap-4">
-            <div className="p-4 rounded-xl bg-sentinel-bg-tertiary text-center">
-              <p className="text-xs text-sentinel-text-muted mb-1">Take Profit</p>
-              <p className="text-xl font-bold text-sentinel-accent-emerald">
-                {settings.takeProfitPercent === 0 ? 'OFF' : `+${settings.takeProfitPercent}%`}
-              </p>
-            </div>
-            <div className="p-4 rounded-xl bg-sentinel-bg-tertiary text-center">
-              <p className="text-xs text-sentinel-text-muted mb-1">Stop Loss</p>
-              <p className="text-xl font-bold text-sentinel-accent-crimson">-{settings.stopLossPercent}%</p>
-            </div>
-            <div className="p-4 rounded-xl bg-sentinel-bg-tertiary text-center">
-              <p className="text-xs text-sentinel-text-muted mb-1">Min Confidence</p>
-              <p className="text-xl font-bold text-sentinel-accent-amber">{settings.minConfidence}%</p>
-            </div>
-            <div className="p-4 rounded-xl bg-sentinel-bg-tertiary text-center">
-              <p className="text-xs text-sentinel-text-muted mb-1">Max Positions</p>
-              <p className="text-xl font-bold text-sentinel-accent-cyan">
-                {settings.maxOpenPositions === 0 ? (
-                  <span className="flex items-center justify-center gap-1">
-                    <Infinity className="w-5 h-5" />
-                  </span>
-                ) : settings.maxOpenPositions}
-              </p>
-            </div>
-          </div>
-          
-          <div className="grid grid-cols-5 gap-4 mt-4">
-            <div className="p-4 rounded-xl bg-sentinel-bg-tertiary text-center">
-              <p className="text-xs text-sentinel-text-muted mb-1">Leverage</p>
-              <p className={`text-xl font-bold ${settings.leverageMode === 'auto' ? 'text-sentinel-accent-violet' : 'text-sentinel-accent-amber'}`}>
-                {settings.leverageMode === 'auto' ? (
-                  <span className="flex items-center justify-center gap-1">
-                    <Brain className="w-4 h-4" />
-                    AUTO
-                  </span>
-                ) : settings.leverageMode.toUpperCase()}
-              </p>
-            </div>
-            <div className="p-4 rounded-xl bg-sentinel-bg-tertiary text-center">
-              <p className="text-xs text-sentinel-text-muted mb-1">Min Edge</p>
-              <p className="text-xl font-bold">{settings.minEdge}</p>
-            </div>
-            <div className="p-4 rounded-xl bg-sentinel-bg-tertiary text-center">
-              <p className="text-xs text-sentinel-text-muted mb-1">Trailing Stop</p>
-              <p className="text-xl font-bold">{settings.trailingStopPercent}%</p>
-            </div>
-            <div className="p-4 rounded-xl bg-sentinel-bg-tertiary text-center">
-              <p className="text-xs text-sentinel-text-muted mb-1">Max Daily DD</p>
-              <p className="text-xl font-bold text-sentinel-accent-crimson">-{settings.maxDailyDrawdown}%</p>
-            </div>
-            <div className="p-4 rounded-xl bg-sentinel-bg-tertiary text-center">
-              <p className="text-xs text-sentinel-text-muted mb-1">Max Exposure</p>
-              <p className="text-xl font-bold">{settings.maxTotalExposure}%</p>
-            </div>
-          </div>
-        </motion.section>
-
-        {/* Advanced Settings Toggle */}
-        <button
-          onClick={() => setShowAdvanced(!showAdvanced)}
-          className="w-full p-4 rounded-xl glass-card flex items-center justify-between hover:bg-sentinel-bg-tertiary transition-colors"
-        >
-          <div className="flex items-center gap-3">
-            <Settings className="w-5 h-5 text-sentinel-accent-cyan" />
-            <span className="font-medium">Advanced Settings</span>
-          </div>
-          <motion.div
-            animate={{ rotate: showAdvanced ? 180 : 0 }}
-            transition={{ duration: 0.2 }}
-          >
-            <ArrowLeft className="w-5 h-5 -rotate-90" />
-          </motion.div>
-        </button>
-
-        {/* Advanced Settings */}
-        {showAdvanced && (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: 'auto' }}
-            exit={{ opacity: 0, height: 0 }}
-            className="space-y-8"
-          >
-            {/* Trading Parameters */}
-            <section className="p-6 rounded-2xl glass-card">
-              <h2 className="text-lg font-semibold mb-6 flex items-center gap-2">
-                <Target className="w-5 h-5 text-sentinel-accent-cyan" />
-                Trading Parameters
-              </h2>
-              
-              <div className="grid grid-cols-2 gap-6">
-                {/* Take Profit */}
-                <div>
-                  <label className="block text-sm font-medium text-sentinel-text-secondary mb-2">
-                    Take Profit %
-                  </label>
-                  <div className="flex items-center gap-3">
-                    <input
-                      type="range"
-                      min="0"
-                      max="15"
-                      step="0.5"
-                      value={settings.takeProfitPercent}
-                      onChange={(e) => setSettings(prev => ({ 
-                        ...prev, 
-                        takeProfitPercent: parseFloat(e.target.value)
-                      }))}
-                      className="flex-1 accent-sentinel-accent-emerald"
-                    />
-                    <span className="w-16 text-right font-mono text-sentinel-accent-emerald">
-                      {settings.takeProfitPercent === 0 ? 'OFF' : `+${settings.takeProfitPercent}%`}
-                    </span>
-                  </div>
-                  {settings.takeProfitPercent === 0 && (
-                    <p className="text-xs text-sentinel-text-muted mt-1">
-                      <Info className="inline w-3 h-3 mr-1" />
-                      Trailing stop only mode - no fixed TP limit
-                    </p>
-                  )}
-                </div>
-
-                {/* Stop Loss */}
-                <div>
-                  <label className="block text-sm font-medium text-sentinel-text-secondary mb-2">
-                    Stop Loss %
-                  </label>
-                  <div className="flex items-center gap-3">
-                    <input
-                      type="range"
-                      min="0.3"
-                      max="10"
-                      step="0.1"
-                      value={settings.stopLossPercent}
-                      onChange={(e) => setSettings(prev => ({ 
-                        ...prev, 
-                        stopLossPercent: parseFloat(e.target.value)
-                      }))}
-                      className="flex-1 accent-sentinel-accent-crimson"
-                    />
-                    <span className="w-16 text-right font-mono text-sentinel-accent-crimson">
-                      -{settings.stopLossPercent}%
-                    </span>
-                  </div>
-                </div>
-
-                {/* Trailing Stop */}
-                <div>
-                  <label className="block text-sm font-medium text-sentinel-text-secondary mb-2">
-                    Trailing Stop %
-                  </label>
-                  <div className="flex items-center gap-3">
-                    <input
-                      type="range"
-                      min="0.01"
-                      max="5"
-                      step="0.01"
-                      value={settings.trailingStopPercent}
-                      onChange={(e) => setSettings(prev => ({ 
-                        ...prev, 
-                        trailingStopPercent: parseFloat(e.target.value)
-                      }))}
-                      className="flex-1 accent-sentinel-accent-amber"
-                    />
-                    <span className="w-16 text-right font-mono text-sentinel-accent-amber">
-                      {settings.trailingStopPercent}%
-                    </span>
-                  </div>
-                </div>
-
-                {/* Min Profit to Trail */}
-                <div>
-                  <label className="block text-sm font-medium text-sentinel-text-secondary mb-2">
-                    Min Profit to Activate Trail
-                  </label>
-                  <div className="flex items-center gap-3">
-                    <input
-                      type="range"
-                      min="0.01"
-                      max="5"
-                      step="0.01"
-                      value={settings.minProfitToTrail}
-                      onChange={(e) => setSettings(prev => ({ 
-                        ...prev, 
-                        minProfitToTrail: parseFloat(e.target.value)
-                      }))}
-                      className="flex-1 accent-sentinel-accent-cyan"
-                    />
-                    <span className="w-16 text-right font-mono text-sentinel-accent-cyan">
-                      +{settings.minProfitToTrail}%
-                    </span>
-                  </div>
-                </div>
-
-                {/* Min Confidence */}
-                <div>
-                  <label className="block text-sm font-medium text-sentinel-text-secondary mb-2">
-                    Minimum AI Confidence
-                  </label>
-                  <div className="flex items-center gap-3">
-                    <input
-                      type="range"
-                      min="30"
-                      max="95"
-                      step="5"
-                      value={settings.minConfidence}
-                      onChange={(e) => setSettings(prev => ({ 
-                        ...prev, 
-                        minConfidence: parseInt(e.target.value)
-                      }))}
-                      className="flex-1 accent-sentinel-accent-violet"
-                    />
-                    <span className="w-16 text-right font-mono text-sentinel-accent-violet">
-                      {settings.minConfidence}%
-                    </span>
-                  </div>
-                </div>
-
-                {/* Min Edge */}
-                <div>
-                  <label className="block text-sm font-medium text-sentinel-text-secondary mb-2">
-                    Minimum Edge Score
-                  </label>
-                  <div className="flex items-center gap-3">
-                    <input
-                      type="range"
-                      min="0.05"
-                      max="0.50"
-                      step="0.01"
-                      value={settings.minEdge}
-                      onChange={(e) => setSettings(prev => ({ 
-                        ...prev, 
-                        minEdge: parseFloat(e.target.value)
-                      }))}
-                      className="flex-1 accent-sentinel-accent-cyan"
-                    />
-                    <span className="w-16 text-right font-mono">
-                      {settings.minEdge.toFixed(2)}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Momentum Threshold */}
-                <div>
-                  <label className="block text-sm font-medium text-sentinel-text-secondary mb-2">
-                    Momentum Threshold (MICRO PROFIT)
-                  </label>
-                  <div className="flex items-center gap-3">
-                    <input
-                      type="range"
-                      min="0"
-                      max="0.10"
-                      step="0.01"
-                      value={settings.momentumThreshold ?? 0.02}
-                      onChange={(e) => setSettings(prev => ({ 
-                        ...prev, 
-                        momentumThreshold: parseFloat(e.target.value)
-                      }))}
-                      className="flex-1 accent-purple-500"
-                    />
-                    <span className="w-16 text-right font-mono text-purple-400">
-                      {(settings.momentumThreshold ?? 0.02) === 0 ? 'OFF' : `${(settings.momentumThreshold ?? 0.02).toFixed(2)}%`}
-                    </span>
-                  </div>
-                  <p className="text-xs text-sentinel-text-muted mt-1">
-                    0=OFF, 0.01, 0.02, 0.03... 0.10 max
-                  </p>
-                </div>
-              </div>
-            </section>
-
-            {/* Risk Management */}
-            <section className="p-6 rounded-2xl glass-card">
-              <h2 className="text-lg font-semibold mb-6 flex items-center gap-2">
-                <ShieldCheck className="w-5 h-5 text-sentinel-accent-cyan" />
-                Risk Management
-              </h2>
-              
-              <div className="grid grid-cols-2 gap-6">
-                {/* Max Position Size */}
-                <div>
-                  <label className="block text-sm font-medium text-sentinel-text-secondary mb-2">
-                    % of Budget per Trade
-                  </label>
-                  <div className="flex items-center gap-3">
-                    <input
-                      type="range"
-                      min="1"
-                      max="50"
-                      step="1"
-                      value={settings.maxPositionPercent}
-                      onChange={(e) => setSettings(prev => ({ 
-                        ...prev, 
-                        maxPositionPercent: parseInt(e.target.value)
-                      }))}
-                      className="flex-1 accent-sentinel-accent-cyan"
-                    />
-                    <span className="w-16 text-right font-mono">
-                      {settings.maxPositionPercent}%
-                    </span>
-                  </div>
-                  <p className="text-xs text-sentinel-text-muted mt-1">
-                    Each trade uses max {(equity * settings.maxPositionPercent / 100).toFixed(2)} USDT of your budget
-                  </p>
-                </div>
-
-                {/* Max Open Positions */}
-                <div>
-                  <label className="block text-sm font-medium text-sentinel-text-secondary mb-2">
-                    Max Simultaneous Trades (0 = unlimited)
-                  </label>
-                  <div className="flex items-center gap-3">
-                    <input
-                      type="range"
-                      min="0"
-                      max="100"
-                      step="1"
-                      value={settings.maxOpenPositions}
-                      onChange={(e) => setSettings(prev => ({ 
-                        ...prev, 
-                        maxOpenPositions: parseInt(e.target.value)
-                      }))}
-                      className="flex-1 accent-sentinel-accent-cyan"
-                    />
-                    <span className="w-16 text-right font-mono flex items-center justify-end">
-                      {settings.maxOpenPositions === 0 ? (
-                        <Infinity className="w-5 h-5" />
-                      ) : settings.maxOpenPositions}
-                    </span>
-                  </div>
-                  <p className="text-xs text-sentinel-text-muted mt-1">
-                    {settings.maxOpenPositions === 0 
-                      ? 'UNLIMITED - Bot opens as many trades as budget allows' 
-                      : `Bot will have maximum ${settings.maxOpenPositions} trades open at once`}
-                  </p>
-                </div>
-
-                {/* Max Daily Drawdown */}
-                <div>
-                  <label className="block text-sm font-medium text-sentinel-text-secondary mb-2">
-                    Max Daily Drawdown %
-                  </label>
-                  <div className="flex items-center gap-3">
-                    <input
-                      type="range"
-                      min="1"
-                      max="15"
-                      step="0.5"
-                      value={settings.maxDailyDrawdown}
-                      onChange={(e) => setSettings(prev => ({ 
-                        ...prev, 
-                        maxDailyDrawdown: parseFloat(e.target.value)
-                      }))}
-                      className="flex-1 accent-sentinel-accent-crimson"
-                    />
-                    <span className="w-16 text-right font-mono text-sentinel-accent-crimson">
-                      -{settings.maxDailyDrawdown}%
-                    </span>
-                  </div>
-                  <p className="text-xs text-sentinel-text-muted mt-1">
-                    Stop trading if daily loss exceeds {(equity * settings.maxDailyDrawdown / 100).toFixed(2)} USDT
-                  </p>
-                </div>
-
-                {/* Max Total Exposure */}
-                <div>
-                  <label className="block text-sm font-medium text-sentinel-text-secondary mb-2">
-                    Max % of Budget to Use
-                  </label>
-                  <div className="flex items-center gap-3">
-                    <input
-                      type="range"
-                      min="10"
-                      max="100"
-                      step="5"
-                      value={settings.maxTotalExposure}
-                      onChange={(e) => setSettings(prev => ({ 
-                        ...prev, 
-                        maxTotalExposure: parseInt(e.target.value)
-                      }))}
-                      className="flex-1 accent-sentinel-accent-amber"
-                    />
-                    <span className="w-16 text-right font-mono">
-                      {settings.maxTotalExposure}%
-                    </span>
-                  </div>
-                  <p className="text-xs text-sentinel-text-muted mt-1">
-                    Bot can invest up to {(equity * settings.maxTotalExposure / 100).toFixed(2)} USDT of your {equity.toFixed(2)} USDT budget
-                  </p>
-                </div>
-              </div>
-
-              {/* Leverage Section */}
-              <div className="mt-6 pt-6 border-t border-sentinel-border">
-                <h3 className="text-md font-semibold mb-4 flex items-center gap-2">
-                  <Zap className="w-5 h-5 text-sentinel-accent-amber" />
-                  Leverage Settings
-                </h3>
-                <div>
-                  <label className="block text-sm font-medium text-sentinel-text-secondary mb-3">
-                    Leverage Mode
-                  </label>
-                  <div className="grid grid-cols-6 gap-2">
-                    {(['1x', '2x', '3x', '5x', '10x', 'auto'] as const).map((mode) => (
-                      <button
-                        key={mode}
-                        onClick={() => setSettings(prev => ({ ...prev, leverageMode: mode }))}
-                        className={`p-3 rounded-xl border-2 transition-all text-center font-mono font-bold ${
-                          settings.leverageMode === mode
-                            ? mode === 'auto' 
-                              ? 'border-sentinel-accent-violet bg-sentinel-accent-violet/20 text-sentinel-accent-violet'
-                              : 'border-sentinel-accent-amber bg-sentinel-accent-amber/20 text-sentinel-accent-amber'
-                            : 'border-sentinel-border hover:border-sentinel-border-hover text-sentinel-text-secondary'
-                        }`}
-                      >
-                        {mode === 'auto' ? (
-                          <span className="flex items-center justify-center gap-1">
-                            <Brain className="w-4 h-4" />
-                            AUTO
-                          </span>
-                        ) : mode}
-                      </button>
-                    ))}
-                  </div>
-                  <div className="mt-3 p-3 rounded-xl bg-sentinel-bg-tertiary">
-                    {settings.leverageMode === 'auto' ? (
-                      <p className="text-xs text-sentinel-text-muted">
-                        <Brain className="inline w-3 h-3 mr-1 text-sentinel-accent-violet" />
-                        <strong>AUTO:</strong> AI decides leverage based on edge score and win probability. 
-                        Higher confidence = up to 3x leverage. Lower confidence = 1x (no leverage).
-                      </p>
-                    ) : settings.leverageMode === '1x' ? (
-                      <p className="text-xs text-sentinel-text-muted">
-                        <ShieldCheck className="inline w-3 h-3 mr-1 text-sentinel-accent-emerald" />
-                        <strong>NO LEVERAGE:</strong> Trade only with your actual balance. Safest option.
-                      </p>
-                    ) : (
-                      <p className="text-xs text-sentinel-text-muted">
-                        <AlertTriangle className="inline w-3 h-3 mr-1 text-sentinel-accent-amber" />
-                        <strong>{settings.leverageMode} LEVERAGE:</strong> Each trade uses {settings.leverageMode} of position value. 
-                        With {equity.toFixed(0)} USDT you can open positions worth up to{' '}
-                        <span className="text-sentinel-accent-amber font-bold">
-                          {(equity * parseInt(settings.leverageMode)).toFixed(0)} USDT
-                        </span>.
-                        {parseInt(settings.leverageMode) >= 5 && (
-                          <span className="text-sentinel-accent-crimson flex items-center gap-1">
-                            <AlertTriangle className="w-3 h-3" /> High risk!
-                          </span>
-                        )}
-                      </p>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </section>
-
-            {/* AI Models Control */}
-            <section className="p-6 rounded-2xl glass-card">
-              <h2 className="text-lg font-semibold mb-6 flex items-center gap-2">
-                <Brain className="w-5 h-5 text-sentinel-accent-violet" />
-                AI Models
-              </h2>
-              
-              <div className="grid grid-cols-2 gap-4">
-                {/* CryptoBERT Sentiment */}
-                <div className="flex items-center justify-between p-4 rounded-xl bg-sentinel-bg-tertiary">
-                  <div className="flex items-center gap-3">
-                    <MessageSquare className="w-5 h-5 text-sentinel-accent-cyan" />
-                    <div>
-                      <h3 className="font-medium">CryptoBERT Sentiment</h3>
-                      <p className="text-xs text-sentinel-text-muted">
-                        Analyzes crypto news for market sentiment
-                      </p>
-                    </div>
-                  </div>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={settings.useCryptoBert}
-                      onChange={(e) => setSettings(prev => ({ ...prev, useCryptoBert: e.target.checked }))}
-                      className="sr-only peer"
-                    />
-                    <div className="w-11 h-6 bg-sentinel-border rounded-full peer 
-                                    peer-checked:bg-sentinel-accent-emerald transition-colors"></div>
-                    <div className="absolute left-1 top-1 w-4 h-4 bg-white rounded-full transition-transform
-                                    peer-checked:translate-x-5"></div>
-                  </label>
-                </div>
-
-                {/* XGBoost Classifier */}
-                <div className="flex items-center justify-between p-4 rounded-xl bg-sentinel-bg-tertiary">
-                  <div className="flex items-center gap-3">
-                    <BarChart3 className="w-5 h-5 text-sentinel-accent-amber" />
-                    <div>
-                      <h3 className="font-medium">XGBoost Classifier</h3>
-                      <p className="text-xs text-sentinel-text-muted">
-                        ML-based trade signal validation
-                      </p>
-                    </div>
-                  </div>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={settings.useXgboostClassifier}
-                      onChange={(e) => setSettings(prev => ({ ...prev, useXgboostClassifier: e.target.checked }))}
-                      className="sr-only peer"
-                    />
-                    <div className="w-11 h-6 bg-sentinel-border rounded-full peer 
-                                    peer-checked:bg-sentinel-accent-emerald transition-colors"></div>
-                    <div className="absolute left-1 top-1 w-4 h-4 bg-white rounded-full transition-transform
-                                    peer-checked:translate-x-5"></div>
-                  </label>
-                </div>
-
-                {/* Price Predictor */}
-                <div className="flex items-center justify-between p-4 rounded-xl bg-sentinel-bg-tertiary">
-                  <div className="flex items-center gap-3">
-                    <LineChart className="w-5 h-5 text-sentinel-accent-emerald" />
-                    <div>
-                      <h3 className="font-medium">Chronos Price Predictor</h3>
-                      <p className="text-xs text-sentinel-text-muted">
-                        AI-based price movement prediction
-                      </p>
-                    </div>
-                  </div>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={settings.usePricePredictor}
-                      onChange={(e) => setSettings(prev => ({ ...prev, usePricePredictor: e.target.checked }))}
-                      className="sr-only peer"
-                    />
-                    <div className="w-11 h-6 bg-sentinel-border rounded-full peer 
-                                    peer-checked:bg-sentinel-accent-emerald transition-colors"></div>
-                    <div className="absolute left-1 top-1 w-4 h-4 bg-white rounded-full transition-transform
-                                    peer-checked:translate-x-5"></div>
-                  </label>
-                </div>
-
-                {/* Regime Detection */}
-                <div className="flex items-center justify-between p-4 rounded-xl bg-sentinel-bg-tertiary">
-                  <div className="flex items-center gap-3">
-                    <Sparkles className="w-5 h-5 text-sentinel-accent-violet" />
-                    <div>
-                      <h3 className="font-medium">Regime Detection</h3>
-                      <p className="text-xs text-sentinel-text-muted">
-                        Detects market regimes (trend/range/volatile)
-                      </p>
-                    </div>
-                  </div>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={settings.useRegimeDetection}
-                      onChange={(e) => setSettings(prev => ({ ...prev, useRegimeDetection: e.target.checked }))}
-                      className="sr-only peer"
-                    />
-                    <div className="w-11 h-6 bg-sentinel-border rounded-full peer 
-                                    peer-checked:bg-sentinel-accent-emerald transition-colors"></div>
-                    <div className="absolute left-1 top-1 w-4 h-4 bg-white rounded-full transition-transform
-                                    peer-checked:translate-x-5"></div>
-                  </label>
-                </div>
-
-                {/* Edge Estimation */}
-                <div className="flex items-center justify-between p-4 rounded-xl bg-sentinel-bg-tertiary">
-                  <div className="flex items-center gap-3">
-                    <TrendingUp className="w-5 h-5 text-sentinel-accent-cyan" />
-                    <div>
-                      <h3 className="font-medium">Edge Estimation</h3>
-                      <p className="text-xs text-sentinel-text-muted">
-                        Calculates statistical edge before trading
-                      </p>
-                    </div>
-                  </div>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={settings.useEdgeEstimation}
-                      onChange={(e) => setSettings(prev => ({ ...prev, useEdgeEstimation: e.target.checked }))}
-                      className="sr-only peer"
-                    />
-                    <div className="w-11 h-6 bg-sentinel-border rounded-full peer 
-                                    peer-checked:bg-sentinel-accent-emerald transition-colors"></div>
-                    <div className="absolute left-1 top-1 w-4 h-4 bg-white rounded-full transition-transform
-                                    peer-checked:translate-x-5"></div>
-                  </label>
-                </div>
-
-                {/* Dynamic Sizing */}
-                <div className="flex items-center justify-between p-4 rounded-xl bg-sentinel-bg-tertiary">
-                  <div className="flex items-center gap-3">
-                    <Layers className="w-5 h-5 text-sentinel-accent-amber" />
-                    <div>
-                      <h3 className="font-medium">Dynamic Position Sizing</h3>
-                      <p className="text-xs text-sentinel-text-muted">
-                        Kelly criterion for optimal position sizing
-                      </p>
-                    </div>
-                  </div>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={settings.useDynamicSizing}
-                      onChange={(e) => setSettings(prev => ({ ...prev, useDynamicSizing: e.target.checked }))}
-                      className="sr-only peer"
-                    />
-                    <div className="w-11 h-6 bg-sentinel-border rounded-full peer 
-                                    peer-checked:bg-sentinel-accent-emerald transition-colors"></div>
-                    <div className="absolute left-1 top-1 w-4 h-4 bg-white rounded-full transition-transform
-                                    peer-checked:translate-x-5"></div>
-                  </label>
-                </div>
-              </div>
-
-              {/* Learning */}
-              <div className="mt-4 flex items-center justify-between p-4 rounded-xl bg-sentinel-bg-tertiary">
-                <div className="flex items-center gap-3">
-                  <Brain className="w-5 h-5 text-sentinel-accent-violet" />
-                  <div>
-                    <h3 className="font-medium">Continuous Learning</h3>
-                    <p className="text-xs text-sentinel-text-muted">
-                      AI learns and improves from every trade outcome
-                    </p>
-                  </div>
-                </div>
-                <label className="relative inline-flex items-center cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={settings.learnFromTrades}
-                    onChange={(e) => setSettings(prev => ({ ...prev, learnFromTrades: e.target.checked }))}
-                    className="sr-only peer"
-                  />
-                  <div className="w-11 h-6 bg-sentinel-border rounded-full peer 
-                                  peer-checked:bg-sentinel-accent-emerald transition-colors"></div>
-                  <div className="absolute left-1 top-1 w-4 h-4 bg-white rounded-full transition-transform
-                                  peer-checked:translate-x-5"></div>
-                </label>
-              </div>
-            </section>
-          </motion.div>
-        )}
-
-        {/* Quick Actions */}
-        <motion.section
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.3 }}
-          className="grid grid-cols-2 gap-4"
-        >
-          <button
-            onClick={() => setSettings(defaultSettings)}
-            className="p-4 rounded-xl glass-card hover:bg-sentinel-bg-tertiary transition-colors
-                       flex items-center justify-center gap-2 text-sentinel-text-secondary"
-          >
-            <RotateCcw className="w-5 h-5" />
-            Reset to Defaults
-          </button>
-          
-          <button
-            onClick={saveSettings}
-            disabled={isSaving}
-            className="p-4 rounded-xl bg-sentinel-accent-emerald hover:bg-sentinel-accent-emerald/80 
-                       transition-colors flex items-center justify-center gap-2 font-semibold
-                       disabled:opacity-50"
-          >
-            {isSaving ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />}
-            Save All Settings
-          </button>
-        </motion.section>
       </main>
     </div>
   )
