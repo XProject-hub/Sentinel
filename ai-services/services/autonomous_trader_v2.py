@@ -1038,8 +1038,13 @@ class AutonomousTraderV2:
                 
                 # Breakouts skip most validation - they're already high-conviction
                 logger.info(f"🚀 BREAKOUT TRADE: {opp.symbol} | {opp.price_change_24h:+.1f}%")
-                await self._log_to_console(f"🚀 TRADING BREAKOUT: {opp.symbol} {opp.price_change_24h:+.1f}%", "TRADE")
-                await self._execute_trade(user_id, client, opp, wallet)
+                await self._log_to_console(f"🚀 EXECUTING BREAKOUT: {opp.symbol} {opp.price_change_24h:+.1f}%", "TRADE")
+                try:
+                    await self._execute_trade(user_id, client, opp, wallet)
+                    logger.info(f"✅ BREAKOUT TRADE SUBMITTED: {opp.symbol}")
+                except Exception as e:
+                    logger.error(f"❌ BREAKOUT TRADE FAILED: {opp.symbol} - {e}")
+                    await self._log_to_console(f"❌ FAILED: {opp.symbol} - {str(e)[:50]}", "ERROR")
             
             # === NORMAL OPPORTUNITY SCAN ===
             # Get opportunities from scanner
@@ -1823,10 +1828,13 @@ class AutonomousTraderV2:
                 await self._store_trade_event(opp.symbol, 'opened', 0, opp.direction)
                 
             else:
-                logger.error(f"ORDER FAILED: {opp.symbol} - {result}")
+                error_msg = result.get('error', result.get('message', str(result)))
+                logger.error(f"ORDER FAILED: {opp.symbol} - {error_msg}")
+                await self._log_to_console(f"❌ ORDER FAILED: {opp.symbol} - {error_msg[:50]}", "ERROR")
                 
         except Exception as e:
-            logger.error(f"Execute trade error: {e}")
+            logger.error(f"Execute trade error for {opp.symbol}: {e}")
+            await self._log_to_console(f"❌ TRADE ERROR: {opp.symbol} - {str(e)[:50]}", "ERROR")
             
     async def _get_ticker(self, client: BybitV5Client, symbol: str) -> Optional[Dict]:
         """Get current ticker for a symbol"""

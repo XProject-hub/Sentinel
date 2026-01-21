@@ -73,7 +73,7 @@ class PositionSizer:
     
     # === DEFAULT LIMITS (can be overridden by settings) ===
     MAX_RISK_PER_TRADE = 0.15  # 15% of wallet (user configurable)
-    MAX_DAILY_DRAWDOWN = 0.055  # 5.5% daily loss limit (default)
+    MAX_DAILY_DRAWDOWN = 0  # 0 = OFF (no daily limit by default)
     MAX_WEEKLY_DRAWDOWN = 0.10  # 10% weekly loss limit
     MAX_TOTAL_EXPOSURE = 1.0  # 100% of wallet max deployed (default)
     MAX_SINGLE_POSITION = 0.15  # 15% max in one position (user configurable)
@@ -134,7 +134,7 @@ class PositionSizer:
                 }
                 
                 # Apply settings
-                self.MAX_DAILY_DRAWDOWN = float(parsed.get('maxDailyDrawdown', 5.5)) / 100
+                self.MAX_DAILY_DRAWDOWN = float(parsed.get('maxDailyDrawdown', 0)) / 100  # 0 = OFF
                 self.MAX_TOTAL_EXPOSURE = float(parsed.get('maxTotalExposure', 100)) / 100
                 self.MAX_SINGLE_POSITION = float(parsed.get('maxPositionPercent', 15)) / 100
                 self.MAX_RISK_PER_TRADE = float(parsed.get('maxPositionPercent', 15)) / 100  # Same as position %
@@ -145,7 +145,7 @@ class PositionSizer:
                 if self.leverage_mode not in ['1x', '2x', '3x', '5x', '10x', 'auto']:
                     self.leverage_mode = 'auto'
                 
-                logger.info(f"Loaded position sizer settings: MaxDD={self.MAX_DAILY_DRAWDOWN*100:.1f}%, "
+                logger.info(f"Loaded position sizer settings: MaxDD={'OFF' if self.MAX_DAILY_DRAWDOWN == 0 else f'{self.MAX_DAILY_DRAWDOWN*100:.1f}%'}, "
                            f"MaxExposure={self.MAX_TOTAL_EXPOSURE*100:.0f}%, "
                            f"MaxPos={self.MAX_SINGLE_POSITION*100:.0f}%, "
                            f"MaxOpenPos={'Unlimited' if self.MAX_OPEN_POSITIONS == 0 else self.MAX_OPEN_POSITIONS}, "
@@ -197,16 +197,16 @@ class PositionSizer:
         
         # === Check if Trading is Allowed ===
         
-        # 1. Check daily drawdown
+        # 1. Check daily drawdown (0 = disabled)
         daily_dd = await self._get_daily_drawdown(wallet_balance)
-        if daily_dd >= self.MAX_DAILY_DRAWDOWN:
+        if self.MAX_DAILY_DRAWDOWN > 0 and daily_dd >= self.MAX_DAILY_DRAWDOWN:
             return self._blocked_position(
                 symbol, "Daily drawdown limit reached", wallet_balance
             )
             
-        # 2. Check weekly drawdown
+        # 2. Check weekly drawdown (0 = disabled)
         weekly_dd = await self._get_weekly_drawdown()
-        if weekly_dd >= self.MAX_WEEKLY_DRAWDOWN:
+        if self.MAX_WEEKLY_DRAWDOWN > 0 and weekly_dd >= self.MAX_WEEKLY_DRAWDOWN:
             return self._blocked_position(
                 symbol, "Weekly drawdown limit reached", wallet_balance
             )
@@ -650,7 +650,7 @@ class PositionSizer:
             'exposure_pct': round((exposure / (wallet_balance * self.MAX_TOTAL_EXPOSURE)) * 100, 1) if wallet_balance > 0 else 0,
             'open_positions_count': len(self.open_positions),
             'open_positions': self.open_positions,
-            'can_trade': daily_dd < self.MAX_DAILY_DRAWDOWN and weekly_dd < self.MAX_WEEKLY_DRAWDOWN
+            'can_trade': (self.MAX_DAILY_DRAWDOWN == 0 or daily_dd < self.MAX_DAILY_DRAWDOWN) and (self.MAX_WEEKLY_DRAWDOWN == 0 or weekly_dd < self.MAX_WEEKLY_DRAWDOWN)
         }
 
 

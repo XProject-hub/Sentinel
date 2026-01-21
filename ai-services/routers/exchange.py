@@ -678,7 +678,7 @@ async def get_ai_intelligence():
             intelligence["pairs_analyzed"] = int(stats.get("opportunities_scanned", 0))
         
         # Get last console log for last action
-        console_logs_raw = await r.lrange("bot:console:default", 0, 5)
+        console_logs_raw = await r.lrange("bot:console:logs", 0, 5)
         if console_logs_raw:
             # Find the most recent TRADE or SIGNAL action
             for log_raw in console_logs_raw:
@@ -1616,7 +1616,7 @@ async def get_settings():
         "minEdge": 0.15,
         "maxPositionPercent": 5,
         "maxOpenPositions": 0,  # 0 = unlimited
-        "maxDailyDrawdown": 3,
+        "maxDailyDrawdown": 0,  # 0 = OFF (no daily limit)
         "maxTotalExposure": 100,  # 100% = can use entire budget
         "leverageMode": "auto",  # 1x, 2x, 3x, 5x, 10x, auto
         "cryptoBudget": 100,

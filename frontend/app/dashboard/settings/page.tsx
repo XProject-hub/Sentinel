@@ -41,6 +41,7 @@ interface BotSettings {
   maxOpenPositions: number
   maxPositionPercent: number
   maxTotalExposure: number
+  maxDailyDrawdown: number
   kellyMultiplier: number
   minEdge: number
   minConfidence: number
@@ -66,6 +67,7 @@ const defaultSettings: BotSettings = {
   maxOpenPositions: 5,
   maxPositionPercent: 10,
   maxTotalExposure: 80,
+  maxDailyDrawdown: 0,  // 0 = OFF (no daily limit)
   kellyMultiplier: 0.3,
   minEdge: 0.10,
   minConfidence: 60,
@@ -667,6 +669,30 @@ export default function SettingsPage() {
                       className="w-full h-2 rounded-full appearance-none cursor-pointer bg-white/10 accent-cyan-500"
                     />
                     <p className="text-xs text-gray-500 mt-3">Higher = larger positions, more risk</p>
+                  </div>
+
+                  {/* Max Daily Drawdown */}
+                  <div className="p-5 rounded-2xl bg-white/[0.02] border border-white/5">
+                    <div className="flex items-center justify-between mb-4">
+                      <span className="font-medium text-white">Max Daily Drawdown</span>
+                      <span className={`px-3 py-1 rounded-full text-sm font-mono ${
+                        settings.maxDailyDrawdown === 0 
+                          ? 'bg-gray-500/10 text-gray-400' 
+                          : 'bg-red-500/10 text-red-400'
+                      }`}>
+                        {settings.maxDailyDrawdown === 0 ? 'OFF' : `${settings.maxDailyDrawdown}%`}
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0"
+                      max="20"
+                      step="1"
+                      value={settings.maxDailyDrawdown}
+                      onChange={(e) => updateSetting('maxDailyDrawdown', parseInt(e.target.value))}
+                      className="w-full h-2 rounded-full appearance-none cursor-pointer bg-white/10 accent-red-500"
+                    />
+                    <p className="text-xs text-gray-500 mt-3">0 = OFF (no daily loss limit). Stops trading after X% daily loss.</p>
                   </div>
                 </div>
               </section>
