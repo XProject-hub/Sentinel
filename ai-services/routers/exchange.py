@@ -162,9 +162,12 @@ async def set_user_credentials(request: UserCredentialsRequest):
             )
             user_exchange_connections[f"{request.user_id}:{request.exchange}"] = client
             
-            # Connect user to autonomous trader (but DON'T start trading automatically)
+            # Connect user to autonomous trader (but DON'T start trading automatically for NEW users)
             # Import here to avoid circular imports at module load time
             from services.autonomous_trader_v2 import autonomous_trader_v2
+            
+            # Check if this is a NEW user (never traded before) or existing user
+            is_new_user = not await r.exists(f'trading:started:{request.user_id}')
             
             # Connect user to autonomous trader
             connected = await autonomous_trader_v2.connect_user(
@@ -175,9 +178,17 @@ async def set_user_credentials(request: UserCredentialsRequest):
             )
             
             if connected:
-                # IMPORTANT: Pause trading by default - user must click "Start" to begin
-                await autonomous_trader_v2.pause_trading(request.user_id)
-                logger.info(f"User {request.user_id} connected (PAUSED by default - must click Start)")
+                if is_new_user:
+                    # NEW USER: Pause by default - must click "Start" to begin
+                    await autonomous_trader_v2.pause_trading(request.user_id)
+                    logger.info(f"NEW user {request.user_id} connected (PAUSED - must click Start)")
+                else:
+                    # EXISTING USER: Check if they were paused before
+                    was_paused = await r.exists(f'trading:paused:{request.user_id}')
+                    if was_paused:
+                        logger.info(f"User {request.user_id} reconnected (was PAUSED)")
+                    else:
+                        logger.info(f"User {request.user_id} reconnected (ACTIVE - continues trading)")
             else:
                 logger.warning(f"User {request.user_id} credentials saved but autonomous trader connection failed")
         
@@ -1269,6 +1280,11 @@ async def resume_autonomous_trading(user_id: str = "default"):
     """Resume autonomous trading - starts opening new positions again"""
     trader = get_trader()
     await trader.resume_trading(user_id)
+    
+    # Mark that this user has started trading at least once
+    # This is used to distinguish NEW users from EXISTING users on reconnect
+    r = await get_redis()
+    await r.set(f'trading:started:{user_id}', '1')
     
     return {
         "success": True,
