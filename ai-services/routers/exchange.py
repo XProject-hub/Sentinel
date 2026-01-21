@@ -896,6 +896,35 @@ async def get_trading_status(user_id: str = "default"):
         except:
             pass
         
+    # Get current regime from Redis
+    current_regime = "analyzing"
+    ai_confidence = 0
+    pairs_scanned = total_pairs
+    
+    if hasattr(trader, 'redis_client') and trader.redis_client:
+        try:
+            regime_data = await trader.redis_client.get('bot:current_regime')
+            if regime_data:
+                current_regime = regime_data.decode() if isinstance(regime_data, bytes) else regime_data
+            
+            # Get AI confidence from stats
+            stats_data = await trader.redis_client.get('trader:stats')
+            if stats_data:
+                stats = json.loads(stats_data)
+                total_trades = stats.get('total_trades', 0)
+                winning = stats.get('winning_trades', 0)
+                if total_trades > 10:
+                    ai_confidence = int((winning / total_trades) * 100)
+                else:
+                    ai_confidence = min_conf
+            
+            # Get opportunities scanned
+            opp_count = await trader.redis_client.get('bot:opportunities_scanned')
+            if opp_count:
+                pairs_scanned = int(opp_count)
+        except:
+            pass
+    
     return {
         "success": True,
         "data": {
@@ -904,8 +933,11 @@ async def get_trading_status(user_id: str = "default"):
             "is_paused": is_paused,
             "trading_pairs": trading_pairs if is_trading else [],
             "total_pairs": total_pairs,
+            "pairs_scanned": pairs_scanned,
             "max_positions": max_positions,
             "min_confidence": min_conf,
+            "ai_confidence": ai_confidence,
+            "current_regime": current_regime,
             "risk_mode": risk_mode,
             "trailing_stop_percent": trail_percent,
             "recent_trades": trades,

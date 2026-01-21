@@ -101,6 +101,9 @@ export default function DashboardPage() {
   const [isTogglingBot, setIsTogglingBot] = useState(false)
   const [marketRegime, setMarketRegime] = useState('analyzing')
   const [aiInsight, setAiInsight] = useState<string | null>(null)
+  const [fearGreed, setFearGreed] = useState<number>(50)
+  const [aiConfidence, setAiConfidence] = useState<number>(0)
+  const [pairsScanned, setPairsScanned] = useState<number>(0)
   
   const consoleRef = useRef<HTMLDivElement>(null)
 
@@ -165,7 +168,9 @@ export default function DashboardPage() {
       if (statusRes.ok) {
         const data = await statusRes.json()
         setTradingStatus(data.data)
-        setMarketRegime(data.data?.risk_mode || 'normal')
+        setMarketRegime(data.data?.current_regime || data.data?.risk_mode || 'normal')
+        setAiConfidence(data.data?.ai_confidence || 0)
+        setPairsScanned(data.data?.pairs_scanned || data.data?.total_pairs || 0)
       }
 
       if (consoleRes.ok) {
@@ -195,6 +200,15 @@ export default function DashboardPage() {
         if (newsRes.ok) {
           const data = await newsRes.json()
           setNews(data.news || [])
+        }
+      } catch {}
+
+      // Get Fear & Greed index
+      try {
+        const fgRes = await fetch('/ai/market/fear-greed')
+        if (fgRes.ok) {
+          const data = await fgRes.json()
+          setFearGreed(data.value || 50)
         }
       } catch {}
 
@@ -278,6 +292,60 @@ export default function DashboardPage() {
                 <span className={`text-xs font-medium ${isTrading ? 'text-emerald-400' : 'text-amber-400'}`}>
                   {isTrading ? 'Trading Active' : 'Paused'}
                 </span>
+              </div>
+
+              {/* Market Info Bar */}
+              <div className="hidden lg:flex items-center gap-4 px-4 py-1.5 bg-white/[0.02] rounded-lg border border-white/5">
+                {/* Fear & Greed */}
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] text-gray-500 uppercase">Fear/Greed</span>
+                  <span className={`text-xs font-bold ${
+                    fearGreed <= 25 ? 'text-red-400' :
+                    fearGreed <= 45 ? 'text-orange-400' :
+                    fearGreed <= 55 ? 'text-gray-400' :
+                    fearGreed <= 75 ? 'text-emerald-400' :
+                    'text-green-400'
+                  }`}>
+                    {fearGreed}
+                  </span>
+                </div>
+
+                <div className="w-px h-4 bg-white/10" />
+
+                {/* Market Regime */}
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] text-gray-500 uppercase">Regime</span>
+                  <span className={`text-xs font-medium px-1.5 py-0.5 rounded ${
+                    marketRegime === 'trending' ? 'bg-emerald-500/20 text-emerald-400' :
+                    marketRegime === 'ranging' || marketRegime === 'range_bound' ? 'bg-amber-500/20 text-amber-400' :
+                    marketRegime === 'high_volatility' ? 'bg-red-500/20 text-red-400' :
+                    'bg-cyan-500/20 text-cyan-400'
+                  }`}>
+                    {marketRegime.replace('_', ' ').toUpperCase()}
+                  </span>
+                </div>
+
+                <div className="w-px h-4 bg-white/10" />
+
+                {/* AI Confidence */}
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] text-gray-500 uppercase">AI Conf.</span>
+                  <span className={`text-xs font-bold ${
+                    aiConfidence >= 70 ? 'text-emerald-400' :
+                    aiConfidence >= 50 ? 'text-cyan-400' :
+                    'text-amber-400'
+                  }`}>
+                    {aiConfidence}%
+                  </span>
+                </div>
+
+                <div className="w-px h-4 bg-white/10" />
+
+                {/* Pairs Scanned */}
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] text-gray-500 uppercase">Pairs</span>
+                  <span className="text-xs font-medium text-white">{pairsScanned}</span>
+                </div>
               </div>
             </div>
             

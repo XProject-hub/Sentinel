@@ -119,6 +119,73 @@ async def get_funding_rates():
         return {"success": True, "rates": {}, "error": str(e)}
 
 
+@router.get("/fear-greed")
+async def get_fear_greed():
+    """Get Fear & Greed index based on market data"""
+    try:
+        import httpx
+        import redis.asyncio as redis
+        from config import settings
+        
+        # Try to get cached value
+        try:
+            r = await redis.from_url(settings.REDIS_URL)
+            cached = await r.get('market:fear_greed')
+            if cached:
+                await r.aclose()
+                return {"success": True, "value": int(cached), "source": "cached"}
+        except:
+            pass
+        
+        # Calculate from market data
+        fear_greed = 50  # Default neutral
+        
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            # Get BTC price change for sentiment
+            response = await client.get(
+                "https://api.bybit.com/v5/market/tickers",
+                params={"category": "linear", "symbol": "BTCUSDT"}
+            )
+            
+            if response.status_code == 200:
+                data = response.json()
+                if data.get('retCode') == 0:
+                    tickers = data.get('result', {}).get('list', [])
+                    if tickers:
+                        btc_change = float(tickers[0].get('price24hPcnt', 0)) * 100
+                        
+                        # Simple fear/greed based on BTC movement
+                        # -5% or worse = Extreme Fear (10-20)
+                        # -2% to -5% = Fear (20-40)
+                        # -2% to +2% = Neutral (40-60)
+                        # +2% to +5% = Greed (60-80)
+                        # +5% or better = Extreme Greed (80-90)
+                        
+                        if btc_change <= -5:
+                            fear_greed = 15
+                        elif btc_change <= -2:
+                            fear_greed = 30
+                        elif btc_change <= 2:
+                            fear_greed = 50
+                        elif btc_change <= 5:
+                            fear_greed = 70
+                        else:
+                            fear_greed = 85
+        
+        # Cache the value
+        try:
+            r = await redis.from_url(settings.REDIS_URL)
+            await r.setex('market:fear_greed', 300, str(fear_greed))  # Cache for 5 min
+            await r.aclose()
+        except:
+            pass
+        
+        return {"success": True, "value": fear_greed, "source": "calculated"}
+        
+    except Exception as e:
+        return {"success": True, "value": 50, "error": str(e)}
+
+
 @router.get("/news")
 async def get_market_news(limit: int = 5):
     """Get market news and sentiment from Bybit API and cached data"""
