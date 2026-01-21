@@ -22,17 +22,22 @@ import {
 } from 'lucide-react'
 
 interface BotSettings {
-  riskMode: 'NORMAL' | 'LOCK_PROFIT' | 'MICRO_PROFIT'
+  riskMode: 'NORMAL' | 'LOCK_PROFIT' | 'MICRO_PROFIT' | 'SCALPER' | 'SWING'
   takeProfitPercent: number
   stopLossPercent: number
   trailingStopPercent: number
   minProfitToTrail: number
   maxOpenPositions: number
   maxPositionPercent: number
+  maxTotalExposure: number
+  kellyMultiplier: number
   minEdge: number
   minConfidence: number
   leverageMode: string
   useDynamicSizing: boolean
+  useWhaleDetection: boolean
+  useFundingRate: boolean
+  useRegimeFilter: boolean
   momentumThreshold: number
 }
 
@@ -44,10 +49,15 @@ const defaultSettings: BotSettings = {
   minProfitToTrail: 0.35,
   maxOpenPositions: 5,
   maxPositionPercent: 10,
+  maxTotalExposure: 80,
+  kellyMultiplier: 0.3,
   minEdge: 0.10,
   minConfidence: 60,
   leverageMode: 'AUTO',
   useDynamicSizing: true,
+  useWhaleDetection: true,
+  useFundingRate: true,
+  useRegimeFilter: true,
   momentumThreshold: 0
 }
 
@@ -72,6 +82,20 @@ const riskPresets = {
     trailingStopPercent: 0.10,
     minProfitToTrail: 0.2,
     description: 'Many small profits with minimal risk per trade.'
+  },
+  SCALPER: {
+    takeProfitPercent: 0.3,
+    stopLossPercent: 0.2,
+    trailingStopPercent: 0.08,
+    minProfitToTrail: 0.15,
+    description: 'Ultra-fast trades. High frequency, small profits.'
+  },
+  SWING: {
+    takeProfitPercent: 5.0,
+    stopLossPercent: 2.5,
+    trailingStopPercent: 0.5,
+    minProfitToTrail: 1.0,
+    description: 'Longer holds for bigger moves. Patient approach.'
   }
 }
 
@@ -371,6 +395,42 @@ export default function SettingsPage() {
                 <p className="text-xs text-gray-600 mt-1">Max % of equity per trade</p>
               </div>
 
+              {/* Max Total Exposure */}
+              <div>
+                <label className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-medium text-gray-300">Max Total Exposure %</span>
+                  <span className="text-sm text-cyan-400 font-mono">{settings.maxTotalExposure}%</span>
+                </label>
+                <input
+                  type="range"
+                  min="20"
+                  max="100"
+                  step="5"
+                  value={settings.maxTotalExposure}
+                  onChange={(e) => updateSetting('maxTotalExposure', parseInt(e.target.value))}
+                  className="w-full accent-cyan-500"
+                />
+                <p className="text-xs text-gray-600 mt-1">Total portfolio allocation limit</p>
+              </div>
+
+              {/* Kelly Multiplier */}
+              <div>
+                <label className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-medium text-gray-300">Kelly Multiplier</span>
+                  <span className="text-sm text-cyan-400 font-mono">{settings.kellyMultiplier}</span>
+                </label>
+                <input
+                  type="range"
+                  min="0.1"
+                  max="1.0"
+                  step="0.05"
+                  value={settings.kellyMultiplier}
+                  onChange={(e) => updateSetting('kellyMultiplier', parseFloat(e.target.value))}
+                  className="w-full accent-cyan-500"
+                />
+                <p className="text-xs text-gray-600 mt-1">Higher = larger positions, more risk</p>
+              </div>
+
               {/* Dynamic Sizing Toggle */}
               <div className="md:col-span-2 flex items-center justify-between p-4 bg-white/[0.02] rounded-xl border border-white/10">
                 <div>
@@ -442,18 +502,22 @@ export default function SettingsPage() {
                 <label className="block text-sm font-medium text-gray-300 mb-2">
                   Leverage Mode
                 </label>
-                <select
-                  value={settings.leverageMode}
-                  onChange={(e) => updateSetting('leverageMode', e.target.value)}
-                  className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white focus:border-cyan-500/50 focus:outline-none"
-                >
-                  <option value="AUTO">AUTO (AI decides)</option>
-                  <option value="1">1x (No leverage)</option>
-                  <option value="2">2x</option>
-                  <option value="3">3x</option>
-                  <option value="5">5x</option>
-                  <option value="10">10x</option>
-                </select>
+                <div className="relative">
+                  <select
+                    value={settings.leverageMode}
+                    onChange={(e) => updateSetting('leverageMode', e.target.value)}
+                    className="w-full px-4 py-3 bg-[#0d1321] border border-white/10 rounded-xl text-white focus:border-cyan-500/50 focus:outline-none appearance-none cursor-pointer"
+                    style={{ colorScheme: 'dark' }}
+                  >
+                    <option value="AUTO" className="bg-[#0d1321] text-white">AUTO (AI decides)</option>
+                    <option value="1" className="bg-[#0d1321] text-white">1x (No leverage)</option>
+                    <option value="2" className="bg-[#0d1321] text-white">2x</option>
+                    <option value="3" className="bg-[#0d1321] text-white">3x</option>
+                    <option value="5" className="bg-[#0d1321] text-white">5x</option>
+                    <option value="10" className="bg-[#0d1321] text-white">10x</option>
+                  </select>
+                  <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500 pointer-events-none" />
+                </div>
               </div>
 
               {/* Momentum Threshold */}
@@ -474,6 +538,73 @@ export default function SettingsPage() {
                   className="w-full accent-cyan-500"
                 />
                 <p className="text-xs text-gray-600 mt-1">Min 24h momentum to trade</p>
+              </div>
+            </div>
+          </section>
+
+          {/* AI Models */}
+          <section className="bg-white/[0.02] rounded-2xl border border-white/5 overflow-hidden">
+            <div className="p-5 border-b border-white/5">
+              <div className="flex items-center gap-2">
+                <Zap className="w-5 h-5 text-cyan-400" />
+                <h2 className="font-semibold text-white">AI Models</h2>
+              </div>
+              <p className="text-sm text-gray-500 mt-1">Enable or disable AI analysis features</p>
+            </div>
+            
+            <div className="p-5 space-y-4">
+              {/* Whale Detection */}
+              <div className="flex items-center justify-between p-4 bg-white/[0.02] rounded-xl border border-white/10">
+                <div>
+                  <span className="font-medium text-white">Whale Detection</span>
+                  <p className="text-xs text-gray-500 mt-0.5">Detect large buy/sell walls from order books</p>
+                </div>
+                <button
+                  onClick={() => updateSetting('useWhaleDetection', !settings.useWhaleDetection)}
+                  className={`w-12 h-6 rounded-full transition-colors ${
+                    settings.useWhaleDetection ? 'bg-cyan-500' : 'bg-white/10'
+                  }`}
+                >
+                  <div className={`w-5 h-5 rounded-full bg-white shadow transition-transform ${
+                    settings.useWhaleDetection ? 'translate-x-6' : 'translate-x-0.5'
+                  }`} />
+                </button>
+              </div>
+
+              {/* Funding Rate Analysis */}
+              <div className="flex items-center justify-between p-4 bg-white/[0.02] rounded-xl border border-white/10">
+                <div>
+                  <span className="font-medium text-white">Funding Rate Analysis</span>
+                  <p className="text-xs text-gray-500 mt-0.5">Consider funding rates in trade decisions</p>
+                </div>
+                <button
+                  onClick={() => updateSetting('useFundingRate', !settings.useFundingRate)}
+                  className={`w-12 h-6 rounded-full transition-colors ${
+                    settings.useFundingRate ? 'bg-cyan-500' : 'bg-white/10'
+                  }`}
+                >
+                  <div className={`w-5 h-5 rounded-full bg-white shadow transition-transform ${
+                    settings.useFundingRate ? 'translate-x-6' : 'translate-x-0.5'
+                  }`} />
+                </button>
+              </div>
+
+              {/* Market Regime Filter */}
+              <div className="flex items-center justify-between p-4 bg-white/[0.02] rounded-xl border border-white/10">
+                <div>
+                  <span className="font-medium text-white">Market Regime Filter</span>
+                  <p className="text-xs text-gray-500 mt-0.5">Adjust strategy based on market conditions</p>
+                </div>
+                <button
+                  onClick={() => updateSetting('useRegimeFilter', !settings.useRegimeFilter)}
+                  className={`w-12 h-6 rounded-full transition-colors ${
+                    settings.useRegimeFilter ? 'bg-cyan-500' : 'bg-white/10'
+                  }`}
+                >
+                  <div className={`w-5 h-5 rounded-full bg-white shadow transition-transform ${
+                    settings.useRegimeFilter ? 'translate-x-6' : 'translate-x-0.5'
+                  }`} />
+                </button>
               </div>
             </div>
           </section>

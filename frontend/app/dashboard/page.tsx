@@ -48,9 +48,13 @@ interface Position {
 
 interface WalletData {
   totalEquity: number
+  totalEquityUSDT: number
   availableBalance: number
+  availableBalanceUSDT: number
   totalPnL: number
   dailyPnL: number
+  weeklyPnL: number
+  unrealizedPnL: number
 }
 
 interface TradingStatus {
@@ -318,10 +322,13 @@ export default function DashboardPage() {
               <span className="text-sm text-gray-500">Total Equity</span>
             </div>
             <div className="text-2xl font-bold text-white">
-              {formatCurrency(wallet?.totalEquity || 0)}
+              {(wallet?.totalEquityUSDT || wallet?.totalEquity || 0).toFixed(2)} USDT
             </div>
             <div className="text-xs text-gray-500 mt-1">
-              Available: {formatCurrency(wallet?.availableBalance || 0)}
+              ≈ {formatCurrency(wallet?.totalEquity || 0)}
+            </div>
+            <div className="text-xs text-gray-600 mt-0.5">
+              Available: {(wallet?.availableBalanceUSDT || wallet?.availableBalance || 0).toFixed(2)} USDT
             </div>
           </div>
 
@@ -334,8 +341,15 @@ export default function DashboardPage() {
             <div className={`text-2xl font-bold ${totalPnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
               {totalPnl >= 0 ? '+' : ''}{formatCurrency(totalPnl)}
             </div>
-            <div className={`text-xs mt-1 ${dailyPnl >= 0 ? 'text-emerald-400/70' : 'text-red-400/70'}`}>
-              Today: {dailyPnl >= 0 ? '+' : ''}{formatCurrency(dailyPnl)}
+            <div className="flex gap-3 mt-1">
+              <span className={`text-xs ${dailyPnl >= 0 ? 'text-emerald-400/70' : 'text-red-400/70'}`}>
+                Today: {dailyPnl >= 0 ? '+' : ''}{formatCurrency(dailyPnl)}
+              </span>
+              {wallet?.weeklyPnL !== undefined && (
+                <span className={`text-xs ${wallet.weeklyPnL >= 0 ? 'text-emerald-400/70' : 'text-red-400/70'}`}>
+                  Week: {wallet.weeklyPnL >= 0 ? '+' : ''}{formatCurrency(wallet.weeklyPnL)}
+                </span>
+              )}
             </div>
           </div>
 
@@ -354,6 +368,11 @@ export default function DashboardPage() {
             <div className="text-xs text-gray-500 mt-1">
               Mode: {tradingStatus?.risk_mode?.toUpperCase() || 'NORMAL'}
             </div>
+            {wallet?.unrealizedPnL !== undefined && (
+              <div className={`text-xs mt-0.5 ${wallet.unrealizedPnL >= 0 ? 'text-emerald-400/70' : 'text-red-400/70'}`}>
+                Unrealized: {wallet.unrealizedPnL >= 0 ? '+' : ''}{formatCurrency(wallet.unrealizedPnL)}
+              </div>
+            )}
           </div>
 
           {/* Trading Control */}

@@ -478,18 +478,56 @@ async def get_balance():
     # SPOT, CONTRACT, FUND are legacy account types
     # If UNIFIED returns 0, the user needs to transfer funds to Unified Trading wallet
     
-    logger.info(f"Balance fetched: €{total_equity:.2f} from {account_type_found} account, {len(coins)} coins")
+    logger.info(f"Balance fetched: {total_equity:.2f} USDT from {account_type_found} account, {len(coins)} coins")
     
     # If still 0, log all results for debugging
     if total_equity == 0:
         logger.warning(f"No balance found in any account type. Raw results: {all_results}")
+    
+    # Get USDT/EUR conversion rate (approximate)
+    usdt_to_eur = 0.92  # TODO: Fetch real rate
+    
+    # Calculate available balance from USDT coin
+    available_balance_usdt = 0
+    usdt_coin = next((c for c in coins if c.get("coin") == "USDT"), None)
+    if usdt_coin:
+        available_balance_usdt = usdt_coin.get("balance", 0) - usdt_coin.get("unrealizedPnl", 0)
+    
+    # Calculate unrealized PnL
+    total_unrealized_pnl = sum(c.get("unrealizedPnl", 0) for c in coins)
+    
+    # Get daily/weekly P&L from Redis stats
+    try:
+        r = await redis.from_url(settings.REDIS_URL)
+        stats_raw = await r.get('trader:stats')
+        sizer_raw = await r.get('sizer:state')
+        stats = json.loads(stats_raw) if stats_raw else {}
+        sizer = json.loads(sizer_raw) if sizer_raw else {}
+        await r.close()
+        
+        total_pnl = float(stats.get('total_pnl', 0))
+        daily_pnl = float(sizer.get('daily_pnl', 0))
+        weekly_pnl = float(sizer.get('weekly_pnl', 0))
+    except:
+        total_pnl = 0
+        daily_pnl = 0
+        weekly_pnl = 0
                 
     return {
         "success": True,
         "data": {
-            "totalEquity": total_equity,
+            "totalEquity": total_equity * usdt_to_eur,
+            "totalEquityUSDT": total_equity,
+            "availableBalance": available_balance_usdt * usdt_to_eur,
+            "availableBalanceUSDT": available_balance_usdt,
+            "totalPnL": total_pnl,
+            "dailyPnL": daily_pnl,
+            "weeklyPnL": weekly_pnl,
+            "unrealizedPnL": total_unrealized_pnl * usdt_to_eur,
             "coins": coins,
             "accountType": account_type_found,
+            "currency": "USDT",
+            "conversionRate": usdt_to_eur,
             "debug": all_results if total_equity == 0 else None
         }
     }
