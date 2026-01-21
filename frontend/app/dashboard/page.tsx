@@ -298,6 +298,38 @@ export default function DashboardPage() {
     }
   }
 
+  const [closingPositions, setClosingPositions] = useState<Set<string>>(new Set())
+
+  const closePosition = async (symbol: string) => {
+    if (closingPositions.has(symbol)) return
+    
+    const confirmed = window.confirm(`Are you sure you want to close ${symbol} position?`)
+    if (!confirmed) return
+
+    setClosingPositions(prev => new Set(prev).add(symbol))
+    try {
+      const response = await fetch(`/ai/exchange/close-position/${symbol}`, {
+        method: 'POST'
+      })
+      if (response.ok) {
+        // Refresh dashboard data after closing
+        setTimeout(() => loadDashboardData(), 1000)
+      } else {
+        const error = await response.json()
+        alert(`Failed to close position: ${error.detail || 'Unknown error'}`)
+      }
+    } catch (error) {
+      console.error('Failed to close position:', error)
+      alert('Failed to close position. Check console for details.')
+    } finally {
+      setClosingPositions(prev => {
+        const next = new Set(prev)
+        next.delete(symbol)
+        return next
+      })
+    }
+  }
+
   const handleLogout = () => {
     localStorage.removeItem('sentinel_user')
     localStorage.removeItem('token')
@@ -491,6 +523,7 @@ export default function DashboardPage() {
                       <th className="text-right text-[10px] font-medium text-gray-500 px-3 py-2">ENTRY</th>
                       <th className="text-right text-[10px] font-medium text-gray-500 px-3 py-2">MARK</th>
                       <th className="text-right text-[10px] font-medium text-gray-500 px-3 py-2">P&L</th>
+                      <th className="text-center text-[10px] font-medium text-gray-500 px-3 py-2">ACTION</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -554,6 +587,19 @@ export default function DashboardPage() {
                             <div className={`text-[9px] ${finalPnlPercent >= 0 ? 'text-emerald-400/70' : 'text-red-400/70'}`}>
                               {finalPnlPercent >= 0 ? '+' : ''}{finalPnlPercent.toFixed(2)}%
                             </div>
+                          </td>
+                          <td className="px-3 py-2 text-center">
+                            <button
+                              onClick={() => closePosition(pos.symbol)}
+                              disabled={closingPositions.has(pos.symbol)}
+                              className={`px-2 py-1 rounded text-[10px] font-medium border transition-colors ${
+                                closingPositions.has(pos.symbol)
+                                  ? 'bg-gray-500/10 text-gray-400 border-gray-500/30 cursor-not-allowed'
+                                  : 'bg-red-500/10 text-red-400 hover:bg-red-500/20 border-red-500/30'
+                              }`}
+                            >
+                              {closingPositions.has(pos.symbol) ? 'CLOSING...' : 'CLOSE'}
+                            </button>
                           </td>
                         </tr>
                       )
