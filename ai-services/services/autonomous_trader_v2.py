@@ -2135,6 +2135,14 @@ class AutonomousTraderV2:
                 self.use_crypto_bert = parsed.get('useCryptoBert', 'true').lower() == 'true'
                 self.use_xgboost_classifier = parsed.get('useXgboostClassifier', 'true').lower() == 'true'
                 self.use_price_predictor = parsed.get('usePricePredictor', 'true').lower() == 'true'
+                self.use_whale_detection = parsed.get('useWhaleDetection', 'true').lower() == 'true'
+                self.use_funding_rate = parsed.get('useFundingRate', 'true').lower() == 'true'
+                self.use_pattern_recognition = parsed.get('usePatternRecognition', 'true').lower() == 'true'
+                self.use_q_learning = parsed.get('useQLearning', 'true').lower() == 'true'
+                
+                # Position sizing
+                self.max_position_percent = float(parsed.get('maxPositionPercent', 5))
+                self.kelly_multiplier = float(parsed.get('kellyMultiplier', 0.5))
                 
                 # Leverage mode
                 self.leverage_mode = parsed.get('leverageMode', 'auto')
@@ -2147,6 +2155,9 @@ class AutonomousTraderV2:
                     self.position_sizer.MAX_OPEN_POSITIONS = self.max_open_positions
                     self.position_sizer.MAX_TOTAL_EXPOSURE = self.max_exposure_percent / 100  # Convert to fraction
                     self.position_sizer.MAX_DAILY_DRAWDOWN = self.max_daily_drawdown / 100  # Convert to fraction
+                    self.position_sizer.max_position_percent = self.max_position_percent
+                    self.position_sizer.kelly_multiplier = self.kelly_multiplier
+                    self.position_sizer.use_dynamic_sizing = self.use_dynamic_sizing
                 
                 # Mode display names
                 mode_names = {

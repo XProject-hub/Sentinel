@@ -1677,6 +1677,8 @@ async def get_settings():
                     "partialExitPercent": float(parsed.get('partialExitPercent', defaults['partialExitPercent'])),
                     "useSmartExit": parsed.get('useSmartExit', 'false') == 'true',
                     "momentumThreshold": float(parsed.get('momentumThreshold', defaults['momentumThreshold'])),
+                    # Kelly Criterion
+                    "kellyMultiplier": float(parsed.get('kellyMultiplier', 0.5)),
                 }
             }
         else:
@@ -1748,6 +1750,9 @@ async def save_settings(request: Request):
             'partialExitPercent': str(body.get('partialExitPercent', 50)),
             'useSmartExit': str(body.get('useSmartExit', False)).lower(),
             'momentumThreshold': str(body.get('momentumThreshold', 0.05)),
+            
+            # Kelly Criterion
+            'kellyMultiplier': str(body.get('kellyMultiplier', 0.5)),
         }
         
         await r.hset('bot:settings', mapping=settings_to_save)
