@@ -12,7 +12,7 @@ import {
   AlertTriangle,
   BarChart3,
   Calendar,
-  DollarSign,
+  Euro,
   Percent,
   Clock,
   Activity,
@@ -412,7 +412,7 @@ export default function BacktestPage() {
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                   <div className="glass-card border border-sentinel-border rounded-xl p-4">
                     <div className="flex items-center gap-2 mb-2">
-                      <DollarSign className="w-4 h-4 text-sentinel-accent-cyan" />
+                      <Euro className="w-4 h-4 text-sentinel-accent-cyan" />
                       <span className="text-sm text-sentinel-text-muted">Total Return</span>
                     </div>
                     <div className={`text-2xl font-bold ${result.total_return >= 0 ? 'text-sentinel-accent-emerald' : 'text-sentinel-accent-crimson'}`}>
