@@ -28,7 +28,13 @@ import {
   Waves,
   LineChart,
   CircuitBoard,
-  Sparkles
+  Sparkles,
+  HelpCircle,
+  BookOpen,
+  Info,
+  DollarSign,
+  ArrowUpRight,
+  ArrowDownRight
 } from 'lucide-react'
 import Logo from '@/components/Logo'
 
@@ -262,6 +268,7 @@ export default function SettingsPage() {
     { id: 'position', label: 'Position Size', icon: Layers },
     { id: 'filters', label: 'AI Filters', icon: Gauge },
     { id: 'models', label: 'AI Models', icon: Cpu },
+    { id: 'guide', label: 'User Guide', icon: HelpCircle },
   ]
 
   return (
@@ -865,6 +872,355 @@ export default function SettingsPage() {
                   <p className="text-xs text-gray-500">
                     More active models provide deeper analysis but may reduce trade frequency
                   </p>
+                </div>
+              </section>
+            )}
+
+            {/* User Guide Section */}
+            {activeSection === 'guide' && (
+              <section className="space-y-6">
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="p-2 rounded-lg bg-cyan-500/10 border border-cyan-500/20">
+                    <BookOpen className="w-5 h-5 text-cyan-400" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-semibold text-white">User Guide</h2>
+                    <p className="text-sm text-gray-500">Complete documentation for Sentinel AI Trading Bot</p>
+                  </div>
+                </div>
+
+                {/* Dashboard Header Guide */}
+                <div className="p-5 rounded-2xl bg-white/[0.02] border border-white/5 space-y-4">
+                  <h3 className="text-lg font-semibold text-cyan-400 flex items-center gap-2">
+                    <Info className="w-5 h-5" />
+                    Dashboard Header Stats
+                  </h3>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="p-3 rounded-lg bg-white/[0.02]">
+                      <div className="text-sm font-medium text-white mb-1">F/G (Fear & Greed Index)</div>
+                      <p className="text-xs text-gray-400">
+                        Market sentiment indicator from 0-100. Below 25 = Extreme Fear (potential buying opportunity), 
+                        above 75 = Extreme Greed (potential selling opportunity). Helps gauge overall market mood.
+                      </p>
+                    </div>
+                    
+                    <div className="p-3 rounded-lg bg-white/[0.02]">
+                      <div className="text-sm font-medium text-white mb-1">Regime</div>
+                      <p className="text-xs text-gray-400">
+                        Current market condition detected by AI:<br/>
+                        • <span className="text-green-400">trending</span> - Strong trend, good for trades<br/>
+                        • <span className="text-yellow-400">range_bound</span> - Sideways movement, be cautious<br/>
+                        • <span className="text-red-400">high_volatility</span> - Risky conditions<br/>
+                        • <span className="text-orange-400">low_liquidity</span> - Slippage risk
+                      </p>
+                    </div>
+                    
+                    <div className="p-3 rounded-lg bg-white/[0.02]">
+                      <div className="text-sm font-medium text-white mb-1">AI Confidence</div>
+                      <p className="text-xs text-gray-400">
+                        The AI&apos;s current confidence level in market conditions. Higher percentage means 
+                        the AI is more certain about its analysis. Below 50% indicates uncertain market conditions.
+                      </p>
+                    </div>
+                    
+                    <div className="p-3 rounded-lg bg-white/[0.02]">
+                      <div className="text-sm font-medium text-white mb-1">Pairs Scanned</div>
+                      <p className="text-xs text-gray-400">
+                        Total number of trading pairs the AI is actively monitoring on Bybit. 
+                        More pairs = more opportunities but requires more processing.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Balance Section Guide */}
+                <div className="p-5 rounded-2xl bg-white/[0.02] border border-white/5 space-y-4">
+                  <h3 className="text-lg font-semibold text-emerald-400 flex items-center gap-2">
+                    <DollarSign className="w-5 h-5" />
+                    Balance & Performance
+                  </h3>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="p-3 rounded-lg bg-white/[0.02]">
+                      <div className="text-sm font-medium text-white mb-1">Balance (USDT / EUR)</div>
+                      <p className="text-xs text-gray-400">
+                        Your total account equity in USDT and converted to EUR. This includes both 
+                        available balance and value locked in open positions.
+                      </p>
+                    </div>
+                    
+                    <div className="p-3 rounded-lg bg-white/[0.02]">
+                      <div className="text-sm font-medium text-white mb-1">Daily P&L</div>
+                      <p className="text-xs text-gray-400">
+                        Profit or Loss for the current day in EUR. Resets at midnight UTC. 
+                        <span className="text-green-400"> Green = profit</span>, 
+                        <span className="text-red-400"> Red = loss</span>.
+                      </p>
+                    </div>
+                    
+                    <div className="p-3 rounded-lg bg-white/[0.02]">
+                      <div className="text-sm font-medium text-white mb-1">Win Rate</div>
+                      <p className="text-xs text-gray-400">
+                        Percentage of profitable trades. Shows total Wins (W) and Losses (L). 
+                        A win rate above 50% with proper risk management is generally profitable.
+                      </p>
+                    </div>
+                    
+                    <div className="p-3 rounded-lg bg-white/[0.02]">
+                      <div className="text-sm font-medium text-white mb-1">Total Trades</div>
+                      <p className="text-xs text-gray-400">
+                        Total number of completed trades since account creation. 
+                        Used to track overall trading activity and calculate statistics.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Open Positions Guide */}
+                <div className="p-5 rounded-2xl bg-white/[0.02] border border-white/5 space-y-4">
+                  <h3 className="text-lg font-semibold text-blue-400 flex items-center gap-2">
+                    <BarChart3 className="w-5 h-5" />
+                    Open Positions Table
+                  </h3>
+                  
+                  <div className="space-y-3">
+                    <div className="p-3 rounded-lg bg-white/[0.02]">
+                      <div className="text-sm font-medium text-white mb-1">PAIR</div>
+                      <p className="text-xs text-gray-400">
+                        The cryptocurrency trading pair (e.g., BTCUSDT = Bitcoin/USDT). 
+                        Shows which asset you have a position in.
+                      </p>
+                    </div>
+                    
+                    <div className="p-3 rounded-lg bg-white/[0.02]">
+                      <div className="text-sm font-medium text-white mb-1">SIDE</div>
+                      <p className="text-xs text-gray-400">
+                        <span className="text-green-400">LONG</span> - You profit when price goes UP<br/>
+                        <span className="text-red-400">SHORT</span> - You profit when price goes DOWN<br/>
+                        The leverage multiplier (e.g., 2x, 5x) amplifies both gains and losses.
+                      </p>
+                    </div>
+                    
+                    <div className="p-3 rounded-lg bg-white/[0.02]">
+                      <div className="text-sm font-medium text-white mb-1">VALUE</div>
+                      <p className="text-xs text-gray-400">
+                        The current value of your position in EUR. This is your initial investment 
+                        multiplied by leverage and adjusted for current P&L.
+                      </p>
+                    </div>
+                    
+                    <div className="p-3 rounded-lg bg-white/[0.02]">
+                      <div className="text-sm font-medium text-white mb-1">ENTRY / MARK</div>
+                      <p className="text-xs text-gray-400">
+                        <strong>Entry</strong> - The price at which you entered the trade<br/>
+                        <strong>Mark</strong> - The current market price<br/>
+                        Compare these to see how the price has moved since entry.
+                      </p>
+                    </div>
+                    
+                    <div className="p-3 rounded-lg bg-white/[0.02]">
+                      <div className="text-sm font-medium text-white mb-1">P&L (Profit & Loss)</div>
+                      <p className="text-xs text-gray-400">
+                        Shows your unrealized profit or loss in EUR and percentage.<br/>
+                        <span className="text-green-400">Green/Positive</span> = Making profit<br/>
+                        <span className="text-red-400">Red/Negative</span> = Currently at a loss<br/>
+                        This is &quot;unrealized&quot; until you close the position.
+                      </p>
+                    </div>
+                    
+                    <div className="p-3 rounded-lg bg-white/[0.02]">
+                      <div className="text-sm font-medium text-white mb-1">ACTION (Close Button)</div>
+                      <p className="text-xs text-gray-400">
+                        Manually close a position immediately at market price. Use this when you want 
+                        to exit a trade without waiting for AI to close it automatically.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* AI Panels Guide */}
+                <div className="p-5 rounded-2xl bg-white/[0.02] border border-white/5 space-y-4">
+                  <h3 className="text-lg font-semibold text-violet-400 flex items-center gap-2">
+                    <Brain className="w-5 h-5" />
+                    AI Intelligence Panels
+                  </h3>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="p-3 rounded-lg bg-white/[0.02]">
+                      <div className="text-sm font-medium text-white mb-1">AI Signals</div>
+                      <p className="text-xs text-gray-400">
+                        Top trading opportunities identified by the AI. Shows potential entry points with 
+                        target price (TP) and stop loss (SL) levels. Higher confidence signals are more reliable.
+                      </p>
+                    </div>
+                    
+                    <div className="p-3 rounded-lg bg-white/[0.02]">
+                      <div className="text-sm font-medium text-white mb-1">AI Console</div>
+                      <p className="text-xs text-gray-400">
+                        Real-time log of AI activity. Shows trades opened/closed, breakout detections, 
+                        and system status. Useful for monitoring what the bot is doing.
+                      </p>
+                    </div>
+                    
+                    <div className="p-3 rounded-lg bg-white/[0.02]">
+                      <div className="text-sm font-medium text-white mb-1">AI Intelligence Panel</div>
+                      <p className="text-xs text-gray-400">
+                        • <strong>Strategy</strong> - Current trading mode (NORMAL, LOCK_PROFIT, etc.)<br/>
+                        • <strong>Breakouts</strong> - Number of coins with significant price moves<br/>
+                        • <strong>Last Action</strong> - Most recent AI activity<br/>
+                        • <strong>Active Breakouts</strong> - Coins currently breaking out
+                      </p>
+                    </div>
+                    
+                    <div className="p-3 rounded-lg bg-white/[0.02]">
+                      <div className="text-sm font-medium text-white mb-1">P&L Performance Chart</div>
+                      <p className="text-xs text-gray-400">
+                        Visual chart of your last 50-100 trades. Shows cumulative profit/loss over time. 
+                        Green = positive performance, Red = negative. Helps identify trends in your trading.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Settings Guide */}
+                <div className="p-5 rounded-2xl bg-white/[0.02] border border-white/5 space-y-4">
+                  <h3 className="text-lg font-semibold text-amber-400 flex items-center gap-2">
+                    <Settings className="w-5 h-5" />
+                    Settings Explained
+                  </h3>
+                  
+                  {/* Trading Strategy */}
+                  <div className="p-4 rounded-xl bg-gradient-to-r from-white/[0.02] to-transparent border-l-2 border-cyan-500">
+                    <h4 className="text-sm font-semibold text-cyan-400 mb-3">Trading Strategy</h4>
+                    <div className="space-y-2 text-xs text-gray-400">
+                      <p><span className="text-white font-medium">NORMAL</span> - Balanced approach with trailing stop protection. Best for most market conditions.</p>
+                      <p><span className="text-white font-medium">LOCK PROFIT</span> - Aggressive profit protection. Sells quickly when profit starts dropping.</p>
+                      <p><span className="text-white font-medium">MICRO PROFIT</span> - Takes many small profits. Higher win rate but smaller gains per trade.</p>
+                      <p><span className="text-white font-medium">SCALPER</span> - Very fast trades with tight stops. Requires stable market conditions.</p>
+                      <p><span className="text-white font-medium">SWING</span> - Holds positions longer for bigger moves. More patient approach.</p>
+                    </div>
+                  </div>
+
+                  {/* Exit Rules */}
+                  <div className="p-4 rounded-xl bg-gradient-to-r from-white/[0.02] to-transparent border-l-2 border-emerald-500">
+                    <h4 className="text-sm font-semibold text-emerald-400 mb-3">Exit Rules</h4>
+                    <div className="space-y-2 text-xs text-gray-400">
+                      <p><span className="text-white font-medium">Take Profit %</span> - Automatically sells when profit reaches this percentage. Set to 0 to disable (use trailing stop only).</p>
+                      <p><span className="text-white font-medium">Stop Loss %</span> - Maximum loss before automatic exit. Protects from large losses.</p>
+                      <p><span className="text-white font-medium">Trailing Stop %</span> - Once in profit, sells if price drops by this % from peak. Locks in gains.</p>
+                      <p><span className="text-white font-medium">Min Profit to Trail</span> - Minimum profit required before trailing stop activates.</p>
+                    </div>
+                  </div>
+
+                  {/* Position Sizing */}
+                  <div className="p-4 rounded-xl bg-gradient-to-r from-white/[0.02] to-transparent border-l-2 border-blue-500">
+                    <h4 className="text-sm font-semibold text-blue-400 mb-3">Position Sizing</h4>
+                    <div className="space-y-2 text-xs text-gray-400">
+                      <p><span className="text-white font-medium">Max Open Positions</span> - Maximum number of simultaneous trades. More positions = more diversification but more risk.</p>
+                      <p><span className="text-white font-medium">Max Position Size %</span> - Maximum percentage of your equity per trade.</p>
+                      <p><span className="text-white font-medium">Max Total Exposure %</span> - Maximum total percentage of equity in all positions combined.</p>
+                      <p><span className="text-white font-medium">Max Daily Drawdown</span> - Stops trading if daily loss exceeds this %. Set to 0 to disable.</p>
+                      <p><span className="text-white font-medium">Kelly Multiplier</span> - Adjusts position sizing aggressiveness. Higher = bigger positions, more risk.</p>
+                    </div>
+                  </div>
+
+                  {/* AI Filters */}
+                  <div className="p-4 rounded-xl bg-gradient-to-r from-white/[0.02] to-transparent border-l-2 border-violet-500">
+                    <h4 className="text-sm font-semibold text-violet-400 mb-3">AI Filters</h4>
+                    <div className="space-y-2 text-xs text-gray-400">
+                      <p><span className="text-white font-medium">Min Edge</span> - Minimum expected advantage required to enter a trade. Higher = fewer but better trades.</p>
+                      <p><span className="text-white font-medium">Min Confidence</span> - Minimum AI confidence required. Higher = more selective, fewer trades.</p>
+                      <p><span className="text-white font-medium">Momentum Threshold</span> - Minimum price momentum required. Filters out weak moves.</p>
+                      <p><span className="text-white font-medium">Leverage Mode</span> - AUTO lets AI decide leverage, or set fixed 1x-10x.</p>
+                    </div>
+                  </div>
+
+                  {/* AI Models */}
+                  <div className="p-4 rounded-xl bg-gradient-to-r from-white/[0.02] to-transparent border-l-2 border-pink-500">
+                    <h4 className="text-sm font-semibold text-pink-400 mb-3">AI Models</h4>
+                    <div className="space-y-2 text-xs text-gray-400">
+                      <p><span className="text-white font-medium">Whale Detection</span> - Tracks large wallet movements to follow smart money.</p>
+                      <p><span className="text-white font-medium">Funding Rate Analysis</span> - Uses funding rates to detect over-leveraged markets.</p>
+                      <p><span className="text-white font-medium">Market Regime Filter</span> - Adjusts strategy based on current market conditions.</p>
+                      <p><span className="text-white font-medium">Dynamic Position Sizing</span> - AI adjusts position sizes based on confidence.</p>
+                      <p><span className="text-white font-medium">Pattern Recognition</span> - Identifies chart patterns for entry/exit signals.</p>
+                      <p><span className="text-white font-medium">Sentiment Analysis</span> - Analyzes market sentiment from news and social data.</p>
+                      <p><span className="text-white font-medium">Q-Learning Strategy</span> - Self-learning AI that improves from past trades.</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Backtest Guide */}
+                <div className="p-5 rounded-2xl bg-white/[0.02] border border-white/5 space-y-4">
+                  <h3 className="text-lg font-semibold text-orange-400 flex items-center gap-2">
+                    <LineChart className="w-5 h-5" />
+                    Backtest System
+                  </h3>
+                  
+                  <div className="space-y-3 text-xs text-gray-400">
+                    <p>
+                      The <strong className="text-white">Backtest</strong> feature allows you to test trading strategies on historical data 
+                      before risking real money.
+                    </p>
+                    <div className="p-3 rounded-lg bg-white/[0.02]">
+                      <p className="mb-2"><span className="text-white font-medium">How to use:</span></p>
+                      <ol className="list-decimal list-inside space-y-1">
+                        <li>Select a trading pair (e.g., BTCUSDT)</li>
+                        <li>Choose date range (recommended: at least 30 days)</li>
+                        <li>Set initial capital amount</li>
+                        <li>Configure strategy settings</li>
+                        <li>Run backtest and analyze results</li>
+                      </ol>
+                    </div>
+                    <p className="text-amber-400">
+                      Note: Past performance in backtests does not guarantee future results. 
+                      Market conditions change and historical patterns may not repeat.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Quick Tips */}
+                <div className="p-5 rounded-2xl bg-gradient-to-r from-cyan-500/5 to-blue-500/5 border border-cyan-500/10 space-y-4">
+                  <h3 className="text-lg font-semibold text-cyan-400 flex items-center gap-2">
+                    <Sparkles className="w-5 h-5" />
+                    Quick Tips for Success
+                  </h3>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                    <div className="flex items-start gap-2">
+                      <CheckCircle className="w-4 h-4 text-green-400 flex-shrink-0 mt-0.5" />
+                      <span className="text-gray-300">Start with smaller position sizes while learning</span>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <CheckCircle className="w-4 h-4 text-green-400 flex-shrink-0 mt-0.5" />
+                      <span className="text-gray-300">Always use stop losses to protect capital</span>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <CheckCircle className="w-4 h-4 text-green-400 flex-shrink-0 mt-0.5" />
+                      <span className="text-gray-300">Monitor the AI Console for trade activity</span>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <CheckCircle className="w-4 h-4 text-green-400 flex-shrink-0 mt-0.5" />
+                      <span className="text-gray-300">Use NORMAL strategy until you understand the system</span>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <CheckCircle className="w-4 h-4 text-green-400 flex-shrink-0 mt-0.5" />
+                      <span className="text-gray-300">Check market regime before expecting high activity</span>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <CheckCircle className="w-4 h-4 text-green-400 flex-shrink-0 mt-0.5" />
+                      <span className="text-gray-300">Backtest strategies before using with real money</span>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <CheckCircle className="w-4 h-4 text-green-400 flex-shrink-0 mt-0.5" />
+                      <span className="text-gray-300">Don&apos;t overtrade - quality over quantity</span>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <CheckCircle className="w-4 h-4 text-green-400 flex-shrink-0 mt-0.5" />
+                      <span className="text-gray-300">Keep some balance available for new opportunities</span>
+                    </div>
+                  </div>
                 </div>
               </section>
             )}
