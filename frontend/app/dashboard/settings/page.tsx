@@ -38,6 +38,11 @@ interface BotSettings {
   useWhaleDetection: boolean
   useFundingRate: boolean
   useRegimeFilter: boolean
+  usePatternRecognition: boolean
+  useSentimentAnalysis: boolean
+  useXGBoost: boolean
+  useEdgeEstimation: boolean
+  useQLearning: boolean
   momentumThreshold: number
 }
 
@@ -58,6 +63,11 @@ const defaultSettings: BotSettings = {
   useWhaleDetection: true,
   useFundingRate: true,
   useRegimeFilter: true,
+  usePatternRecognition: true,
+  useSentimentAnalysis: true,
+  useXGBoost: true,
+  useEdgeEstimation: true,
+  useQLearning: true,
   momentumThreshold: 0
 }
 
@@ -117,7 +127,22 @@ export default function SettingsPage() {
       if (response.ok) {
         const data = await response.json()
         if (data.data) {
-          setSettings(prev => ({ ...prev, ...data.data }))
+          // Map backend names to frontend names
+          const backendData = data.data
+          const mapped = {
+            ...backendData,
+            // Map AI model settings
+            useRegimeFilter: backendData.useRegimeDetection ?? backendData.useRegimeFilter ?? true,
+            useEdgeEstimation: backendData.useEdgeEstimation ?? true,
+            useSentimentAnalysis: backendData.useCryptoBert ?? backendData.useSentimentAnalysis ?? true,
+            useXGBoost: backendData.useXgboostClassifier ?? backendData.useXGBoost ?? true,
+            usePatternRecognition: backendData.usePatternRecognition ?? backendData.usePricePredictor ?? true,
+            useWhaleDetection: backendData.useWhaleDetection ?? true,
+            useFundingRate: backendData.useFundingRate ?? true,
+            useQLearning: backendData.useQLearning ?? true,
+            useDynamicSizing: backendData.useDynamicSizing ?? true,
+          }
+          setSettings(prev => ({ ...prev, ...mapped }))
         }
       }
     } catch (error) {
@@ -131,10 +156,20 @@ export default function SettingsPage() {
     setIsSaving(true)
     setSaveStatus('idle')
     try {
+      // Map frontend names to backend names
+      const settingsToSave = {
+        ...settings,
+        // Map AI model settings for backend
+        useRegimeDetection: settings.useRegimeFilter,
+        useCryptoBert: settings.useSentimentAnalysis,
+        useXgboostClassifier: settings.useXGBoost,
+        usePricePredictor: settings.usePatternRecognition,
+      }
+      
       const response = await fetch('/ai/exchange/settings?user_id=default', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(settings)
+        body: JSON.stringify(settingsToSave)
       })
 
       if (response.ok) {
@@ -603,6 +638,114 @@ export default function SettingsPage() {
                 >
                   <div className={`w-5 h-5 rounded-full bg-white shadow transition-transform ${
                     settings.useRegimeFilter ? 'translate-x-6' : 'translate-x-0.5'
+                  }`} />
+                </button>
+              </div>
+
+              {/* Dynamic Position Sizing */}
+              <div className="flex items-center justify-between p-4 bg-white/[0.02] rounded-xl border border-white/10">
+                <div>
+                  <span className="font-medium text-white">Dynamic Position Sizing</span>
+                  <p className="text-xs text-gray-500 mt-0.5">Kelly Criterion based position sizing</p>
+                </div>
+                <button
+                  onClick={() => updateSetting('useDynamicSizing', !settings.useDynamicSizing)}
+                  className={`w-12 h-6 rounded-full transition-colors ${
+                    settings.useDynamicSizing ? 'bg-cyan-500' : 'bg-white/10'
+                  }`}
+                >
+                  <div className={`w-5 h-5 rounded-full bg-white shadow transition-transform ${
+                    settings.useDynamicSizing ? 'translate-x-6' : 'translate-x-0.5'
+                  }`} />
+                </button>
+              </div>
+
+              {/* Pattern Recognition */}
+              <div className="flex items-center justify-between p-4 bg-white/[0.02] rounded-xl border border-white/10">
+                <div>
+                  <span className="font-medium text-white">Pattern Recognition</span>
+                  <p className="text-xs text-gray-500 mt-0.5">ML-based price pattern detection</p>
+                </div>
+                <button
+                  onClick={() => updateSetting('usePatternRecognition', !settings.usePatternRecognition)}
+                  className={`w-12 h-6 rounded-full transition-colors ${
+                    settings.usePatternRecognition ? 'bg-cyan-500' : 'bg-white/10'
+                  }`}
+                >
+                  <div className={`w-5 h-5 rounded-full bg-white shadow transition-transform ${
+                    settings.usePatternRecognition ? 'translate-x-6' : 'translate-x-0.5'
+                  }`} />
+                </button>
+              </div>
+
+              {/* Sentiment Analysis */}
+              <div className="flex items-center justify-between p-4 bg-white/[0.02] rounded-xl border border-white/10">
+                <div>
+                  <span className="font-medium text-white">Sentiment Analysis</span>
+                  <p className="text-xs text-gray-500 mt-0.5">CryptoBERT sentiment from news & social</p>
+                </div>
+                <button
+                  onClick={() => updateSetting('useSentimentAnalysis', !settings.useSentimentAnalysis)}
+                  className={`w-12 h-6 rounded-full transition-colors ${
+                    settings.useSentimentAnalysis ? 'bg-cyan-500' : 'bg-white/10'
+                  }`}
+                >
+                  <div className={`w-5 h-5 rounded-full bg-white shadow transition-transform ${
+                    settings.useSentimentAnalysis ? 'translate-x-6' : 'translate-x-0.5'
+                  }`} />
+                </button>
+              </div>
+
+              {/* XGBoost Predictions */}
+              <div className="flex items-center justify-between p-4 bg-white/[0.02] rounded-xl border border-white/10">
+                <div>
+                  <span className="font-medium text-white">XGBoost Predictions</span>
+                  <p className="text-xs text-gray-500 mt-0.5">ML model for price movement prediction</p>
+                </div>
+                <button
+                  onClick={() => updateSetting('useXGBoost', !settings.useXGBoost)}
+                  className={`w-12 h-6 rounded-full transition-colors ${
+                    settings.useXGBoost ? 'bg-cyan-500' : 'bg-white/10'
+                  }`}
+                >
+                  <div className={`w-5 h-5 rounded-full bg-white shadow transition-transform ${
+                    settings.useXGBoost ? 'translate-x-6' : 'translate-x-0.5'
+                  }`} />
+                </button>
+              </div>
+
+              {/* Edge Estimation */}
+              <div className="flex items-center justify-between p-4 bg-white/[0.02] rounded-xl border border-white/10">
+                <div>
+                  <span className="font-medium text-white">Edge Estimation</span>
+                  <p className="text-xs text-gray-500 mt-0.5">Statistical edge calculation per symbol</p>
+                </div>
+                <button
+                  onClick={() => updateSetting('useEdgeEstimation', !settings.useEdgeEstimation)}
+                  className={`w-12 h-6 rounded-full transition-colors ${
+                    settings.useEdgeEstimation ? 'bg-cyan-500' : 'bg-white/10'
+                  }`}
+                >
+                  <div className={`w-5 h-5 rounded-full bg-white shadow transition-transform ${
+                    settings.useEdgeEstimation ? 'translate-x-6' : 'translate-x-0.5'
+                  }`} />
+                </button>
+              </div>
+
+              {/* Q-Learning Strategy */}
+              <div className="flex items-center justify-between p-4 bg-white/[0.02] rounded-xl border border-white/10">
+                <div>
+                  <span className="font-medium text-white">Q-Learning Strategy</span>
+                  <p className="text-xs text-gray-500 mt-0.5">Reinforcement learning for trade decisions</p>
+                </div>
+                <button
+                  onClick={() => updateSetting('useQLearning', !settings.useQLearning)}
+                  className={`w-12 h-6 rounded-full transition-colors ${
+                    settings.useQLearning ? 'bg-cyan-500' : 'bg-white/10'
+                  }`}
+                >
+                  <div className={`w-5 h-5 rounded-full bg-white shadow transition-transform ${
+                    settings.useQLearning ? 'translate-x-6' : 'translate-x-0.5'
                   }`} />
                 </button>
               </div>

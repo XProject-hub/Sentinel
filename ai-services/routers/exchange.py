@@ -1284,6 +1284,10 @@ async def get_settings():
         "useCryptoBert": True,
         "useXgboostClassifier": True,
         "usePricePredictor": True,
+        "useWhaleDetection": True,
+        "useFundingRate": True,
+        "usePatternRecognition": True,
+        "useQLearning": True,
         # Smart exit (MICRO PROFIT)
         "breakevenTrigger": 0.3,
         "partialExitTrigger": 0.4,
@@ -1331,6 +1335,10 @@ async def get_settings():
                     "useCryptoBert": parsed.get('useCryptoBert', 'true') == 'true',
                     "useXgboostClassifier": parsed.get('useXgboostClassifier', 'true') == 'true',
                     "usePricePredictor": parsed.get('usePricePredictor', 'true') == 'true',
+                    "useWhaleDetection": parsed.get('useWhaleDetection', 'true') == 'true',
+                    "useFundingRate": parsed.get('useFundingRate', 'true') == 'true',
+                    "usePatternRecognition": parsed.get('usePatternRecognition', 'true') == 'true',
+                    "useQLearning": parsed.get('useQLearning', 'true') == 'true',
                     # Smart exit (MICRO PROFIT)
                     "breakevenTrigger": float(parsed.get('breakevenTrigger', defaults['breakevenTrigger'])),
                     "partialExitTrigger": float(parsed.get('partialExitTrigger', defaults['partialExitTrigger'])),
@@ -1394,9 +1402,13 @@ async def save_settings(request: Request):
             'useDynamicSizing': str(body.get('enableDynamicSizing', body.get('useDynamicSizing', True))).lower(),
             
             # V3 AI Models
-            'useCryptoBert': str(body.get('enableFinbertSentiment', body.get('useCryptoBert', True))).lower(),
-            'useXgboostClassifier': str(body.get('enableXgboostClassifier', body.get('useXgboostClassifier', True))).lower(),
+            'useCryptoBert': str(body.get('useSentimentAnalysis', body.get('useCryptoBert', True))).lower(),
+            'useXgboostClassifier': str(body.get('useXGBoost', body.get('useXgboostClassifier', True))).lower(),
             'usePricePredictor': str(body.get('enablePricePrediction', body.get('usePricePredictor', True))).lower(),
+            'useWhaleDetection': str(body.get('useWhaleDetection', True)).lower(),
+            'useFundingRate': str(body.get('useFundingRate', True)).lower(),
+            'usePatternRecognition': str(body.get('usePatternRecognition', True)).lower(),
+            'useQLearning': str(body.get('useQLearning', True)).lower(),
             
             # Smart exit (MICRO PROFIT)
             'breakevenTrigger': str(body.get('breakevenTrigger', 0.3)),
