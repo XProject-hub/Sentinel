@@ -291,7 +291,7 @@ class AutonomousTraderV2:
         # Remove from Redis
         if self.redis_client:
             await self.redis_client.delete(f'trading:paused:{user_id}')
-        logger.info(f"▶️ Trading RESUMED for {user_id} - new positions will be opened")
+        logger.info(f" Trading RESUMED for {user_id} - new positions will be opened")
     
     def is_paused(self, user_id: str) -> bool:
         """Check if trading is paused for user"""
@@ -313,9 +313,9 @@ class AutonomousTraderV2:
         This loop MUST NEVER stop - it's the heart of the trading bot!
         """
         logger.info("=" * 60)
-        logger.info("🚀 TRADING LOOP STARTING - BULLETPROOF MODE!")
-        logger.info(f"📊 Settings: TP={self.take_profit}%, SL={self.emergency_stop_loss}%")
-        logger.info(f"🔒 Trail from peak: {self.trail_from_peak}%, Min profit to trail: {self.min_profit_to_trail}%")
+        logger.info(" TRADING LOOP STARTING - BULLETPROOF MODE!")
+        logger.info(f"Settings: TP={self.take_profit}%, SL={self.emergency_stop_loss}%")
+        logger.info(f"Trail from peak: {self.trail_from_peak}%, Min profit to trail: {self.min_profit_to_trail}%")
         logger.info("=" * 60)
         
         cycle = 0
@@ -344,11 +344,11 @@ class AutonomousTraderV2:
                     pass
                 
                 # Log to file every 5 cycles
-                mode_icons = {'lock_profit': '🔒LOCK', 'micro_profit': '💎MICRO', 'safe': '🛡️SAFE', 'aggressive': '⚡AGG', 'normal': '📊NORM'}
-                mode_str = mode_icons.get(self.risk_mode, '📊NORM')
+                mode_icons = {'lock_profit': 'LOCK', 'micro_profit': 'MICRO', 'safe': 'SAFE', 'aggressive': 'AGG', 'normal': 'NORM'}
+                mode_str = mode_icons.get(self.risk_mode, 'NORM')
                 
                 if cycle % 5 == 0 or cycle <= 10:
-                    logger.info(f"🔄 Cycle {cycle} | {mode_str} | Users: {connected_users} | Pos: {total_positions} | Trail={self.trail_from_peak}%")
+                    logger.info(f"Cycle {cycle} | {mode_str} | Users: {connected_users} | Pos: {total_positions} | Trail={self.trail_from_peak}%")
                 
                 # Console log every 30 cycles (1 minute) to reduce spam
                 if cycle % 30 == 0 or cycle == 1:
@@ -362,7 +362,7 @@ class AutonomousTraderV2:
                 # Process users - with overall timeout
                 if not self.user_clients:
                     if cycle % 5 == 0:
-                        logger.warning("⚠️ NO USERS CONNECTED - waiting for dashboard connection...")
+                        logger.warning(" NO USERS CONNECTED - waiting for dashboard connection...")
                 else:
                     for user_id, client in list(self.user_clients.items()):
                         try:
@@ -373,7 +373,7 @@ class AutonomousTraderV2:
                             )
                             consecutive_errors = 0  # Reset on success
                         except asyncio.TimeoutError:
-                            logger.warning(f"⚠️ Processing user {user_id} timed out after 30s - continuing")
+                            logger.warning(f" Processing user {user_id} timed out after 30s - continuing")
                         except Exception as e:
                             consecutive_errors += 1
                             logger.error(f"Error processing user {user_id}: {e}")
@@ -405,7 +405,7 @@ class AutonomousTraderV2:
                 await asyncio.sleep(sleep_time)
                 
             except asyncio.CancelledError:
-                logger.warning("⚠️ Trading loop CANCELLED - shutting down gracefully")
+                logger.warning(" Trading loop CANCELLED - shutting down gracefully")
                 break
             except Exception as e:
                 # This should NEVER happen - but if it does, log and continue!
@@ -444,7 +444,7 @@ class AutonomousTraderV2:
             # 3. Check existing positions for exit - CRITICAL FOR LOCK_PROFIT!
             positions_list = list(self.active_positions.get(user_id, {}).items())
             if positions_list:
-                logger.info(f"⚡ Fast-checking {len(positions_list)} positions (TP={self.take_profit}%, SL={self.emergency_stop_loss}%)")
+                logger.info(f"Fast-checking {len(positions_list)} positions (TP={self.take_profit}%, SL={self.emergency_stop_loss}%)")
                 
                 # BATCH: Get all tickers in ONE API call (5s timeout)
                 try:
@@ -528,7 +528,7 @@ class AutonomousTraderV2:
             
         exchange_positions = set()
         positions_list = result.get('data', {}).get('list', [])
-        logger.debug(f"📋 Exchange returned {len(positions_list)} positions")
+        logger.debug(f" Exchange returned {len(positions_list)} positions")
         
         for pos in positions_list:
             size = safe_float(pos.get('size'))
@@ -612,12 +612,12 @@ class AutonomousTraderV2:
             # Get current price
             ticker = await self._get_ticker(client, position.symbol)
             if not ticker:
-                logger.warning(f"⚠️ No ticker for {position.symbol} - cannot check exit")
+                logger.warning(f" No ticker for {position.symbol} - cannot check exit")
                 return
                 
             current_price = ticker['last_price']
             if current_price <= 0:
-                logger.warning(f"⚠️ Invalid price {current_price} for {position.symbol}")
+                logger.warning(f" Invalid price {current_price} for {position.symbol}")
                 return
             
             # Calculate P&L
@@ -643,11 +643,11 @@ class AutonomousTraderV2:
             logger.info(f"🔎 CHECK {position.symbol}: Side={position.side}, Price=${current_price:.6f}, Entry=${position.entry_price:.6f}, P&L={pnl_percent:+.2f}%, {tp_status}, SL=-{self.emergency_stop_loss}%")
             
             if self.take_profit > 0 and pnl_percent >= self.take_profit:
-                logger.info(f"✅ {position.symbol}: P&L={pnl_percent:+.2f}% >= TP={self.take_profit}% - TRIGGERING TAKE PROFIT!")
+                logger.info(f" {position.symbol}: P&L={pnl_percent:+.2f}% >= TP={self.take_profit}% - TRIGGERING TAKE PROFIT!")
             elif pnl_percent <= -self.emergency_stop_loss:
-                logger.info(f"❌ {position.symbol}: P&L={pnl_percent:+.2f}% <= SL=-{self.emergency_stop_loss}% - TRIGGERING STOP LOSS!")
+                logger.info(f" {position.symbol}: P&L={pnl_percent:+.2f}% <= SL=-{self.emergency_stop_loss}% - TRIGGERING STOP LOSS!")
             elif self.take_profit > 0 and pnl_percent >= self.take_profit * 0.7:
-                logger.info(f"⏳ {position.symbol}: P&L={pnl_percent:+.2f}% approaching TP={self.take_profit}%")
+                logger.info(f" {position.symbol}: P&L={pnl_percent:+.2f}% approaching TP={self.take_profit}%")
             
             # 1. STOP LOSS
             if pnl_percent <= -self.emergency_stop_loss:
@@ -659,7 +659,7 @@ class AutonomousTraderV2:
             elif self.take_profit > 0 and pnl_percent >= self.take_profit:
                 should_exit = True
                 exit_reason = f"Take profit reached ({pnl_percent:.2f}% >= {self.take_profit}%)"
-                logger.info(f"🎯 TAKE PROFIT: {position.symbol} at {pnl_percent:+.2f}% >= TP {self.take_profit}% - SELLING NOW!")
+                logger.info(f" TAKE PROFIT: {position.symbol} at {pnl_percent:+.2f}% >= TP {self.take_profit}% - SELLING NOW!")
                 
             # 3. TRAILING STOP - LOCK PROFIT MODE
             # For LOCK PROFIT: trail_from_peak=0.05%, min_profit_to_trail=0.01%
@@ -686,8 +686,8 @@ class AutonomousTraderV2:
                     # Even if current P&L is 0 or slightly negative!
                     if drop_from_peak >= self.trail_from_peak:
                         should_exit = True
-                        exit_reason = f"🔒 LOCK PROFIT (peak: {position.peak_pnl_percent:.2f}%, drop: {drop_from_peak:.3f}%)"
-                        logger.info(f"🔒 LOCK PROFIT SELL: {position.symbol} | Peak was {position.peak_pnl_percent:+.2f}%, dropped {drop_from_peak:.3f}% >= {self.trail_from_peak:.3f}%")
+                        exit_reason = f"LOCK PROFIT (peak: {position.peak_pnl_percent:.2f}%, drop: {drop_from_peak:.3f}%)"
+                        logger.info(f"LOCK PROFIT SELL: {position.symbol} | Peak was {position.peak_pnl_percent:+.2f}%, dropped {drop_from_peak:.3f}% >= {self.trail_from_peak:.3f}%")
             else:
                 # NORMAL MODE: Standard trailing stop
                 # Activate trailing when profit reaches min_profit_to_trail (e.g., 0.5%)
@@ -715,12 +715,12 @@ class AutonomousTraderV2:
                     
             # === EXECUTE EXIT ===
             if should_exit:
-                logger.info(f"💰 CLOSING {position.symbol}: {exit_reason}")
+                logger.info(f" CLOSING {position.symbol}: {exit_reason}")
                 await self._close_position(user_id, client, position, pnl_percent, exit_reason)
             else:
                 # Log why we're NOT exiting if position has significant P&L
                 if abs(pnl_percent) > 1.0:
-                    logger.info(f"⏸️ HOLD {position.symbol}: P&L={pnl_percent:+.2f}% (TP={self.take_profit}%, SL=-{self.emergency_stop_loss}%) - No exit trigger")
+                    logger.info(f" HOLD {position.symbol}: P&L={pnl_percent:+.2f}% (TP={self.take_profit}%, SL=-{self.emergency_stop_loss}%) - No exit trigger")
                 
         except Exception as e:
             logger.error(f"Exit check error for {position.symbol}: {e}")
@@ -729,7 +729,7 @@ class AutonomousTraderV2:
                               position: ActivePosition, pnl_percent: float, reason: str):
         """Close a position"""
         try:
-            logger.info(f"💰 EXECUTING CLOSE: {position.symbol} | Side: {position.side} | Size: {position.size} | Reason: {reason}")
+            logger.info(f" EXECUTING CLOSE: {position.symbol} | Side: {position.side} | Size: {position.size} | Reason: {reason}")
             
             # Determine close side (opposite of position)
             close_side = 'Sell' if position.side == 'Buy' else 'Buy'
@@ -753,7 +753,7 @@ class AutonomousTraderV2:
                 logger.info(f"CLOSED {position.symbol}: {reason} | P&L: {pnl_percent:+.2f}% (${pnl_value:+.2f})")
                 
                 # Console log for dashboard
-                emoji = "✅" if won else "❌"
+                emoji = "" if won else ""
                 await self._log_to_console(
                     f"{emoji} CLOSED {position.symbol}: {pnl_percent:+.2f}% (${pnl_value:+.2f}) | {reason}",
                     "TRADE"
@@ -801,7 +801,7 @@ class AutonomousTraderV2:
                 
                 # ADD COOLDOWN: Prevent reopening this symbol for 60 seconds
                 self._cooldown_symbols[position.symbol] = datetime.utcnow()
-                logger.debug(f"⏱️ {position.symbol} on cooldown for {self.cooldown_seconds}s")
+                logger.debug(f" {position.symbol} on cooldown for {self.cooldown_seconds}s")
                         
                 # Store trade for dashboard and data collection (V3)
                 await self._store_trade_event(position.symbol, 'closed', pnl_percent, reason, position)
@@ -829,12 +829,12 @@ class AutonomousTraderV2:
             close_size = round(close_size / qty_step) * qty_step
             
             if close_size < min_qty:
-                logger.warning(f"⚠️ Partial close size {close_size} < min {min_qty}, skipping partial exit")
+                logger.warning(f" Partial close size {close_size} < min {min_qty}, skipping partial exit")
                 return False
                 
             remaining_size = position.size - close_size
             
-            logger.info(f"💰 PARTIAL CLOSE: {position.symbol} | Closing: {close_size} ({close_percent}%) | Remaining: {remaining_size}")
+            logger.info(f" PARTIAL CLOSE: {position.symbol} | Closing: {close_size} ({close_percent}%) | Remaining: {remaining_size}")
             
             # Determine close side (opposite of position)
             close_side = 'Sell' if position.side == 'Buy' else 'Buy'
@@ -851,7 +851,7 @@ class AutonomousTraderV2:
             if result.get('success'):
                 pnl_value = (position.position_value * close_percent / 100) * (pnl_percent / 100)
                 
-                logger.info(f"✅ PARTIAL CLOSED {position.symbol}: {close_percent}% at +{pnl_percent:.2f}% (${pnl_value:+.2f})")
+                logger.info(f" PARTIAL CLOSED {position.symbol}: {close_percent}% at +{pnl_percent:.2f}% (${pnl_value:+.2f})")
                 
                 # Update position size (remaining)
                 position.size = remaining_size
@@ -868,7 +868,7 @@ class AutonomousTraderV2:
                 
                 return True
             else:
-                logger.error(f"❌ Partial close failed for {position.symbol}: {result}")
+                logger.error(f" Partial close failed for {position.symbol}: {result}")
                 return False
                 
         except Exception as e:
@@ -950,7 +950,7 @@ class AutonomousTraderV2:
                         # EXTREME breakout (+50%+) - very risky, small size
                         breakout_strength = 60
                         size_multiplier = 0.3  # Only 30% of normal size
-                        logger.warning(f"⚠️ EXTREME breakout {symbol} +{price_change:.1f}% - using 30% size")
+                        logger.warning(f" EXTREME breakout {symbol} +{price_change:.1f}% - using 30% size")
                     elif price_change >= 25:
                         # BIG breakout (+25-50%) - risky, reduced size
                         breakout_strength = 75
@@ -969,7 +969,7 @@ class AutonomousTraderV2:
                     if abs_change >= 50:
                         breakout_strength = 60
                         size_multiplier = 0.3
-                        logger.warning(f"⚠️ EXTREME dump {symbol} {price_change:.1f}% - using 30% size")
+                        logger.warning(f" EXTREME dump {symbol} {price_change:.1f}% - using 30% size")
                     elif abs_change >= 25:
                         breakout_strength = 75
                         size_multiplier = 0.5
@@ -989,13 +989,13 @@ class AutonomousTraderV2:
                         price_change_24h=price_change,
                         volume_24h=volume,
                         should_trade=True,
-                        reasons=[f"🚀 BREAKOUT: {price_change:+.1f}% move (size: {size_multiplier*100:.0f}%)"],
+                        reasons=[f" BREAKOUT: {price_change:+.1f}% move (size: {size_multiplier*100:.0f}%)"],
                         timestamp=datetime.utcnow().isoformat()
                     )
                     # Store size multiplier for position sizing
                     opp.size_multiplier = size_multiplier
                     breakouts.append(opp)
-                    logger.info(f"🚀 BREAKOUT: {symbol} {price_change:+.1f}% | Vol: ${volume/1000000:.1f}M | Size: {size_multiplier*100:.0f}%")
+                    logger.info(f" BREAKOUT: {symbol} {price_change:+.1f}% | Vol: ${volume/1000000:.1f}M | Size: {size_multiplier*100:.0f}%")
             
             # Sort by opportunity score (balances size and strength)
             breakouts.sort(key=lambda x: x.opportunity_score, reverse=True)
@@ -1015,7 +1015,7 @@ class AutonomousTraderV2:
         try:
             # Check if trading is paused for this user
             if self.is_paused(user_id):
-                logger.debug(f"⏸️ Trading paused for {user_id} - skipping opportunity search")
+                logger.debug(f" Trading paused for {user_id} - skipping opportunity search")
                 return
             
             # === BREAKOUT DETECTION FIRST ===
@@ -1027,23 +1027,23 @@ class AutonomousTraderV2:
                 
                 # Check if max positions reached
                 if self.max_open_positions > 0 and num_positions >= self.max_open_positions:
-                    logger.info(f"⚠️ BREAKOUT {opp.symbol} skipped - max positions ({self.max_open_positions}) reached")
+                    logger.info(f" BREAKOUT {opp.symbol} skipped - max positions ({self.max_open_positions}) reached")
                     await self._log_to_console(f"{opp.symbol} {opp.price_change_24h:+.1f}% skipped - max positions", "WARNING")
                     break
                 
                 # Check if already in this position
                 if opp.symbol in self.active_positions.get(user_id, {}):
-                    logger.debug(f"⚠️ BREAKOUT {opp.symbol} skipped - already in position")
+                    logger.debug(f" BREAKOUT {opp.symbol} skipped - already in position")
                     continue
                 
                 # Breakouts skip most validation - they're already high-conviction
-                logger.info(f"🚀 BREAKOUT TRADE: {opp.symbol} | {opp.price_change_24h:+.1f}%")
+                logger.info(f" BREAKOUT TRADE: {opp.symbol} | {opp.price_change_24h:+.1f}%")
                 await self._log_to_console(f"EXECUTING BREAKOUT: {opp.symbol} {opp.price_change_24h:+.1f}%", "TRADE")
                 try:
                     await self._execute_trade(user_id, client, opp, wallet)
-                    logger.info(f"✅ BREAKOUT TRADE SUBMITTED: {opp.symbol}")
+                    logger.info(f" BREAKOUT TRADE SUBMITTED: {opp.symbol}")
                 except Exception as e:
-                    logger.error(f"❌ BREAKOUT TRADE FAILED: {opp.symbol} - {e}")
+                    logger.error(f" BREAKOUT TRADE FAILED: {opp.symbol} - {e}")
                     await self._log_to_console(f"FAILED: {opp.symbol} - {str(e)[:50]}", "ERROR")
             
             # === NORMAL OPPORTUNITY SCAN ===
@@ -1087,7 +1087,7 @@ class AutonomousTraderV2:
                     cooldown_time = self._cooldown_symbols[opp.symbol]
                     elapsed = (datetime.utcnow() - cooldown_time).total_seconds()
                     if elapsed < self.cooldown_seconds:
-                        logger.debug(f"⏱️ {opp.symbol} on cooldown ({int(self.cooldown_seconds - elapsed)}s remaining)")
+                        logger.debug(f" {opp.symbol} on cooldown ({int(self.cooldown_seconds - elapsed)}s remaining)")
                         continue
                     else:
                         # Cooldown expired, remove from dict
@@ -1097,12 +1097,12 @@ class AutonomousTraderV2:
                 should_trade, reason = await self._validate_opportunity(opp, wallet, client)
                 
                 if should_trade:
-                    logger.info(f"✅ OPENING TRADE: {opp.symbol} | Edge={opp.edge_score:.2f} | Conf={opp.confidence:.0f}%")
+                    logger.info(f" OPENING TRADE: {opp.symbol} | Edge={opp.edge_score:.2f} | Conf={opp.confidence:.0f}%")
                     await self._execute_trade(user_id, client, opp, wallet)
                 else:
                     # Log first 3 rejections per cycle to avoid spam
                     if not hasattr(self, '_reject_count') or self._reject_count < 3:
-                        logger.info(f"🚫 Rejected {opp.symbol}: {reason}")
+                        logger.info(f" Rejected {opp.symbol}: {reason}")
                         self._reject_count = getattr(self, '_reject_count', 0) + 1
                     
         except Exception as e:
@@ -1251,7 +1251,7 @@ class AutonomousTraderV2:
                 # Neutral funding
                 reasoning = f"Neutral funding ({funding_rate:.3f}%)"
             
-            logger.debug(f"💰 Funding {symbol}: {funding_rate:.4f}% | {direction} | {reasoning}")
+            logger.debug(f" Funding {symbol}: {funding_rate:.4f}% | {direction} | {reasoning}")
             
             return is_favorable, funding_rate, reasoning
             
@@ -1287,7 +1287,7 @@ class AutonomousTraderV2:
         # - Recent momentum > 0
         has_momentum = is_rising or momentum_score > 0
         
-        logger.debug(f"📊 Fast Momentum {symbol}: 24h={pct_24h:.2f}%, momentum={momentum_score:.3f}%, rising={is_rising}")
+        logger.debug(f" Fast Momentum {symbol}: 24h={pct_24h:.2f}%, momentum={momentum_score:.3f}%, rising={is_rising}")
         
         return has_momentum, momentum_score
     
@@ -1332,7 +1332,7 @@ class AutonomousTraderV2:
             momentum_score = total_change / 5
             has_momentum = green_candles >= 3 or total_change > 0.05
             
-            logger.debug(f"📊 Momentum {symbol}: {green_candles}/5 green, avg={momentum_score:.4f}%")
+            logger.debug(f" Momentum {symbol}: {green_candles}/5 green, avg={momentum_score:.4f}%")
             
             return has_momentum, momentum_score
             
@@ -1427,7 +1427,7 @@ class AutonomousTraderV2:
         # 0. BREAKOUT BYPASS - If this is a breakout trade, skip most filters
         is_breakout = "BREAKOUT" in str(opp.reasons)
         if is_breakout:
-            logger.info(f"🚀 Breakout trade {opp.symbol} - bypassing strict filters")
+            logger.info(f" Breakout trade {opp.symbol} - bypassing strict filters")
             # Only check basic risk limits for breakouts
             total_equity = float(wallet.get('totalEquity', 0))
             if total_equity < 10:
@@ -1474,7 +1474,7 @@ class AutonomousTraderV2:
             # MICRO PROFIT with threshold=0 disables momentum filter entirely
             if self.risk_mode == "micro_profit" and self.momentum_threshold <= 0:
                 # Momentum filter disabled - skip all checks
-                logger.debug(f"📊 Momentum filter DISABLED for {opp.symbol} (threshold=0)")
+                logger.debug(f" Momentum filter DISABLED for {opp.symbol} (threshold=0)")
             else:
                 # Standard momentum check: need 3/5 green candles or positive total change
                 if not has_momentum:
@@ -1520,7 +1520,7 @@ class AutonomousTraderV2:
                 
                 # Log if notable
                 if "GOOD" in ls_reason or "CAUTION" in ls_reason:
-                    logger.debug(f"📊 L/S ratio for {opp.symbol}: {ls_reason}")
+                    logger.debug(f" L/S ratio for {opp.symbol}: {ls_reason}")
                     
             except Exception as e:
                 logger.debug(f"L/S ratio check skipped: {e}")
@@ -1623,13 +1623,13 @@ class AutonomousTraderV2:
         if self.risk_mode == "micro_profit":
             # For MICRO PROFIT, edge must be higher to ensure quality trades
             if opp.edge_score < 0.10:  # At least 10% edge
-                return False, f"💎 MICRO PROFIT needs stronger edge ({opp.edge_score:.2f} < 0.10)"
+                return False, f" MICRO PROFIT needs stronger edge ({opp.edge_score:.2f} < 0.10)"
             
             # Check confidence is high enough
             if opp.confidence < 65:  # Slightly stricter
-                return False, f"💎 MICRO PROFIT needs higher confidence ({opp.confidence:.0f}% < 65%)"
+                return False, f" MICRO PROFIT needs higher confidence ({opp.confidence:.0f}% < 65%)"
             
-            logger.info(f"💎 MICRO PROFIT approved: {opp.symbol} edge={opp.edge_score:.2f} conf={opp.confidence:.0f}%")
+            logger.info(f" MICRO PROFIT approved: {opp.symbol} edge={opp.edge_score:.2f} conf={opp.confidence:.0f}%")
             
         # 8. Risk check via position sizer
         if not opp.edge_data:
@@ -1671,7 +1671,7 @@ class AutonomousTraderV2:
         # Store position size for execution
         opp.edge_data._position_size = position_size
         
-        return True, "SUPERIOR: Passed ALL AI checks ✅"
+        return True, "SUPERIOR: Passed ALL AI checks "
         
     async def _execute_trade(self, user_id: str, client: BybitV5Client,
                              opp: TradingOpportunity, wallet: Dict):
@@ -1715,7 +1715,7 @@ class AutonomousTraderV2:
                 else:
                     leverage = int(leverage_mode.replace('x', ''))
                 
-                logger.info(f"📊 BREAKOUT sizing: ${position_value:.0f} | {leverage}x | Size mult: {size_multiplier:.0%}")
+                logger.info(f" BREAKOUT sizing: ${position_value:.0f} | {leverage}x | Size mult: {size_multiplier:.0%}")
             else:
                 if pos_size.position_value_usdt < 5:
                     logger.debug(f"Position too small for {opp.symbol}")
@@ -1894,7 +1894,7 @@ class AutonomousTraderV2:
                 # Store momentum cache for instant access in _check_momentum_fast
                 self._ticker_momentum = momentum_data
                 
-                logger.debug(f"⚡ Bulk fetched {len(tickers)} tickers in 1 API call")
+                logger.debug(f" Bulk fetched {len(tickers)} tickers in 1 API call")
                 return tickers
         except Exception as e:
             logger.error(f"Bulk ticker fetch error: {e}")
@@ -1908,7 +1908,7 @@ class AutonomousTraderV2:
             # Get price from pre-fetched tickers
             current_price = all_tickers.get(position.symbol)
             if not current_price or current_price <= 0:
-                logger.warning(f"⚠️ No price for {position.symbol}")
+                logger.warning(f" No price for {position.symbol}")
                 return
             
             # Calculate P&L
@@ -1930,14 +1930,14 @@ class AutonomousTraderV2:
                 # 1. BREAKEVEN LOGIC: Move SL to 0% when profit reaches threshold
                 if not position.breakeven_active and pnl_percent >= self.breakeven_trigger:
                     position.breakeven_active = True
-                    logger.info(f"🔒 BREAKEVEN ACTIVATED: {position.symbol} at +{pnl_percent:.2f}% (trigger: +{self.breakeven_trigger}%)")
+                    logger.info(f" BREAKEVEN ACTIVATED: {position.symbol} at +{pnl_percent:.2f}% (trigger: +{self.breakeven_trigger}%)")
                 
                 # 2. BREAKEVEN EXIT: If breakeven is active and price drops to 0%, exit
                 if position.breakeven_active and pnl_percent <= 0.05 and pnl_percent >= -0.05:
                     # Price returned to entry - exit at breakeven
-                    logger.info(f"⚡ BREAKEVEN EXIT: {position.symbol} P&L={pnl_percent:+.2f}% (was up +{position.peak_pnl_percent:.2f}%)")
+                    logger.info(f" BREAKEVEN EXIT: {position.symbol} P&L={pnl_percent:+.2f}% (was up +{position.peak_pnl_percent:.2f}%)")
                     await self._close_position(user_id, client, position, pnl_percent, 
-                        f"⚡ BREAKEVEN (was +{position.peak_pnl_percent:.2f}%, now {pnl_percent:+.2f}%)")
+                        f" BREAKEVEN (was +{position.peak_pnl_percent:.2f}%, now {pnl_percent:+.2f}%)")
                     return  # Exit early
                 
                 # 3. PARTIAL EXIT: Take 50% profit at trigger level
@@ -1948,7 +1948,7 @@ class AutonomousTraderV2:
                         user_id, client, position, pnl_percent, self.partial_exit_percent
                     )
                     if success:
-                        logger.info(f"✅ PARTIAL EXIT COMPLETE: {position.symbol} at +{pnl_percent:.2f}%")
+                        logger.info(f" PARTIAL EXIT COMPLETE: {position.symbol} at +{pnl_percent:.2f}%")
                     # Continue with remaining position - don't return
             
             # === TIME STOP LOGIC (MICRO PROFIT) ===
@@ -1957,9 +1957,9 @@ class AutonomousTraderV2:
                 trade_duration = (datetime.utcnow() - position.entry_time).total_seconds() / 60  # minutes
                 
                 if trade_duration >= self.time_stop_minutes and pnl_percent < self.time_stop_min_pnl:
-                    logger.info(f"⏱️ TIME STOP: {position.symbol} after {trade_duration:.1f}min, P&L={pnl_percent:+.2f}% < +{self.time_stop_min_pnl}%")
+                    logger.info(f" TIME STOP: {position.symbol} after {trade_duration:.1f}min, P&L={pnl_percent:+.2f}% < +{self.time_stop_min_pnl}%")
                     await self._close_position(user_id, client, position, pnl_percent, 
-                        f"⏱️ TIME STOP ({trade_duration:.1f}min, +{pnl_percent:.2f}%)")
+                        f" TIME STOP ({trade_duration:.1f}min, +{pnl_percent:.2f}%)")
                     return  # Exit early
             
             # === FAST EXIT LOGIC ===
@@ -1969,19 +1969,19 @@ class AutonomousTraderV2:
             # Only log positions near thresholds to reduce spam
             # Take Profit only triggers if TP > 0 (enabled)
             if self.take_profit > 0 and pnl_percent >= self.take_profit:
-                logger.info(f"✅ {position.symbol}: P&L={pnl_percent:+.2f}% >= TP={self.take_profit}% - SELLING!")
+                logger.info(f" {position.symbol}: P&L={pnl_percent:+.2f}% >= TP={self.take_profit}% - SELLING!")
                 await self._log_to_console(f"SOLD {position.symbol}: +{pnl_percent:.2f}% (Take Profit)", "TRADE")
                 should_exit = True
                 exit_reason = f"Take profit ({pnl_percent:.2f}%)"
             elif pnl_percent <= -self.emergency_stop_loss:
-                logger.info(f"❌ {position.symbol}: P&L={pnl_percent:+.2f}% <= SL=-{self.emergency_stop_loss}% - SELLING!")
+                logger.info(f" {position.symbol}: P&L={pnl_percent:+.2f}% <= SL=-{self.emergency_stop_loss}% - SELLING!")
                 await self._log_to_console(f"SOLD {position.symbol}: {pnl_percent:.2f}% (Stop Loss)", "TRADE")
                 should_exit = True
                 exit_reason = f"Stop loss ({pnl_percent:.2f}%)"
             elif self.take_profit > 0 and pnl_percent >= self.take_profit * 0.8:
-                logger.info(f"⏳ {position.symbol}: {pnl_percent:+.2f}% near TP")
+                logger.info(f" {position.symbol}: {pnl_percent:+.2f}% near TP")
             elif pnl_percent <= -self.emergency_stop_loss * 0.8:
-                logger.info(f"⚠️ {position.symbol}: {pnl_percent:+.2f}% near SL")
+                logger.info(f" {position.symbol}: {pnl_percent:+.2f}% near SL")
                 
             # TRAILING STOP / LOCK PROFIT LOGIC
             is_lock_profit_mode = self.trail_from_peak <= 0.1  # Ultra-tight = LOCK PROFIT
@@ -2000,7 +2000,7 @@ class AutonomousTraderV2:
                         position.trailing_active = True
                         
                         # Log EVERY check for debugging
-                        logger.info(f"🔒 LOCK_PROFIT {position.symbol}: Peak={position.peak_pnl_percent:+.3f}%, Now={pnl_percent:+.3f}%, Drop={drop_from_peak:.3f}%, Trigger={self.trail_from_peak:.3f}%")
+                        logger.info(f" LOCK_PROFIT {position.symbol}: Peak={position.peak_pnl_percent:+.3f}%, Now={pnl_percent:+.3f}%, Drop={drop_from_peak:.3f}%, Trigger={self.trail_from_peak:.3f}%")
                         
                         # EXIT if dropped from peak by threshold
                         # BUT ONLY IF current P&L is still positive (or break-even)!
@@ -2009,11 +2009,11 @@ class AutonomousTraderV2:
                             # Only sell if we're still in profit or at worst break-even (-0.02% for fees)
                             if pnl_percent >= 0:
                                 should_exit = True
-                                exit_reason = f"🔒 LOCK PROFIT (peak: {position.peak_pnl_percent:.2f}%, now: {pnl_percent:+.2f}%)"
-                                logger.info(f"🔒 LOCK PROFIT SELL: {position.symbol} | Peak={position.peak_pnl_percent:+.2f}%, Now={pnl_percent:+.2f}% ✅ PROFIT!")
+                                exit_reason = f" LOCK PROFIT (peak: {position.peak_pnl_percent:.2f}%, now: {pnl_percent:+.2f}%)"
+                                logger.info(f" LOCK PROFIT SELL: {position.symbol} | Peak={position.peak_pnl_percent:+.2f}%, Now={pnl_percent:+.2f}%  PROFIT!")
                             else:
                                 # Price dropped too fast, don't sell at loss - wait for recovery
-                                logger.debug(f"⏸️ {position.symbol}: Dropped but P&L negative ({pnl_percent:+.2f}%), waiting for recovery")
+                                logger.debug(f" {position.symbol}: Dropped but P&L negative ({pnl_percent:+.2f}%), waiting for recovery")
                 else:
                     # === NORMAL TRAILING MODE ===
                     # Activate trailing when profit reaches min_profit_to_trail (e.g., 0.5%)
@@ -2028,7 +2028,7 @@ class AutonomousTraderV2:
                             exit_reason = f"Trailing stop (peak: +{position.peak_pnl_percent:.2f}%, dropped {drop_from_peak:.2f}%)"
                             logger.info(f"📉 TRAILING SELL {position.symbol}: Peak=+{position.peak_pnl_percent:.2f}%, Now={pnl_percent:+.2f}%, Drop={drop_from_peak:.2f}% >= {self.trail_from_peak}%")
                         else:
-                            logger.debug(f"⏸️ {position.symbol}: Trailing triggered but P&L too negative ({pnl_percent:+.2f}%), holding")
+                            logger.debug(f" {position.symbol}: Trailing triggered but P&L too negative ({pnl_percent:+.2f}%), holding")
                     
             # === EXECUTE EXIT ===
             if should_exit:
@@ -2246,13 +2246,13 @@ class AutonomousTraderV2:
                 
                 # Mode display names
                 mode_names = {
-                    'lock_profit': '🔒 LOCK PROFIT',
-                    'micro_profit': '💎 MICRO PROFIT',
-                    'safe': '🛡️ SAFE',
-                    'aggressive': '⚡ AGGRESSIVE',
-                    'normal': '📊 NORMAL'
+                    'lock_profit': ' LOCK PROFIT',
+                    'micro_profit': ' MICRO PROFIT',
+                    'safe': ' SAFE',
+                    'aggressive': ' AGGRESSIVE',
+                    'normal': ' NORMAL'
                 }
-                mode_name = mode_names.get(self.risk_mode, '📊 NORMAL')
+                mode_name = mode_names.get(self.risk_mode, ' NORMAL')
                 
                 # Update market scanner's risk mode for optimized scanning
                 if self.market_scanner:
@@ -2263,17 +2263,17 @@ class AutonomousTraderV2:
                 leverage_display = self.leverage_mode.upper()
                 new_settings_str = f"Mode={self.risk_mode},SL={self.emergency_stop_loss}%,TP={tp_display},Trail={self.trail_from_peak}%,MinTrail={self.min_profit_to_trail}%,Lev={self.leverage_mode}"
                 if not hasattr(self, '_last_settings_str') or self._last_settings_str != new_settings_str:
-                    logger.info(f"⚙️ Settings [{mode_name}]: SL={self.emergency_stop_loss}%, TP={tp_display}, "
+                    logger.info(f" Settings [{mode_name}]: SL={self.emergency_stop_loss}%, TP={tp_display}, "
                                f"Trail={self.trail_from_peak}%, MinProfitToTrail={self.min_profit_to_trail}%, "
                                f"MinConf={self.min_confidence}%, MinEdge={self.min_edge}, "
                                f"MaxPos={'Unlimited' if self.max_open_positions == 0 else self.max_open_positions}, "
                                f"Leverage={leverage_display}")
                     if self.take_profit == 0:
-                        logger.info(f"📊 TRAILING ONLY MODE: No Take Profit limit, sells only when trailing stop triggers")
+                        logger.info(f" TRAILING ONLY MODE: No Take Profit limit, sells only when trailing stop triggers")
                     if self.risk_mode == 'lock_profit':
-                        logger.info(f"🔒 LOCK PROFIT MODE: Sells on {self.trail_from_peak}% drop from peak")
+                        logger.info(f" LOCK PROFIT MODE: Sells on {self.trail_from_peak}% drop from peak")
                     elif self.risk_mode == 'micro_profit':
-                        logger.info(f"💎 MICRO PROFIT MODE: Quick +{self.take_profit}% profits, -{self.emergency_stop_loss}% stop loss, HIGH confidence required")
+                        logger.info(f" MICRO PROFIT MODE: Quick +{self.take_profit}% profits, -{self.emergency_stop_loss}% stop loss, HIGH confidence required")
                     self._last_settings_str = new_settings_str
         except Exception as e:
             logger.debug(f"Load settings error: {e}")
@@ -2303,7 +2303,7 @@ class AutonomousTraderV2:
                 user_id = key_str.replace('trading:paused:', '')
                 self.paused_users.add(user_id)
             if self.paused_users:
-                logger.info(f"⏸️ Loaded {len(self.paused_users)} paused users: {self.paused_users}")
+                logger.info(f" Loaded {len(self.paused_users)} paused users: {self.paused_users}")
         except Exception as e:
             logger.warning(f"Failed to load paused users: {e}")
             
