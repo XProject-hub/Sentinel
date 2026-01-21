@@ -553,19 +553,27 @@ async def get_positions():
     for pos in data.get("list", []):
         size = float(pos.get("size", 0))
         if size > 0:
+            mark_price = float(pos.get("markPrice", 0))
+            entry_price = float(pos.get("avgPrice", 0))
+            # Calculate position value: size * mark price
+            position_value = float(pos.get("positionValue", 0))
+            if position_value == 0 and mark_price > 0:
+                position_value = size * mark_price
+            
             positions.append({
                 "symbol": pos.get("symbol"),
                 "side": pos.get("side"),
                 "size": size,
-                "entryPrice": float(pos.get("avgPrice", 0)),
-                "markPrice": float(pos.get("markPrice", 0)),
-                "unrealizedPnl": float(pos.get("unrealisedPnl", 0)),
+                "entryPrice": entry_price,
+                "markPrice": mark_price,
+                "positionValue": position_value,
+                "unrealisedPnl": float(pos.get("unrealisedPnl", 0)),
                 "leverage": pos.get("leverage"),
                 "liquidationPrice": float(pos.get("liqPrice", 0)) if pos.get("liqPrice") else None,
                 "takeProfit": pos.get("takeProfit"),
                 "stopLoss": pos.get("stopLoss"),
-                "createdTime": pos.get("createdTime"),  # When position was opened
-                "updatedTime": pos.get("updatedTime"),  # Last update time
+                "createdTime": pos.get("createdTime"),
+                "updatedTime": pos.get("updatedTime"),
             })
     
     # Sort by createdTime (oldest first) for stable display order

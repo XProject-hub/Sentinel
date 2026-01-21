@@ -122,6 +122,7 @@ export default function DashboardPage() {
   const [recentTrades, setRecentTrades] = useState<TradeHistory[]>([])
   const [traderStats, setTraderStats] = useState<TraderStats | null>(null)
   const [pnlHistory, setPnlHistory] = useState<{time: string, pnl: number}[]>([])
+  const [last100Pnl, setLast100Pnl] = useState<number>(0)
   
   const consoleRef = useRef<HTMLDivElement>(null)
 
@@ -219,6 +220,8 @@ export default function DashboardPage() {
             }
           })
           setPnlHistory(history)
+          // Set P&L sum from last 100 trades
+          setLast100Pnl(runningPnl)
         }
       }
 
@@ -472,33 +475,39 @@ export default function DashboardPage() {
             </div>
             
             {positions.length === 0 ? (
-              <div className="p-12 text-center">
-                <Target className="w-12 h-12 text-gray-700 mx-auto mb-4" />
-                <p className="text-gray-500">No open positions</p>
-                <p className="text-gray-600 text-sm mt-1">AI is scanning for opportunities...</p>
+              <div className="p-8 text-center">
+                <Target className="w-10 h-10 text-gray-700 mx-auto mb-3" />
+                <p className="text-gray-500 text-sm">No open positions</p>
+                <p className="text-gray-600 text-xs">AI is scanning...</p>
               </div>
             ) : (
-              <div className="overflow-auto" style={{ maxHeight: '400px' }}>
+              <div className="overflow-auto" style={{ maxHeight: '350px' }}>
                 <table className="w-full">
                   <thead className="sticky top-0 bg-[#060a13] z-10">
                     <tr className="border-b border-white/5">
-                      <th className="text-left text-[10px] font-medium text-gray-500 px-4 py-3">PAIR</th>
-                      <th className="text-left text-[10px] font-medium text-gray-500 px-4 py-3">SIDE</th>
-                      <th className="text-right text-[10px] font-medium text-gray-500 px-4 py-3">VALUE (€)</th>
-                      <th className="text-right text-[10px] font-medium text-gray-500 px-4 py-3">ENTRY</th>
-                      <th className="text-right text-[10px] font-medium text-gray-500 px-4 py-3">MARK</th>
-                      <th className="text-right text-[10px] font-medium text-gray-500 px-4 py-3">P&L</th>
+                      <th className="text-left text-[10px] font-medium text-gray-500 px-3 py-2">PAIR</th>
+                      <th className="text-left text-[10px] font-medium text-gray-500 px-3 py-2">SIDE</th>
+                      <th className="text-right text-[10px] font-medium text-gray-500 px-3 py-2">VALUE</th>
+                      <th className="text-right text-[10px] font-medium text-gray-500 px-3 py-2">ENTRY</th>
+                      <th className="text-right text-[10px] font-medium text-gray-500 px-3 py-2">MARK</th>
+                      <th className="text-right text-[10px] font-medium text-gray-500 px-3 py-2">P&L</th>
                     </tr>
                   </thead>
                   <tbody>
                     {positions.map((pos, i) => {
                       const entryPrice = parseFloat(pos.entryPrice || '0')
                       const markPrice = parseFloat(pos.markPrice || '0')
-                      const posValueUSDT = parseFloat(pos.positionValue || '0')
-                      const posValueEUR = posValueUSDT * USDT_TO_EUR
+                      const size = parseFloat(pos.size || '0')
                       const leverage = parseFloat(pos.leverage || '1')
                       
-                      // Calculate P&L
+                      // Calculate position value: use API value or calculate from size * markPrice
+                      let posValueUSDT = parseFloat(pos.positionValue || '0')
+                      if (posValueUSDT === 0 && markPrice > 0 && size > 0) {
+                        posValueUSDT = size * markPrice
+                      }
+                      const posValueEUR = posValueUSDT * USDT_TO_EUR
+                      
+                      // Calculate P&L percentage
                       let pnlPercent = 0
                       if (entryPrice > 0 && markPrice > 0) {
                         if (pos.side === 'Buy') {
@@ -508,7 +517,7 @@ export default function DashboardPage() {
                         }
                       }
                       
-                      // Calculate P&L in EUR: VALUE * percentage
+                      // Calculate P&L in EUR
                       const pnlEUR = posValueEUR * (pnlPercent / 100)
                       
                       // Use API unrealisedPnl if available
@@ -518,31 +527,31 @@ export default function DashboardPage() {
                       
                       return (
                         <tr key={i} className="border-b border-white/5 hover:bg-white/[0.02]">
-                          <td className="px-4 py-3">
-                            <span className="font-medium text-white">{pos.symbol.replace('USDT', '')}</span>
-                            <span className="text-gray-600 text-xs">/USDT</span>
+                          <td className="px-3 py-2">
+                            <span className="font-medium text-white text-sm">{pos.symbol.replace('USDT', '')}</span>
+                            <span className="text-gray-600 text-[10px]">/USDT</span>
                           </td>
-                          <td className="px-4 py-3">
-                            <span className={`px-2 py-1 rounded text-[10px] font-medium ${
+                          <td className="px-3 py-2">
+                            <span className={`px-1.5 py-0.5 rounded text-[9px] font-medium ${
                               pos.side === 'Buy' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'
                             }`}>
                               {pos.side === 'Buy' ? 'LONG' : 'SHORT'} {pos.leverage}x
                             </span>
                           </td>
-                          <td className="px-4 py-3 text-right">
-                            <span className="text-white font-medium">€{posValueEUR.toFixed(2)}</span>
+                          <td className="px-3 py-2 text-right">
+                            <span className="text-white font-medium text-sm">€{posValueEUR.toFixed(2)}</span>
                           </td>
-                          <td className="px-4 py-3 text-right text-gray-400">
+                          <td className="px-3 py-2 text-right text-gray-400 text-sm">
                             €{entryPrice.toFixed(4)}
                           </td>
-                          <td className="px-4 py-3 text-right text-gray-400">
+                          <td className="px-3 py-2 text-right text-gray-400 text-sm">
                             €{markPrice.toFixed(4)}
                           </td>
-                          <td className="px-4 py-3 text-right">
-                            <div className={`font-medium ${finalPnlEUR >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                          <td className="px-3 py-2 text-right">
+                            <div className={`font-medium text-sm ${finalPnlEUR >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                               {finalPnlEUR >= 0 ? '+' : ''}€{finalPnlEUR.toFixed(2)}
                             </div>
-                            <div className={`text-[10px] ${finalPnlPercent >= 0 ? 'text-emerald-400/70' : 'text-red-400/70'}`}>
+                            <div className={`text-[9px] ${finalPnlPercent >= 0 ? 'text-emerald-400/70' : 'text-red-400/70'}`}>
                               {finalPnlPercent >= 0 ? '+' : ''}{finalPnlPercent.toFixed(2)}%
                             </div>
                           </td>
@@ -595,10 +604,10 @@ export default function DashboardPage() {
               <div className="flex items-center gap-2">
                 <LineChart className="w-5 h-5 text-cyan-400" />
                 <h2 className="font-semibold text-white">P&L Performance</h2>
-                <span className="text-xs text-gray-500">(Last 100 Trades)</span>
+                <span className="text-xs text-gray-500">(Last {recentTrades.length} Trades)</span>
               </div>
-              <div className={`text-lg font-bold ${totalPnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                {totalPnl >= 0 ? '+' : ''}€{totalPnl.toFixed(2)}
+              <div className={`text-lg font-bold ${last100Pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                {last100Pnl >= 0 ? '+' : ''}€{last100Pnl.toFixed(2)}
               </div>
             </div>
             
@@ -631,9 +640,9 @@ export default function DashboardPage() {
                     <Area 
                       type="monotone" 
                       dataKey="pnl" 
-                      stroke={totalPnl >= 0 ? '#10b981' : '#ef4444'} 
+                      stroke={last100Pnl >= 0 ? '#10b981' : '#ef4444'} 
                       strokeWidth={2}
-                      fill={totalPnl >= 0 ? 'url(#pnlGradientPos)' : 'url(#pnlGradientNeg)'}
+                      fill={last100Pnl >= 0 ? 'url(#pnlGradientPos)' : 'url(#pnlGradientNeg)'}
                     />
                   </AreaChart>
                 </ResponsiveContainer>
