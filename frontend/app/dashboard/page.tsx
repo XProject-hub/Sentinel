@@ -26,7 +26,11 @@ import {
   CheckCircle,
   XCircle,
   Hash,
-  Euro
+  Euro,
+  Gauge,
+  Layers,
+  Sparkles,
+  Grid3X3
 } from 'lucide-react'
 import Logo from '@/components/Logo'
 import ConnectExchangePrompt from '@/components/ConnectExchangePrompt'
@@ -473,6 +477,7 @@ export default function DashboardPage() {
               {/* Market Info - Hidden on mobile */}
               <div className="hidden xl:flex items-center gap-4 px-4 py-1.5 bg-white/[0.02] rounded-lg border border-white/5">
                 <div className="flex items-center gap-2">
+                  <Gauge className={`w-3.5 h-3.5 ${fearGreed <= 40 ? 'text-red-400' : fearGreed >= 60 ? 'text-emerald-400' : 'text-gray-400'}`} />
                   <span className="text-[10px] text-gray-500">F/G</span>
                   <span className={`text-xs font-bold ${fearGreed <= 40 ? 'text-red-400' : fearGreed >= 60 ? 'text-emerald-400' : 'text-gray-400'}`}>
                     {fearGreed}
@@ -480,18 +485,21 @@ export default function DashboardPage() {
                 </div>
                 <div className="w-px h-4 bg-white/10" />
                 <div className="flex items-center gap-2">
+                  <Layers className="w-3.5 h-3.5 text-cyan-400" />
                   <span className="text-[10px] text-gray-500">Regime</span>
                   <span className="text-xs text-cyan-400 uppercase">{marketRegime.replace('_', ' ')}</span>
                 </div>
                 <div className="w-px h-4 bg-white/10" />
                 <div className="flex items-center gap-2">
-                  <span className="text-[10px] text-gray-500">AI</span>
-                  <span className="text-xs text-white">{aiConfidence}%</span>
+                  <Sparkles className="w-3.5 h-3.5 text-violet-400" />
+                  <span className="text-[10px] text-gray-500">AI Cnf</span>
+                  <span className="text-xs text-violet-400 font-medium">{aiConfidence}%</span>
                 </div>
                 <div className="w-px h-4 bg-white/10" />
                 <div className="flex items-center gap-2">
+                  <Grid3X3 className="w-3.5 h-3.5 text-amber-400" />
                   <span className="text-[10px] text-gray-500">Pairs</span>
-                  <span className="text-xs text-white">{pairsScanned}</span>
+                  <span className="text-xs text-amber-400 font-medium">{pairsScanned}</span>
                 </div>
               </div>
             </div>
@@ -517,6 +525,7 @@ export default function DashboardPage() {
           {/* Mobile Market Info Bar */}
           <div className="flex xl:hidden items-center justify-between gap-2 mt-2 px-2 py-1.5 bg-white/[0.02] rounded-lg border border-white/5 overflow-x-auto">
             <div className="flex items-center gap-1 shrink-0">
+              <Gauge className={`w-3 h-3 ${fearGreed <= 40 ? 'text-red-400' : fearGreed >= 60 ? 'text-emerald-400' : 'text-gray-400'}`} />
               <span className="text-[9px] text-gray-500">F/G</span>
               <span className={`text-[10px] font-bold ${fearGreed <= 40 ? 'text-red-400' : fearGreed >= 60 ? 'text-emerald-400' : 'text-gray-400'}`}>
                 {fearGreed}
@@ -524,18 +533,21 @@ export default function DashboardPage() {
             </div>
             <div className="w-px h-3 bg-white/10 shrink-0" />
             <div className="flex items-center gap-1 shrink-0">
+              <Layers className="w-3 h-3 text-cyan-400" />
               <span className="text-[9px] text-gray-500">Regime</span>
               <span className="text-[10px] text-cyan-400 uppercase">{marketRegime.replace('_', ' ')}</span>
             </div>
             <div className="w-px h-3 bg-white/10 shrink-0" />
             <div className="flex items-center gap-1 shrink-0">
+              <Sparkles className="w-3 h-3 text-violet-400" />
               <span className="text-[9px] text-gray-500">AI</span>
-              <span className="text-[10px] text-white">{aiConfidence}%</span>
+              <span className="text-[10px] text-violet-400 font-medium">{aiConfidence}%</span>
             </div>
             <div className="w-px h-3 bg-white/10 shrink-0" />
             <div className="flex items-center gap-1 shrink-0">
+              <Grid3X3 className="w-3 h-3 text-amber-400" />
               <span className="text-[9px] text-gray-500">Pairs</span>
-              <span className="text-[10px] text-white">{pairsScanned}</span>
+              <span className="text-[10px] text-amber-400 font-medium">{pairsScanned}</span>
             </div>
           </div>
         </div>
