@@ -124,9 +124,15 @@ class Backtester:
     BASE_URL = "https://api.bybit.com"
     
     def __init__(self):
-        self.http_client = httpx.AsyncClient(timeout=30.0)
+        self._http_client: Optional[httpx.AsyncClient] = None
         self.redis_client: Optional[redis.Redis] = None
         self._candle_cache: Dict[str, List[Dict]] = {}
+    
+    def _get_http_client(self) -> httpx.AsyncClient:
+        """Get or create HTTP client - creates new one if closed"""
+        if self._http_client is None or self._http_client.is_closed:
+            self._http_client = httpx.AsyncClient(timeout=60.0)
+        return self._http_client
         
     async def initialize(self):
         """Initialize connections"""
@@ -137,8 +143,12 @@ class Backtester:
             logger.error(f"Backtester init failed: {e}")
     
     async def close(self):
-        """Close connections"""
-        await self.http_client.aclose()
+        """Close connections - but don't crash if already closed"""
+        try:
+            if self._http_client and not self._http_client.is_closed:
+                await self._http_client.aclose()
+        except Exception as e:
+            logger.warning(f"Error closing backtester HTTP client: {e}")
     
     async def fetch_historical_data(
         self, 
@@ -173,7 +183,8 @@ class Backtester:
                     "limit": min(limit, 1000)
                 }
                 
-                response = await self.http_client.get(
+                http_client = self._get_http_client()
+                response = await http_client.get(
                     f"{self.BASE_URL}/v5/market/kline",
                     params=params
                 )
