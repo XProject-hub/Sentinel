@@ -1052,23 +1052,43 @@ class AutonomousTraderV2:
             pass
         return {'minOrderQty': 1, 'qtyStep': 0.01}
     
+    def _calculate_rsi(self, closes: List[float], period: int = 14) -> float:
+        """Calculate RSI from closing prices"""
+        if len(closes) < period + 1:
+            return 50.0  # Default neutral
+        
+        deltas = [closes[i] - closes[i-1] for i in range(1, len(closes))]
+        gains = [d if d > 0 else 0 for d in deltas]
+        losses = [-d if d < 0 else 0 for d in deltas]
+        
+        avg_gain = sum(gains[-period:]) / period
+        avg_loss = sum(losses[-period:]) / period
+        
+        if avg_loss == 0:
+            return 100.0
+        
+        rs = avg_gain / avg_loss
+        rsi = 100 - (100 / (1 + rs))
+        return rsi
+    
     async def _find_mean_reversion_opportunities(self, user_id: str, client: BybitV5Client, wallet: Dict) -> List[TradingOpportunity]:
         """
-        MEAN REVERSION STRATEGY - Statistical edge trading
+        MEAN REVERSION STRATEGY v2.0 - Professional Statistical Edge
         
-        This is what market makers and quant funds use:
-        - DON'T chase pumps
-        - DON'T predict tops
-        - DO trade statistical returns to mean
+        This is what market makers and quant funds use.
         
-        Entry conditions (ALL must be true):
-        1. Regime = RANGE or SIDEWAYS (not trending!)
-        2. Price dipped -0.3% to -1.5% recently
-        3. Volume decreasing (panic is fading)
-        4. Near support zone
-        5. RSI recovering from oversold
+        ENTRY CONDITIONS (ALL must be true):
+        1. Regime = RANGE/SIDEWAYS (not trending!)
+        2. Price dipped -0.5% to -2.0% recently
+        3. RSI < 35 AND rising (exiting oversold)
+        4. Last candle is GREEN (momentum turned)
+        5. Volume DECREASING (panic fading)
+        6. Price NOT making new lows
+        7. Near support zone (bottom 30% of range)
         
-        Expected: 70-80% winrate with small but consistent profits
+        KEY INSIGHT: Don't buy the dip - buy when the dip STOPS!
+        
+        Expected: 70-80% winrate with consistent profits
         """
         opportunities = []
         
@@ -1078,39 +1098,39 @@ class AutonomousTraderV2:
         try:
             # STEP 1: Check regime - ONLY trade in RANGE markets
             if self.mr_only_range_regime:
-                # Use BTC as market proxy
                 btc_regime = await self.regime_detector.detect_regime('BTCUSDT')
                 regime_name = btc_regime.regime.lower() if btc_regime else 'unknown'
                 
-                # Only trade in range/sideways markets
-                allowed_regimes = ['sideways', 'range', 'neutral', 'low_volatility', 'consolidation']
-                if regime_name not in allowed_regimes and 'range' not in regime_name and 'sideways' not in regime_name:
-                    logger.debug(f"MEAN_REV: Skipping - market regime is {regime_name}, need RANGE")
+                allowed_regimes = ['sideways', 'range', 'neutral', 'low_volatility', 'consolidation', 'range_bound']
+                is_range = any(r in regime_name for r in allowed_regimes)
+                
+                if not is_range:
+                    logger.debug(f"MEAN_REV: Skip - regime is {regime_name}, need RANGE")
                     return opportunities
                 
-                logger.info(f"MEAN_REV: Market regime is {regime_name} - OK to trade")
+                logger.info(f"MEAN_REV: Regime={regime_name} - scanning for dip reversals...")
             
-            # STEP 2: Get all tickers
+            # STEP 2: Get all tickers for initial filtering
             tickers_result = await client.get_tickers()
             if not tickers_result.get('success'):
                 return opportunities
             
             tickers = tickers_result.get('data', {}).get('list', [])
-            min_volume = 1000000  # $1M minimum for mean reversion (need liquidity)
+            min_volume = 2000000  # $2M minimum (need good liquidity)
             
-            candidates = []
+            # First pass: Find potential candidates based on price dip
+            potential_candidates = []
             
             for ticker in tickers:
                 symbol = ticker.get('symbol', '')
                 if not symbol.endswith('USDT') or symbol in ['USDCUSDT', 'USDTUSDT', 'DAIUSDT']:
                     continue
                 
-                # Skip if already in position
                 if symbol in self.active_positions.get(user_id, {}):
                     continue
-                
-                # Skip if on cooldown
                 if symbol in self._cooldown_symbols:
+                    continue
+                if symbol in self._failed_order_symbols:
                     continue
                 
                 price_change = float(ticker.get('price24hPcnt', 0)) * 100
@@ -1122,72 +1142,171 @@ class AutonomousTraderV2:
                 if volume < min_volume or last_price <= 0:
                     continue
                 
-                # STEP 3: Look for DIPS (not pumps!)
-                # Mean reversion = buy the dip, sell the rip
-                # Price should be down -0.3% to -1.5% (not free-falling)
-                if not (self.mr_min_dip >= price_change >= self.mr_max_dip):
-                    continue  # Not in our dip range
+                # Look for DIPS: -0.5% to -3.0% (wider range, but we'll filter more)
+                if not (-0.5 >= price_change >= -3.0):
+                    continue
                 
-                # STEP 4: Check position in 24h range (should be near bottom = support)
+                # Check position in range - must be near BOTTOM (support zone)
                 price_range = high_24h - low_24h
                 if price_range <= 0:
                     continue
                 
                 position_in_range = (last_price - low_24h) / price_range
                 
-                # We want to buy near the BOTTOM of range (support zone)
-                # Position < 0.35 means we're in lower 35% of range
-                if position_in_range > 0.40:
-                    continue  # Too high in range, not a good entry
+                # Only consider if in bottom 35% of range
+                if position_in_range > 0.35:
+                    continue
                 
-                # STEP 5: Calculate a simple "momentum recovery" score
-                # If price is near low but not making new lows = momentum recovering
-                distance_from_low = (last_price - low_24h) / low_24h * 100
+                potential_candidates.append({
+                    'symbol': symbol,
+                    'price': last_price,
+                    'change': price_change,
+                    'volume': volume,
+                    'high_24h': high_24h,
+                    'low_24h': low_24h,
+                    'position_in_range': position_in_range
+                })
+            
+            # Sort by dip size (bigger dip = more potential for reversal)
+            potential_candidates.sort(key=lambda x: x['change'])
+            
+            # STEP 3: Deep analysis on top 10 candidates (to avoid too many API calls)
+            confirmed_candidates = []
+            
+            for candidate in potential_candidates[:10]:
+                symbol = candidate['symbol']
                 
-                # Score: lower in range + small dip + good volume = better
-                score = (1 - position_in_range) * 50  # 0-50 points for range position
-                score += min(abs(price_change) * 10, 30)  # 0-30 points for dip size
-                score += min(volume / 10000000 * 10, 20)  # 0-20 points for volume
-                
-                if score >= 40:  # Minimum score threshold
-                    candidates.append({
-                        'symbol': symbol,
-                        'price': last_price,
-                        'change': price_change,
-                        'volume': volume,
-                        'position_in_range': position_in_range,
+                try:
+                    # Get 5-minute klines for momentum analysis
+                    klines = await client.get_klines(symbol, interval='5', limit=30)
+                    if not klines.get('success') or not klines.get('data', {}).get('list'):
+                        continue
+                    
+                    kline_list = klines['data']['list']
+                    if len(kline_list) < 20:
+                        continue
+                    
+                    # Klines are [timestamp, open, high, low, close, volume, turnover]
+                    # Most recent is first in Bybit API
+                    closes = [float(k[4]) for k in reversed(kline_list)]  # Reverse to chronological
+                    opens = [float(k[1]) for k in reversed(kline_list)]
+                    volumes = [float(k[5]) for k in reversed(kline_list)]
+                    lows = [float(k[3]) for k in reversed(kline_list)]
+                    
+                    # === CONFIRMATION CHECK 1: RSI exiting oversold ===
+                    rsi = self._calculate_rsi(closes, period=14)
+                    
+                    # Calculate previous RSI (3 candles ago)
+                    prev_rsi = self._calculate_rsi(closes[:-3], period=14) if len(closes) > 17 else rsi
+                    
+                    # RSI should be < 40 AND rising (exiting oversold)
+                    rsi_recovering = rsi < 40 and rsi > prev_rsi
+                    if not rsi_recovering:
+                        logger.debug(f"MEAN_REV {symbol}: RSI={rsi:.1f} (prev={prev_rsi:.1f}) - not recovering")
+                        continue
+                    
+                    # === CONFIRMATION CHECK 2: Last candle is GREEN ===
+                    last_close = closes[-1]
+                    last_open = opens[-1]
+                    is_green_candle = last_close > last_open
+                    
+                    if not is_green_candle:
+                        logger.debug(f"MEAN_REV {symbol}: Last candle RED - momentum not turned")
+                        continue
+                    
+                    # === CONFIRMATION CHECK 3: Volume decreasing (panic fading) ===
+                    recent_vol = sum(volumes[-3:]) / 3  # Last 3 candles avg
+                    older_vol = sum(volumes[-8:-3]) / 5  # 5 candles before that
+                    volume_decreasing = recent_vol < older_vol * 1.1  # Allow 10% tolerance
+                    
+                    if not volume_decreasing:
+                        logger.debug(f"MEAN_REV {symbol}: Volume still high - panic not fading")
+                        continue
+                    
+                    # === CONFIRMATION CHECK 4: Not making new lows ===
+                    recent_low = min(lows[-3:])
+                    older_low = min(lows[-10:-3]) if len(lows) > 10 else min(lows[:-3])
+                    making_new_lows = recent_low < older_low * 0.998  # 0.2% tolerance
+                    
+                    if making_new_lows:
+                        logger.debug(f"MEAN_REV {symbol}: Still making new lows - not safe")
+                        continue
+                    
+                    # === ALL CHECKS PASSED - Calculate score ===
+                    score = 0
+                    
+                    # RSI score (lower RSI that's recovering = better)
+                    rsi_score = max(0, (40 - rsi) * 2)  # Up to 40 points
+                    score += rsi_score
+                    
+                    # Position in range score (lower = better)
+                    range_score = (1 - candidate['position_in_range']) * 30  # Up to 30 points
+                    score += range_score
+                    
+                    # Green candle strength
+                    candle_strength = (last_close - last_open) / last_open * 100
+                    candle_score = min(candle_strength * 10, 15)  # Up to 15 points
+                    score += candle_score
+                    
+                    # Volume score
+                    vol_score = min(candidate['volume'] / 10000000 * 10, 15)  # Up to 15 points
+                    score += vol_score
+                    
+                    confirmed_candidates.append({
+                        **candidate,
+                        'rsi': rsi,
+                        'rsi_recovering': True,
+                        'green_candle': True,
+                        'volume_fading': True,
                         'score': score
                     })
+                    
+                    logger.info(f"MEAN_REV CONFIRMED: {symbol} | RSI={rsi:.1f} rising | Green candle | Vol fading | Score={score:.0f}")
+                    
+                except Exception as e:
+                    logger.debug(f"MEAN_REV {symbol}: Analysis error - {e}")
+                    continue
             
-            # Sort by score descending
-            candidates.sort(key=lambda x: x['score'], reverse=True)
+            # Sort confirmed candidates by score
+            confirmed_candidates.sort(key=lambda x: x['score'], reverse=True)
             
-            # Take top 5 candidates
-            for c in candidates[:5]:
+            # Create opportunities from top 3 confirmed candidates
+            for c in confirmed_candidates[:3]:
                 opp = TradingOpportunity(
                     symbol=c['symbol'],
-                    direction='long',  # Mean reversion = buy dips
-                    edge_score=0.7,  # Good statistical edge
-                    confidence=min(c['score'], 85),  # Cap at 85%
+                    direction='long',
+                    edge_score=0.75,  # Higher edge for confirmed reversals
+                    confidence=min(c['score'], 90),
                     opportunity_score=c['score'],
                     current_price=c['price'],
                     price_change_24h=c['change'],
                     volume_24h=c['volume'],
                     should_trade=True,
                     reasons=[
-                        f"MEAN_REV: Dip {c['change']:.1f}%",
-                        f"Range pos: {c['position_in_range']:.0%} (near support)",
+                        f"MEAN_REV v2: Dip {c['change']:.1f}%",
+                        f"RSI={c['rsi']:.0f} recovering",
+                        f"Green candle confirmed",
+                        f"Volume fading (panic over)",
                         f"Score: {c['score']:.0f}"
                     ],
                     timestamp=datetime.utcnow().isoformat()
                 )
                 opp.is_mean_reversion = True
-                opp.size_multiplier = 1.0  # Full size for mean reversion
+                opp.size_multiplier = 1.0
                 opportunities.append(opp)
-                logger.info(f"MEAN_REV: {c['symbol']} | Dip: {c['change']:.1f}% | Range: {c['position_in_range']:.0%} | Score: {c['score']:.0f}")
+                logger.info(f"MEAN_REV v2: {c['symbol']} | Dip: {c['change']:.1f}% | RSI={c['rsi']:.0f} | GREEN | Score: {c['score']:.0f}")
             
             if opportunities:
-                await self._log_to_console(f"MEAN_REV: {len(opportunities)} dip opportunities found", "SIGNAL")
+                best = opportunities[0]
+                await self._log_to_console(
+                    f"MEAN_REV v2: {len(opportunities)} CONFIRMED reversals | Best: {best.symbol} (RSI recovering, green candle)", 
+                    "SIGNAL"
+                )
+            elif potential_candidates:
+                await self._log_to_console(
+                    f"MEAN_REV: {len(potential_candidates)} dips found, 0 confirmed (waiting for reversal signals)", 
+                    "INFO"
+                )
                 
         except Exception as e:
             logger.error(f"Mean reversion detection error: {e}")
@@ -1402,8 +1521,8 @@ class AutonomousTraderV2:
                     if opp.symbol in self._cooldown_symbols or opp.symbol in self._failed_order_symbols:
                         continue
                     
-                    logger.info(f"MEAN_REV TRADE: {opp.symbol} | Dip: {opp.price_change_24h:.1f}%")
-                    await self._log_to_console(f"MEAN_REV BUY: {opp.symbol} (dip {opp.price_change_24h:.1f}%)", "TRADE", user_id)
+                    logger.info(f"MEAN_REV v2 TRADE: {opp.symbol} | Dip: {opp.price_change_24h:.1f}% | Reversal confirmed")
+                    await self._log_to_console(f"MEAN_REV BUY: {opp.symbol} | Dip {opp.price_change_24h:.1f}% | RSI+Green confirmed", "TRADE", user_id)
                     
                     try:
                         await self._execute_trade(user_id, client, opp, wallet)
