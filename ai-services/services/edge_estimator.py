@@ -39,6 +39,32 @@ class EdgeData:
     win_probability: float = 0.5  # Default 50%
     risk_reward_ratio: float = 1.0  # Default 1:1
     symbol: str = ""  # Symbol being analyzed
+    kelly_fraction: float = 0.0  # Kelly Criterion fraction (0-1)
+    recommended_size: str = "normal"  # 'skip', 'small', 'normal', 'large'
+    
+    def __post_init__(self):
+        """Calculate Kelly fraction from win probability and risk/reward"""
+        if self.kelly_fraction == 0.0 and self.win_probability > 0:
+            # Kelly Criterion: f = (bp - q) / b
+            # where b = risk_reward_ratio, p = win_probability, q = 1-p
+            p = self.win_probability
+            q = 1 - p
+            b = max(0.1, self.risk_reward_ratio)  # Avoid division by zero
+            
+            raw_kelly = (b * p - q) / b if b > 0 else 0
+            
+            # Clamp to reasonable range (0 to 0.25 = max 25% of bankroll)
+            self.kelly_fraction = max(0.0, min(0.25, raw_kelly))
+        
+        # Determine recommended size based on edge and confidence
+        if self.edge <= 0 or self.confidence < 30:
+            self.recommended_size = 'skip'
+        elif self.edge < 0.15 or self.confidence < 50:
+            self.recommended_size = 'small'
+        elif self.edge > 0.40 and self.confidence > 70:
+            self.recommended_size = 'large'
+        else:
+            self.recommended_size = 'normal'
 
 
 class EdgeEstimator:

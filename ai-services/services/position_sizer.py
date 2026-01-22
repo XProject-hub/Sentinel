@@ -569,13 +569,27 @@ class PositionSizer:
         await self._save_state()
         
     async def close_position(self, symbol: str, pnl: float):
-        """Close a position and record P&L"""
+        """Close a position and record P&L, track streaks for Dynamic Kelly"""
         if symbol in self.open_positions:
             del self.open_positions[symbol]
             
         # Update daily P&L
         self.daily_pnl += pnl
         self.weekly_pnl += pnl
+        
+        # === TRACK WINNING/LOSING STREAKS FOR DYNAMIC KELLY ===
+        if pnl > 0:
+            # Win
+            self.winning_streak += 1
+            self.losing_streak = 0
+            if self.winning_streak >= 3:
+                logger.info(f"🔥 Winning streak: {self.winning_streak} - Kelly boost active")
+        else:
+            # Loss
+            self.losing_streak += 1
+            self.winning_streak = 0
+            if self.losing_streak >= 3:
+                logger.warning(f"⚠️ Losing streak: {self.losing_streak} - Kelly reduced by {min(70, (self.losing_streak - 2) * 15)}%")
         
         await self._save_state()
     
@@ -665,17 +679,23 @@ class PositionSizer:
                 self.daily_start_equity = data.get('daily_start_equity', 0)
                 self.open_positions = data.get('open_positions', {})
                 
+                # Load streak data for Dynamic Kelly
+                self.losing_streak = data.get('losing_streak', 0)
+                self.winning_streak = data.get('winning_streak', 0)
+                
                 last_date = data.get('last_reset_date')
                 if last_date:
                     self.last_reset_date = date.fromisoformat(last_date)
                     
-            logger.info(f"Loaded position sizer state: {len(self.open_positions)} positions, exposure=${sum(self.open_positions.values()):.2f}")
+            logger.info(f"Loaded position sizer state: {len(self.open_positions)} positions, exposure=${sum(self.open_positions.values()):.2f}, streak=W{self.winning_streak}/L{self.losing_streak}")
         except Exception as e:
             logger.debug(f"Load state error: {e}")
             # Reset to empty state if error
             self.open_positions = {}
             self.daily_pnl = 0
             self.weekly_pnl = 0
+            self.losing_streak = 0
+            self.winning_streak = 0
             logger.info("Position sizer state reset to empty")
             
     async def _save_state(self):
@@ -686,17 +706,30 @@ class PositionSizer:
                 'weekly_pnl': self.weekly_pnl,
                 'daily_start_equity': self.daily_start_equity,
                 'open_positions': self.open_positions,
-                'last_reset_date': str(self.last_reset_date) if self.last_reset_date else None
+                'last_reset_date': str(self.last_reset_date) if self.last_reset_date else None,
+                # Dynamic Kelly streak tracking
+                'losing_streak': self.losing_streak,
+                'winning_streak': self.winning_streak
             }
             await self.redis_client.set('sizer:state', json.dumps(state))
         except:
             pass
             
     async def get_risk_status(self, wallet_balance: float) -> Dict:
-        """Get current risk status"""
+        """Get current risk status including Dynamic Kelly info"""
         daily_dd = await self._get_daily_drawdown(wallet_balance)
         weekly_dd = await self._get_weekly_drawdown()
         exposure = await self._get_current_exposure()
+        
+        # Calculate current Kelly modifier based on streaks
+        kelly_modifier = 1.0
+        streak_info = "Neutral"
+        if self.losing_streak >= 3:
+            kelly_modifier = max(0.3, 1 - (self.losing_streak - 2) * 0.15)
+            streak_info = f"🔴 Losing streak: {self.losing_streak} (Kelly×{kelly_modifier:.0%})"
+        elif self.winning_streak >= 3:
+            kelly_modifier = min(1.2, 1 + self.winning_streak * 0.05)
+            streak_info = f"🟢 Winning streak: {self.winning_streak} (Kelly×{kelly_modifier:.0%})"
         
         return {
             'daily_pnl': round(self.daily_pnl, 2),
@@ -708,7 +741,13 @@ class PositionSizer:
             'exposure_pct': round((exposure / (wallet_balance * self.MAX_TOTAL_EXPOSURE)) * 100, 1) if wallet_balance > 0 else 0,
             'open_positions_count': len(self.open_positions),
             'open_positions': self.open_positions,
-            'can_trade': (self.MAX_DAILY_DRAWDOWN == 0 or daily_dd < self.MAX_DAILY_DRAWDOWN) and (self.MAX_WEEKLY_DRAWDOWN == 0 or weekly_dd < self.MAX_WEEKLY_DRAWDOWN)
+            'can_trade': (self.MAX_DAILY_DRAWDOWN == 0 or daily_dd < self.MAX_DAILY_DRAWDOWN) and (self.MAX_WEEKLY_DRAWDOWN == 0 or weekly_dd < self.MAX_WEEKLY_DRAWDOWN),
+            # Dynamic Kelly info
+            'kelly_multiplier': self.kelly_multiplier,
+            'kelly_modifier': kelly_modifier,
+            'losing_streak': self.losing_streak,
+            'winning_streak': self.winning_streak,
+            'streak_info': streak_info
         }
 
 
