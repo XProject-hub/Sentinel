@@ -1103,9 +1103,13 @@ class AutonomousTraderV2:
                 breakout_limit = 0  # 0 = unlimited
             
             breakout_trades_opened = 0
-            max_breakout_trades_per_cycle = 3  # Don't open too many at once
+            max_breakout_trades_per_cycle = 2  # Reduced to avoid rate limiting
             
             for opp in breakouts:
+                # Add small delay between orders to avoid rate limiting
+                if breakout_trades_opened > 0:
+                    import asyncio
+                    await asyncio.sleep(1)  # 1 second delay between orders
                 num_positions = len(self.active_positions.get(user_id, {}))
                 
                 # Check if max positions reached
@@ -1985,7 +1989,7 @@ class AutonomousTraderV2:
             logger.info(f"EXECUTING: {side} {opp.symbol} | Qty: {qty_str} | Leverage: {leverage}x | "
                        f"Edge: {opp.edge_score:.2f} | Confidence: {opp.confidence:.1f}%")
             
-            # Get instrument info to verify minimum qty
+            # Get instrument info to verify minimum qty and round to qty_step
             try:
                 inst_info = await client.get_instrument_info(opp.symbol)
                 if inst_info.get('success'):
@@ -1994,7 +1998,21 @@ class AutonomousTraderV2:
                         inst_data = inst_list[0]
                         min_qty = float(inst_data.get('lotSizeFilter', {}).get('minOrderQty', 0))
                         qty_step = float(inst_data.get('lotSizeFilter', {}).get('qtyStep', 0.001))
+                        
+                        # IMPORTANT: Round qty to qty_step (prevents "Request parameter error")
+                        if qty_step > 0:
+                            qty = round(qty / qty_step) * qty_step
+                            # Handle floating point precision
+                            if qty_step >= 1:
+                                qty = int(qty)
+                            else:
+                                # Round to appropriate decimal places
+                                decimals = len(str(qty_step).split('.')[-1]) if '.' in str(qty_step) else 0
+                                qty = round(qty, decimals)
+                            qty_str = str(qty)
+                        
                         logger.debug(f"{opp.symbol}: min_qty={min_qty}, qty_step={qty_step}, our_qty={qty}")
+                        
                         if qty < min_qty:
                             logger.warning(f"Order qty {qty} < min {min_qty} for {opp.symbol}")
                             await self._log_to_console(f"ORDER SKIP: {opp.symbol} qty {qty} < min {min_qty}", "WARNING", user_id)
