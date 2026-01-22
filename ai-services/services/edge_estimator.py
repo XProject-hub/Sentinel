@@ -36,6 +36,8 @@ class EdgeData:
     confidence: float
     reasons: List[str]
     warnings: List[str]
+    win_probability: float = 0.5  # Default 50%
+    risk_reward_ratio: float = 1.0  # Default 1:1
 
 
 class EdgeEstimator:
@@ -209,11 +211,16 @@ class EdgeEstimator:
         )
         
         # Return an object with the expected attributes
+        # Calculate risk/reward from avg_win and avg_loss
+        rr_ratio = edge_score.avg_win / edge_score.avg_loss if edge_score.avg_loss > 0 else 1.0
+        
         return EdgeData(
             edge=edge_score.edge,
             confidence=edge_score.confidence,
             reasons=[f"Win prob: {edge_score.win_probability:.1%}", f"Sample: {edge_score.sample_size}"],
-            warnings=[] if edge_score.edge > 0 else ["Negative edge"]
+            warnings=[] if edge_score.edge > 0 else ["Negative edge"],
+            win_probability=edge_score.win_probability,
+            risk_reward_ratio=rr_ratio
         )
 
     async def shutdown(self):
