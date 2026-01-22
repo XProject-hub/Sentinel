@@ -495,13 +495,10 @@ async def sync_user_exchange(user_id: str, exchange: str = "bybit"):
 async def get_balance(user_id: str = "default"):
     """Get real wallet balance from connected exchange - checks ALL account types"""
     
-    # Get user-specific client
+    # Get user-specific client - NO FALLBACK TO OTHER USERS!
     client = await get_user_client(user_id, "bybit")
     
-    # Fallback to legacy default connection for backwards compatibility
-    if not client and "default" in exchange_connections:
-        client = exchange_connections["default"]
-        
+    # NO FALLBACK! Each user MUST have their own connection!
     if not client:
         return {"success": False, "error": "No exchange connected for this user"}
     
@@ -986,13 +983,10 @@ async def get_fee_rates():
 async def get_positions(user_id: str = "default"):
     """Get real open positions from connected exchange"""
     
-    # Get user-specific client
+    # Get user-specific client - NO FALLBACK TO OTHER USERS!
     client = await get_user_client(user_id, "bybit")
     
-    # Fallback to legacy default connection for backwards compatibility
-    if not client and "default" in exchange_connections:
-        client = exchange_connections["default"]
-        
+    # NO FALLBACK! Each user MUST have their own connection!
     if not client:
         return {"success": False, "error": "No exchange connected for this user"}
         
@@ -1716,13 +1710,10 @@ async def get_realtime_console(user_id: str = "default"):
         if not hasattr(trader, 'redis_client') or not trader.redis_client:
             return {"success": True, "data": console}
         
-        # Get user-specific log entries first, fall back to global
+        # Get ONLY user-specific log entries - NO FALLBACK TO GLOBAL!
         log_entries = await trader.redis_client.lrange(f'bot:console:logs:{user_id}', 0, 49)
         
-        # If no user-specific logs, try global (for backwards compatibility)
-        if not log_entries:
-            log_entries = await trader.redis_client.lrange('bot:console:logs', 0, 49)
-            
+        # NO FALLBACK - each user sees ONLY their own logs!
         console["logs"] = [json.loads(l) for l in log_entries] if log_entries else []
         
         # Get current action
@@ -2190,13 +2181,10 @@ async def sell_all_positions():
 async def close_single_position(symbol: str, user_id: str = "default"):
     """Close a specific position by symbol"""
     
-    # Get user-specific client
+    # Get user-specific client - NO FALLBACK TO OTHER USERS!
     client = await get_user_client(user_id, "bybit")
     
-    # Fallback to legacy default connection for backwards compatibility
-    if not client and "default" in exchange_connections:
-        client = exchange_connections["default"]
-        
+    # NO FALLBACK! Each user MUST have their own connection!
     if not client:
         return {"success": False, "error": "No exchange connected for this user"}
     
@@ -2264,13 +2252,10 @@ async def close_single_position(symbol: str, user_id: str = "default"):
 async def close_all_positions(user_id: str = "default"):
     """Close ALL open positions at once"""
     
-    # Get user-specific client
+    # Get user-specific client - NO FALLBACK TO OTHER USERS!
     client = await get_user_client(user_id, "bybit")
     
-    # Fallback to legacy default connection for backwards compatibility
-    if not client and "default" in exchange_connections:
-        client = exchange_connections["default"]
-        
+    # NO FALLBACK! Each user MUST have their own connection!
     if not client:
         return {"success": False, "error": "No exchange connected for this user"}
     

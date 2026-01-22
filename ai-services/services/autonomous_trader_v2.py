@@ -3645,14 +3645,11 @@ class AutonomousTraderV2:
                 }
                 log_json = json.dumps(log_entry)
                 
-                # Log to user-specific console if user_id provided
+                # Log ONLY to user-specific console - NO GLOBAL SHARING!
                 if user_id:
                     await self.redis_client.lpush(f'bot:console:logs:{user_id}', log_json)
                     await self.redis_client.ltrim(f'bot:console:logs:{user_id}', 0, 99)
-                
-                # Also log to global console (for admin/system view)
-                await self.redis_client.lpush('bot:console:logs', log_json)
-                await self.redis_client.ltrim('bot:console:logs', 0, 99)
+                # NO GLOBAL LOG - each user sees ONLY their own data!
         except Exception:
             pass  # Don't break trading for console logging
         

@@ -191,12 +191,12 @@ export default function DashboardPage() {
       if (isAdminUser) {
         // Admin: check AI service for credentials
         try {
-          const aiStatusRes = await fetch(`/ai/exchange/trading/status?user_id=default`)
+          const aiStatusRes = await fetch(`/ai/exchange/trading/status?user_id=${currentUserId}`)
           if (aiStatusRes.ok) {
             const aiStatus = await aiStatusRes.json()
             // If we get a valid response and it doesn't say "not connected", assume connected
             // Also check balance endpoint to verify credentials work
-            const balanceRes = await fetch(`/ai/exchange/balance?user_id=default`)
+            const balanceRes = await fetch(`/ai/exchange/balance?user_id=${currentUserId}`)
             if (balanceRes.ok) {
               const balanceData = await balanceRes.json()
               // If balance returns an error about no connection, credentials are missing
