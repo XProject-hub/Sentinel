@@ -508,16 +508,50 @@ export default function SettingsPage() {
                   </div>
                   
                   {settings.aiFullAuto && (
-                    <div className="mt-3 p-3 rounded-lg bg-purple-500/10 border border-purple-500/20">
-                      <p className="text-xs text-purple-300">
-                        🤖 <span className="font-semibold">AI is in control!</span> The bot will automatically:
-                      </p>
-                      <ul className="mt-2 text-xs text-gray-400 space-y-1">
-                        <li>• Switch between SCALP, MICRO, SWING based on market conditions</li>
-                        <li>• Adjust position sizes based on volatility</li>
-                        <li>• Apply optimal entry/exit rules for current regime</li>
-                        <li>• Use max trade time limits from each preset</li>
-                      </ul>
+                    <div className="mt-3 space-y-3">
+                      <div className="p-3 rounded-lg bg-purple-500/10 border border-purple-500/20">
+                        <p className="text-xs text-purple-300">
+                          🤖 <span className="font-semibold">AI is in full control!</span> The bot will automatically:
+                        </p>
+                        <ul className="mt-2 text-xs text-gray-400 space-y-1">
+                          <li>• Switch between SCALP, MICRO, SWING based on market</li>
+                          <li>• Decide number of positions (3-15 based on conditions)</li>
+                          <li>• Set TP%, SL%, trailing for each strategy</li>
+                          <li>• Adjust confidence/edge thresholds based on win rate</li>
+                          <li>• Apply ALL safety filters (RSI, BTC correlation, spread, etc.)</li>
+                        </ul>
+                      </div>
+                      
+                      {/* MAX DAILY DRAWDOWN - Only user control in AI Full Auto */}
+                      <div className="p-4 rounded-lg bg-red-500/10 border border-red-500/30">
+                        <div className="flex items-center gap-2 mb-3">
+                          <AlertTriangle className="w-4 h-4 text-red-400" />
+                          <p className="text-sm font-semibold text-red-400">Your Only Protection</p>
+                        </div>
+                        <p className="text-xs text-gray-400 mb-3">
+                          Max Daily Drawdown is the ONLY setting you control. AI respects this limit to protect your capital.
+                        </p>
+                        <div className="flex items-center gap-4">
+                          <div className="flex-1">
+                            <label className="text-xs text-gray-500">Max Daily Loss %</label>
+                            <input
+                              type="number"
+                              value={settings.maxDailyDrawdown}
+                              onChange={(e) => updateSetting('maxDailyDrawdown', parseFloat(e.target.value) || 0)}
+                              className="w-full mt-1 px-3 py-2 bg-black/30 border border-red-500/30 rounded-lg text-white text-sm focus:border-red-500 focus:outline-none"
+                              min={0}
+                              max={100}
+                              step={0.5}
+                            />
+                          </div>
+                          <div className="text-right">
+                            <p className="text-xs text-gray-500">0 = No limit</p>
+                            <p className="text-lg font-bold text-red-400">
+                              {settings.maxDailyDrawdown > 0 ? `-${settings.maxDailyDrawdown}%` : 'OFF'}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   )}
                   

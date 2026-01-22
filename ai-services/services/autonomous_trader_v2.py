@@ -502,14 +502,15 @@ class AutonomousTraderV2:
     
     async def _auto_select_strategy(self, client: BybitV5Client = None) -> str:
         """
-        AI FULL AUTO: Automatically select the best strategy based on market conditions
+        AI FULL AUTO: Automatically select the best strategy AND optimize all parameters
         
-        Logic:
-        - SCALP: High volatility, range-bound, fast moves
-        - MICRO: Normal conditions, moderate volatility (DEFAULT)
-        - SWING: Strong trend, low noise, clear direction
+        AI decides:
+        - Strategy preset (SCALP/MICRO/SWING/CONSERVATIVE)
+        - Number of positions (based on volatility and win rate)
+        - Entry filters (confidence, edge thresholds)
+        - All safety filters remain active!
         
-        Returns the selected preset name
+        User's MAX DAILY DRAWDOWN is ALWAYS respected (protection)
         """
         try:
             # Get current regime
@@ -520,12 +521,13 @@ class AutonomousTraderV2:
             
             # Get BTC volatility as market indicator
             btc_volatility = 1.5  # Default moderate
+            btc_change_24h = 0
             if client:
                 try:
+                    # Get volatility from klines
                     btc_klines = await client.get_klines('BTCUSDT', interval='15', limit=20)
                     if btc_klines.get('success') and btc_klines.get('data', {}).get('list'):
                         klines = btc_klines['data']['list']
-                        # Calculate ATR-like volatility
                         ranges = []
                         for k in klines[:10]:
                             high = float(k[2])
@@ -535,46 +537,102 @@ class AutonomousTraderV2:
                                 ranges.append((high - low) / close * 100)
                         if ranges:
                             btc_volatility = sum(ranges) / len(ranges)
+                    
+                    # Get 24h change
+                    btc_ticker = await client.get_tickers(symbol='BTCUSDT')
+                    if btc_ticker.get('success'):
+                        btc_list = btc_ticker.get('data', {}).get('list', [])
+                        if btc_list:
+                            btc_change_24h = float(btc_list[0].get('price24hPcnt', 0)) * 100
                 except:
                     pass
             
             # Get recent win rate from stats
             recent_win_rate = 0.5
-            if self.stats.get('total_trades', 0) > 10:
-                recent_win_rate = self.stats.get('winning_trades', 0) / max(self.stats['total_trades'], 1)
+            total_trades = self.stats.get('total_trades', 0)
+            if total_trades > 10:
+                recent_win_rate = self.stats.get('winning_trades', 0) / max(total_trades, 1)
             
-            # Decision logic
+            # ============================================================
+            # AI DECISION: SELECT STRATEGY
+            # ============================================================
             selected_preset = 'micro'  # Default
+            ai_reason = ""
+            
+            # DANGER: BTC crashing = CONSERVATIVE
+            if btc_change_24h < -5:
+                selected_preset = 'conservative'
+                ai_reason = f"BTC crash ({btc_change_24h:.1f}%)"
             
             # HIGH VOLATILITY + RANGE = SCALP (quick trades)
-            if btc_volatility > 2.0 and regime in ['range', 'sideways', 'choppy']:
+            elif btc_volatility > 2.0 and regime in ['range', 'sideways', 'choppy']:
                 selected_preset = 'scalp'
-                logger.info(f"AI AUTO: Selected SCALP (volatility={btc_volatility:.1f}%, regime={regime})")
+                ai_reason = f"High volatility ({btc_volatility:.1f}%) + {regime}"
             
             # STRONG TREND = SWING (hold longer)
             elif regime in ['bull', 'bear', 'trend', 'strong_trend']:
                 selected_preset = 'swing'
-                logger.info(f"AI AUTO: Selected SWING (regime={regime}, trend detected)")
+                ai_reason = f"Strong trend ({regime})"
             
             # LOW WIN RATE = CONSERVATIVE (protect capital)
-            elif recent_win_rate < 0.45:
+            elif recent_win_rate < 0.45 and total_trades > 20:
                 selected_preset = 'conservative'
-                logger.info(f"AI AUTO: Selected CONSERVATIVE (win_rate={recent_win_rate:.0%} too low)")
+                ai_reason = f"Low win rate ({recent_win_rate:.0%})"
+            
+            # HIGH WIN RATE = can be more aggressive
+            elif recent_win_rate > 0.70 and total_trades > 30:
+                selected_preset = 'micro'  # Stay with best preset
+                ai_reason = f"High win rate ({recent_win_rate:.0%})"
             
             # NORMAL CONDITIONS = MICRO (best default)
             else:
                 selected_preset = 'micro'
-                logger.info(f"AI AUTO: Selected MICRO (normal conditions, volatility={btc_volatility:.1f}%)")
+                ai_reason = "Normal conditions"
             
-            # Apply the selected preset
+            # Apply the selected preset (sets TP, SL, trailing, entry thresholds)
             self._apply_strategy_preset(selected_preset)
             self.auto_selected_preset = selected_preset
+            
+            # ============================================================
+            # AI DECISION: OPTIMIZE POSITIONS COUNT
+            # ============================================================
+            # More positions in stable markets, fewer in volatile
+            if selected_preset == 'scalp':
+                self.max_open_positions = 8  # Fewer, faster trades
+            elif selected_preset == 'swing':
+                self.max_open_positions = 5  # Even fewer, hold longer
+            elif selected_preset == 'conservative':
+                self.max_open_positions = 3  # Minimal exposure
+            else:  # micro
+                self.max_open_positions = 12  # Normal diversification
+            
+            # Adjust based on win rate
+            if recent_win_rate > 0.65:
+                self.max_open_positions += 2  # More positions when winning
+            elif recent_win_rate < 0.40:
+                self.max_open_positions = max(3, self.max_open_positions - 3)  # Reduce exposure
+            
+            # ============================================================
+            # AI DECISION: ADJUST ENTRY FILTERS
+            # ============================================================
+            # Be stricter when losing, more permissive when winning
+            if recent_win_rate < 0.45:
+                self.min_confidence = max(70, self.min_confidence)  # Higher threshold
+                self.min_edge = max(0.20, self.min_edge)
+            elif recent_win_rate > 0.65:
+                self.min_confidence = min(60, self.min_confidence)  # Lower threshold
+                self.min_edge = min(0.15, self.min_edge)
+            
+            logger.info(f"AI FULL AUTO: {selected_preset.upper()} | Reason: {ai_reason}")
+            logger.info(f"  -> Positions: {self.max_open_positions} | Confidence: {self.min_confidence}% | Edge: {self.min_edge}")
+            logger.info(f"  -> TP: {self.take_profit}% | SL: {self.emergency_stop_loss}% | Trail: {self.trail_from_peak}%")
             
             return selected_preset
             
         except Exception as e:
-            logger.warning(f"Auto strategy selection failed: {e}, using MICRO")
+            logger.warning(f"Auto strategy selection failed: {e}, using MICRO defaults")
             self._apply_strategy_preset('micro')
+            self.max_open_positions = 10
             return 'micro'
         
     async def initialize(
@@ -3597,12 +3655,29 @@ class AutonomousTraderV2:
                 self.ai_full_auto = parsed.get('aiFullAuto', 'false').lower() == 'true'
                 self.use_max_trade_time = parsed.get('useMaxTradeTime', 'true').lower() == 'true'
                 
-                # If AI Full Auto is ON, AI decides the strategy based on market conditions
+                # ============================================================
+                # MAX DAILY DRAWDOWN - ALWAYS RESPECT USER'S SETTING!
+                # This is the ONLY setting user controls when AI Full Auto is ON
+                # ============================================================
+                self.max_daily_drawdown = float(parsed.get('maxDailyDrawdown', self.max_daily_drawdown))
+                user_max_drawdown = self.max_daily_drawdown
+                
+                # If AI Full Auto is ON, AI decides EVERYTHING except max daily drawdown
                 if self.ai_full_auto:
-                    # AI will select strategy in _auto_select_strategy()
-                    logger.info(f"AI FULL AUTO MODE: AI will manage strategy, positions, and risk")
+                    logger.info(f"AI FULL AUTO MODE: AI controls everything")
+                    logger.info(f"  -> User's Max Daily Drawdown: {user_max_drawdown}% (PROTECTED)")
+                    
+                    # AI will select strategy dynamically in _auto_select_strategy()
+                    # AI decides: strategy, TP, SL, trailing, positions, etc.
+                    # AI still respects all safety filters (RSI, BTC correlation, spread, etc.)
+                    
+                    # AI decides optimal max positions based on market (5-15 range)
+                    self.max_open_positions = 10  # AI default, will be adjusted
+                    self.max_exposure_percent = 80  # AI uses 80% max exposure
+                    self.breakout_extra_slots = True  # AI uses breakout slots
+                    
                 else:
-                    # Use user's selected strategy preset
+                    # User controls everything manually
                     self.strategy_preset = parsed.get('strategyPreset', 'micro')
                     self._apply_strategy_preset(self.strategy_preset)
                     
@@ -3610,25 +3685,27 @@ class AutonomousTraderV2:
                     if not self.use_max_trade_time:
                         self.max_trade_minutes = 0  # 0 = disabled
                         logger.info(f"Max trade time DISABLED by user")
-                
-                # Exit strategy (custom values override preset ONLY if not in Full Auto)
-                if 'stopLossPercent' in parsed:
-                    self.emergency_stop_loss = float(parsed.get('stopLossPercent', self.emergency_stop_loss))
-                if 'takeProfitPercent' in parsed:
-                    self.take_profit = float(parsed.get('takeProfitPercent', self.take_profit))
-                if 'trailingStopPercent' in parsed:
-                    self.trail_from_peak = float(parsed.get('trailingStopPercent', self.trail_from_peak))
-                if 'minProfitToTrail' in parsed:
-                    self.min_profit_to_trail = float(parsed.get('minProfitToTrail', self.min_profit_to_trail))
-                
-                # Entry filters
-                self.min_confidence = float(parsed.get('minConfidence', self.min_confidence))
-                self.min_edge = float(parsed.get('minEdge', self.min_edge))
-                
-                # Risk limits (0 = unlimited)
-                self.max_open_positions = int(float(parsed.get('maxOpenPositions', self.max_open_positions)))
-                self.max_exposure_percent = float(parsed.get('maxTotalExposure', self.max_exposure_percent))
-                self.max_daily_drawdown = float(parsed.get('maxDailyDrawdown', self.max_daily_drawdown))
+                    
+                    # User's custom exit strategy overrides preset
+                    if 'stopLossPercent' in parsed:
+                        self.emergency_stop_loss = float(parsed.get('stopLossPercent', self.emergency_stop_loss))
+                    if 'takeProfitPercent' in parsed:
+                        self.take_profit = float(parsed.get('takeProfitPercent', self.take_profit))
+                    if 'trailingStopPercent' in parsed:
+                        self.trail_from_peak = float(parsed.get('trailingStopPercent', self.trail_from_peak))
+                    if 'minProfitToTrail' in parsed:
+                        self.min_profit_to_trail = float(parsed.get('minProfitToTrail', self.min_profit_to_trail))
+                    
+                    # User's entry filters
+                    self.min_confidence = float(parsed.get('minConfidence', self.min_confidence))
+                    self.min_edge = float(parsed.get('minEdge', self.min_edge))
+                    
+                    # User's risk limits (0 = unlimited)
+                    self.max_open_positions = int(float(parsed.get('maxOpenPositions', self.max_open_positions)))
+                    self.max_exposure_percent = float(parsed.get('maxTotalExposure', self.max_exposure_percent))
+                    
+                    # User's breakout settings
+                    self.breakout_extra_slots = parsed.get('breakoutExtraSlots', 'false') == 'true'
                 
                 # Breakout settings
                 self.breakout_extra_slots = parsed.get('breakoutExtraSlots', 'false') == 'true'
