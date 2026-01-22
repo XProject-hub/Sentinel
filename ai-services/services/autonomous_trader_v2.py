@@ -867,17 +867,30 @@ class AutonomousTraderV2:
                     except:
                         pass
                 
-                # Update dashboard status info (every 10 cycles to avoid spam)
+                # Update dashboard status info PER USER (every 10 cycles to avoid spam)
                 if cycle % 10 == 0 and self.redis_client:
                     try:
-                        status_info = {
+                        # Update status for EACH connected user
+                        for uid in list(self.user_clients.keys()):
+                            user_positions = len(self.active_positions.get(uid, {}))
+                            status_info = {
+                                "last_action": f"Trading active | {user_positions} positions",
+                                "regime": current_regime,
+                                "strategy": self.active_strategy_name if hasattr(self, 'active_strategy_name') else 'BALANCED',
+                                "cycle": cycle,
+                                "updated_at": datetime.utcnow().isoformat()
+                            }
+                            await self.redis_client.set(f'bot:status:live:{uid}', json.dumps(status_info))
+                        
+                        # Also update global status for reference
+                        global_status = {
                             "last_action": f"Trading active | {connected_users} users | {total_positions} positions",
                             "regime": current_regime,
-                            "strategy": self.active_strategy_name if hasattr(self, 'active_strategy_name') else 'BALANCED',
+                            "strategy": "GLOBAL",
                             "cycle": cycle,
                             "updated_at": datetime.utcnow().isoformat()
                         }
-                        await self.redis_client.set('bot:status:live', json.dumps(status_info))
+                        await self.redis_client.set('bot:status:live', json.dumps(global_status))
                     except:
                         pass
                     

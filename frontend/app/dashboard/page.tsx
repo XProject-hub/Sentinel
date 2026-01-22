@@ -333,16 +333,16 @@ export default function DashboardPage() {
 
       // Get AI Signals (top opportunities)
       try {
-        const signalsRes = await fetch('/ai/exchange/signals?limit=5')
+        const signalsRes = await fetch(`/ai/exchange/signals?user_id=${uid}&limit=5`)
         if (signalsRes.ok) {
           const data = await signalsRes.json()
           setAiSignals(data.signals || [])
         }
       } catch {}
 
-      // Get AI Intelligence status (breakouts, news sentiment, etc.)
+      // Get AI Intelligence status (breakouts, news sentiment, etc.) - PER USER
       try {
-        const aiRes = await fetch('/ai/exchange/intelligence')
+        const aiRes = await fetch(`/ai/exchange/intelligence?user_id=${uid}`)
         if (aiRes.ok) {
           const data = await aiRes.json()
           setAiIntelligence({

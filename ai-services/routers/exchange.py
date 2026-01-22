@@ -609,24 +609,29 @@ async def get_balance(user_id: str = "default"):
 
 
 @router.get("/signals")
-async def get_ai_signals(limit: int = 5):
-    """Get top AI trading signals - opportunities the bot is considering"""
+async def get_ai_signals(user_id: str = "default", limit: int = 5):
+    """Get top AI trading signals - opportunities the bot is considering (PER USER)"""
     
-    if "default" not in exchange_connections:
-        return {"signals": [], "error": "No exchange connected"}
+    # Get user-specific client or fallback to any connected client
+    client = exchange_connections.get(user_id) or exchange_connections.get("default")
+    if not client:
+        # Try to get any connected client
+        if exchange_connections:
+            client = list(exchange_connections.values())[0]
+        else:
+            return {"signals": [], "error": "No exchange connected"}
     
-    client = exchange_connections["default"]
     signals = []
     
     try:
-        # Use default settings (avoid Redis errors)
+        # Use USER-SPECIFIC settings
         take_profit = 2.0
         stop_loss = 1.5
         min_edge = 0.25
         
         try:
             r = await get_redis()
-            settings_raw = await r.get("bot:settings:default")
+            settings_raw = await r.get(f"bot:settings:{user_id}")
             if settings_raw:
                 settings = json.loads(settings_raw)
                 take_profit = float(settings.get("takeProfitPercent", take_profit))
@@ -717,9 +722,10 @@ async def get_ai_signals(limit: int = 5):
 
 
 @router.get("/intelligence")
-async def get_ai_intelligence():
+async def get_ai_intelligence(user_id: str = "default"):
     """
     Get AI Intelligence status - shows what AI is doing in REAL TIME
+    PER USER - each user sees THEIR OWN data!
     
     Returns:
     - news_sentiment: Current market sentiment from news
@@ -741,8 +747,8 @@ async def get_ai_intelligence():
     
     try:
         r = await get_redis()
-        # Get settings for strategy mode
-        settings_raw = await r.get("bot:settings:default")
+        # Get USER-SPECIFIC settings for strategy mode
+        settings_raw = await r.get(f"bot:settings:{user_id}")
         if settings_raw:
             settings = json.loads(settings_raw)
             # Check if AI Full Auto mode
@@ -767,9 +773,12 @@ async def get_ai_intelligence():
             logger.debug(f"Could not get pairs_analyzed: {e}")
             intelligence["pairs_analyzed"] = 559
         
-        # Get live status from trading loop
+        # Get live status from trading loop (USER-SPECIFIC)
         try:
-            live_status_raw = await r.get("bot:status:live")
+            live_status_raw = await r.get(f"bot:status:live:{user_id}")
+            if not live_status_raw:
+                # Fallback to global status
+                live_status_raw = await r.get("bot:status:live")
             if live_status_raw:
                 live_status = json.loads(live_status_raw)
                 intelligence["last_action"] = live_status.get("last_action", "Trading active...")
@@ -778,9 +787,9 @@ async def get_ai_intelligence():
         except Exception as e:
             logger.debug(f"Could not get live status: {e}")
         
-        # Also try console logs for more specific actions
+        # Also try USER-SPECIFIC console logs for more specific actions
         try:
-            console_logs_raw = await r.lrange("bot:console:logs:default", 0, 5)
+            console_logs_raw = await r.lrange(f"bot:console:logs:{user_id}", 0, 5)
             if console_logs_raw:
                 # Find the most recent TRADE or SIGNAL action
                 for log_raw in console_logs_raw:
