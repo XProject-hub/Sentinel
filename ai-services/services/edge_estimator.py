@@ -5,7 +5,7 @@ Edge = probability of profit * average win - probability of loss * average loss
 """
 
 import logging
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
 from datetime import datetime
 import numpy as np
@@ -27,6 +27,15 @@ class EdgeScore:
     def __post_init__(self):
         if self.timestamp is None:
             self.timestamp = datetime.utcnow()
+
+
+@dataclass
+class EdgeData:
+    """Edge calculation result for market scanner"""
+    edge: float
+    confidence: float
+    reasons: List[str]
+    warnings: List[str]
 
 
 class EdgeEstimator:
@@ -173,6 +182,49 @@ class EdgeEstimator:
             'global_stats': self._global_stats,
             'symbol_count': len(self._symbol_stats)
         }
+
+    async def calculate_edge(self, symbol: str, current_price: float, 
+                            direction: str, volatility: float = 0.0) -> EdgeData:
+        """
+        Calculate edge for a potential trade (alias for estimate_edge with different signature)
+        
+        Args:
+            symbol: Trading pair
+            current_price: Current market price
+            direction: 'LONG' or 'SHORT'
+            volatility: Current volatility measure
+            
+        Returns:
+            EdgeData compatible object
+        """
+        # Convert direction format
+        dir_lower = direction.lower() if direction else 'long'
+        
+        # Use estimate_edge internally
+        edge_score = await self.estimate_edge(
+            symbol=symbol,
+            direction=dir_lower,
+            confidence=0.5,
+            regime='RANGE'
+        )
+        
+        # Return an object with the expected attributes
+        return EdgeData(
+            edge=edge_score.edge,
+            confidence=edge_score.confidence,
+            reasons=[f"Win prob: {edge_score.win_probability:.1%}", f"Sample: {edge_score.sample_size}"],
+            warnings=[] if edge_score.edge > 0 else ["Negative edge"]
+        )
+
+    async def shutdown(self):
+        """Cleanup on shutdown"""
+        try:
+            if self.redis_client:
+                import json
+                await self.redis_client.set('edge:calibration', json.dumps(self._global_stats))
+                logger.info("Edge Estimator state saved")
+        except Exception as e:
+            logger.error(f"Failed to save edge estimator state: {e}")
 
 
 # Singleton instance
