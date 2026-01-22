@@ -2373,6 +2373,24 @@ class AutonomousTraderV2:
                 
                 # Log the trade type
                 trade_type = "PRE-BREAKOUT" if is_pre_breakout else "BREAKOUT"
+                
+                # === QUALITY CHECK FOR BREAKOUTS ===
+                # Breakouts need minimum confidence and edge to avoid bad entries!
+                breakout_min_confidence = max(50, self.min_confidence * 0.7)  # 70% of user setting, min 50%
+                breakout_min_edge = 0.3  # Minimum edge for breakouts
+                
+                if opp.confidence < breakout_min_confidence:
+                    logger.info(f"🚫 {trade_type} BLOCKED: {opp.symbol} - Confidence {opp.confidence:.0f}% < {breakout_min_confidence:.0f}%")
+                    await self._log_to_console(f"{trade_type} BLOCKED: {opp.symbol} - Low confidence ({opp.confidence:.0f}%)", "WARNING", user_id)
+                    continue
+                
+                if opp.edge_score < breakout_min_edge:
+                    logger.info(f"🚫 {trade_type} BLOCKED: {opp.symbol} - Edge {opp.edge_score:.2f} < {breakout_min_edge:.2f}")
+                    await self._log_to_console(f"{trade_type} BLOCKED: {opp.symbol} - Low edge ({opp.edge_score:.2f})", "WARNING", user_id)
+                    continue
+                
+                # Passed quality checks - proceed with trade
+                logger.info(f"✅ {trade_type} APPROVED: {opp.symbol} | Conf: {opp.confidence:.0f}% | Edge: {opp.edge_score:.2f}")
                 logger.info(f"{trade_type} TRADE: {opp.symbol} | {opp.price_change_24h:+.1f}%")
                 await self._log_to_console(f"OPENING {trade_type}: {opp.symbol} {opp.price_change_24h:+.1f}%", "TRADE", user_id)
                 try:
