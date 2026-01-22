@@ -3222,15 +3222,26 @@ class AutonomousTraderV2:
                         logger.info(f" PARTIAL EXIT COMPLETE: {position.symbol} at +{pnl_percent:.2f}%")
                     # Continue with remaining position - don't return
             
-            # === TIME STOP LOGIC (MICRO PROFIT) ===
+            # === MAX TRADE TIME (from preset) ===
+            # Close trades that exceed maximum duration for the preset
+            trade_duration_minutes = (datetime.utcnow() - position.entry_time).total_seconds() / 60
+            
+            if self.max_trade_minutes > 0 and trade_duration_minutes >= self.max_trade_minutes:
+                # Only close if not in significant profit (don't cut winners short)
+                if pnl_percent < self.take_profit * 0.5:  # Less than 50% of TP
+                    logger.info(f"MAX TIME: {position.symbol} after {trade_duration_minutes:.0f}min (max={self.max_trade_minutes}min), P&L={pnl_percent:+.2f}%")
+                    await self._log_to_console(f"MAX TIME: {position.symbol} {pnl_percent:+.2f}% after {trade_duration_minutes:.0f}min", "TRADE", user_id)
+                    await self._close_position(user_id, client, position, pnl_percent, 
+                        f"Max time ({trade_duration_minutes:.0f}min)")
+                    return  # Exit early
+            
+            # === TIME STOP LOGIC (MICRO PROFIT mode - aggressive) ===
             # Close "dead" trades before they go negative
             if self.use_time_stop and self.risk_mode == 'micro_profit':
-                trade_duration = (datetime.utcnow() - position.entry_time).total_seconds() / 60  # minutes
-                
-                if trade_duration >= self.time_stop_minutes and pnl_percent < self.time_stop_min_pnl:
-                    logger.info(f" TIME STOP: {position.symbol} after {trade_duration:.1f}min, P&L={pnl_percent:+.2f}% < +{self.time_stop_min_pnl}%")
+                if trade_duration_minutes >= self.time_stop_minutes and pnl_percent < self.time_stop_min_pnl:
+                    logger.info(f"TIME STOP: {position.symbol} after {trade_duration_minutes:.1f}min, P&L={pnl_percent:+.2f}% < +{self.time_stop_min_pnl}%")
                     await self._close_position(user_id, client, position, pnl_percent, 
-                        f" TIME STOP ({trade_duration:.1f}min, +{pnl_percent:.2f}%)")
+                        f"Time stop ({trade_duration_minutes:.1f}min)")
                     return  # Exit early
             
             # === FAST EXIT LOGIC ===
