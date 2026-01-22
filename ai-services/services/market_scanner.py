@@ -234,13 +234,23 @@ class MarketScanner:
                 regime = regimes.get(symbol, {})
                 
                 # Calculate edge for both directions (with timeout to keep scan fast)
+                # Pass regime data for dynamic Kelly calculation
+                regime_name = regime.get('regime', 'RANGE')
                 try:
                     long_edge = await asyncio.wait_for(
-                        self.edge_estimator.calculate_edge(symbol, 'long'),
+                        self.edge_estimator.calculate_edge(
+                            symbol=symbol, 
+                            direction='long',
+                            regime=regime_name
+                        ),
                         timeout=2.0
                     )
                     short_edge = await asyncio.wait_for(
-                        self.edge_estimator.calculate_edge(symbol, 'short'),
+                        self.edge_estimator.calculate_edge(
+                            symbol=symbol, 
+                            direction='short',
+                            regime=regime_name
+                        ),
                         timeout=2.0
                     )
                 except asyncio.TimeoutError:

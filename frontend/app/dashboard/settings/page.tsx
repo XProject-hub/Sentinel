@@ -818,19 +818,14 @@ export default function SettingsPage() {
                     </div>
                     <input
                       type="range"
-                      min="5"
-                      max="100"
-                      step="5"
+                      min="1"
+                      max="30"
+                      step="1"
                       value={settings.maxPositionPercent}
                       onChange={(e) => updateSetting('maxPositionPercent', parseInt(e.target.value))}
                       className="w-full h-2 rounded-full appearance-none cursor-pointer bg-white/10 accent-cyan-500"
                     />
-                    <div className="flex justify-between text-xs text-gray-600 mt-2">
-                      <span>5%</span>
-                      <span>50%</span>
-                      <span>100%</span>
-                    </div>
-                    <p className="text-xs text-gray-500 mt-1">Max % of equity per trade (higher = larger positions)</p>
+                    <p className="text-xs text-gray-500 mt-3">Max % of equity per trade</p>
                   </div>
 
                   {/* Max Total Exposure */}

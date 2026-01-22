@@ -64,7 +64,8 @@ class PositionSizer:
     Dynamic Position Sizing System
     
     Uses Kelly Criterion with safety modifications:
-    - Fractional Kelly (25% of full Kelly)
+    - Fractional Kelly (user configurable via kellyMultiplier)
+    - Dynamic Kelly adjustments based on confidence, losing streak, regime
     - Hard risk limits
     - Drawdown protection
     - Correlation limits
@@ -98,6 +99,11 @@ class PositionSizer:
         
         # Leverage mode: '1x', '2x', '3x', '5x', '10x', 'auto'
         self.leverage_mode: str = 'auto'
+        
+        # === DYNAMIC KELLY SETTINGS ===
+        self.kelly_multiplier: float = 0.5  # User's Kelly multiplier (0.1 - 1.0)
+        self.losing_streak: int = 0  # Consecutive losses
+        self.winning_streak: int = 0  # Consecutive wins
         
         # Correlation groups (assets that move together)
         self.correlation_groups = {
@@ -159,11 +165,16 @@ class PositionSizer:
                 if self.leverage_mode not in ['1x', '2x', '3x', '5x', '10x', 'auto']:
                     self.leverage_mode = 'auto'
                 
+                # === KELLY MULTIPLIER (Dynamic Kelly) ===
+                # User can adjust from 0.1 (very conservative) to 1.0 (full Kelly)
+                self.kelly_multiplier = float(parsed.get('kellyMultiplier', 0.5))
+                self.kelly_multiplier = max(0.1, min(1.0, self.kelly_multiplier))
+                
                 logger.debug(f"Loaded position sizer settings for {user_id}: MaxDD={'OFF' if self.MAX_DAILY_DRAWDOWN == 0 else f'{self.MAX_DAILY_DRAWDOWN*100:.1f}%'}, "
                            f"MaxExposure={self.MAX_TOTAL_EXPOSURE*100:.0f}%, "
                            f"MaxPos={self.MAX_SINGLE_POSITION*100:.0f}%, "
                            f"MaxOpenPos={'Unlimited' if self.MAX_OPEN_POSITIONS == 0 else self.MAX_OPEN_POSITIONS}, "
-                           f"Leverage={self.leverage_mode}")
+                           f"Leverage={self.leverage_mode}, Kelly={self.kelly_multiplier}x")
         except Exception as e:
             logger.debug(f"Load settings error for {user_id}: {e}")
         
@@ -275,8 +286,37 @@ class PositionSizer:
             sizing_method = 'fixed'
             adjustments.append(f"Fixed sizing: {base_fraction*100:.1f}%")
         elif kelly_fraction > 0:
-            base_fraction = min(kelly_fraction, self.MAX_RISK_PER_TRADE)
+            # === DYNAMIC KELLY CALCULATION ===
+            # Apply user's kellyMultiplier
+            adjusted_kelly = kelly_fraction * self.kelly_multiplier
+            
+            # === CONFIDENCE ADJUSTMENT ===
+            # Lower confidence = smaller position
+            # Confidence < 65% → Kelly *= 0.5
+            # Confidence 65-75% → Kelly *= 1.0
+            # Confidence > 80% → Kelly *= 1.4
+            confidence_pct = win_probability  # win_probability is 0-100
+            if confidence_pct < 65:
+                adjusted_kelly *= 0.5
+                adjustments.append(f"Low confidence ({confidence_pct:.0f}%): Kelly×0.5")
+            elif confidence_pct > 80:
+                adjusted_kelly *= 1.4
+                adjustments.append(f"High confidence ({confidence_pct:.0f}%): Kelly×1.4")
+            
+            # === LOSING STREAK ADJUSTMENT ===
+            # After 3+ consecutive losses, reduce size significantly
+            if self.losing_streak >= 3:
+                streak_multiplier = max(0.3, 1 - (self.losing_streak - 2) * 0.15)
+                adjusted_kelly *= streak_multiplier
+                adjustments.append(f"Losing streak ({self.losing_streak}): Kelly×{streak_multiplier:.2f}")
+            elif self.winning_streak >= 3:
+                # Small bonus for winning streak (but don't get overconfident)
+                adjusted_kelly *= min(1.2, 1 + self.winning_streak * 0.05)
+                adjustments.append(f"Winning streak ({self.winning_streak}): Kelly×{1 + self.winning_streak * 0.05:.2f}")
+            
+            base_fraction = min(adjusted_kelly, self.MAX_RISK_PER_TRADE)
             sizing_method = 'kelly'
+            adjustments.append(f"Kelly: {kelly_fraction*100:.1f}%×{self.kelly_multiplier}x → {adjusted_kelly*100:.1f}%")
         else:
             # Fallback to user-configured position size
             base_fraction = self.MAX_RISK_PER_TRADE * 0.5  # 50% of max when no Kelly
@@ -287,17 +327,21 @@ class PositionSizer:
         
         adjusted_fraction = base_fraction
         
-        # 1. Regime adjustment
+        # 1. Regime adjustment (DYNAMIC KELLY REGIME MULTIPLIER)
+        # Choppy/volatile regime = reduce Kelly significantly
         regime_multipliers = {
-            'aggressive': 1.0,
-            'normal': 0.7,
-            'reduced': 0.4,
-            'avoid': 0.0
+            'aggressive': 1.0,  # Trending market - full Kelly
+            'normal': 0.8,      # Normal conditions
+            'reduced': 0.5,     # Reduced - half Kelly
+            'avoid': 0.0,       # Don't trade
+            'choppy': 0.6,      # Choppy market - reduce Kelly
+            'volatile': 0.5,    # High volatility - reduce Kelly
+            'hold': 0.7,        # Hold - slightly reduced
         }
         regime_mult = regime_multipliers.get(regime_action, 0.5)
         adjusted_fraction *= regime_mult
         if regime_mult != 1.0:
-            adjustments.append(f"Regime {regime_action}: {regime_mult:.0%}")
+            adjustments.append(f"Regime {regime_action}: Kelly×{regime_mult:.0%}")
             
         # 2. Edge-based adjustment
         if edge_score < 0.2:

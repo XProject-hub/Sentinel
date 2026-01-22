@@ -3878,6 +3878,12 @@ class AutonomousTraderV2:
             user_set['use_regime_detection'] = str(parsed.get('useRegimeDetection', 'true')).lower() == 'true'
             user_set['use_edge_estimation'] = str(parsed.get('useEdgeEstimation', 'true')).lower() == 'true'
             
+            # Kelly multiplier (0.1 to 1.0, default 0.5)
+            user_set['kelly_multiplier'] = float(parsed.get('kellyMultiplier', 0.5))
+            
+            # Max position percent (5-100%)
+            user_set['max_position_percent'] = float(parsed.get('maxPositionPercent', 15))
+            
             logger.debug(f"Loaded settings for {user_id}: TP={user_set['take_profit']}%, SL={user_set['stop_loss']}%, Trail={user_set['trailing']}%")
             
         except Exception as e:
@@ -3902,6 +3908,8 @@ class AutonomousTraderV2:
                     'leverage_mode': 'auto',
                     'max_trade_minutes': 30,   # MICRO default
                     'use_max_trade_time': True,
+                    'kelly_multiplier': 0.5,   # Conservative Kelly default
+                    'max_position_percent': 15,  # Max 15% per trade
                 }
                 logger.warning(f"Using HARDCODED defaults for user {user_id} (Redis load failed)")
     
@@ -3917,6 +3925,43 @@ class AutonomousTraderV2:
             'mean_reversion': {'take_profit': 0.6, 'stop_loss': 0.4, 'trailing': 0.12, 'min_trail': 0.3, 'max_trade_minutes': 8},
         }
         return presets.get(preset.lower(), presets['micro'])
+    
+    async def _get_user_losing_streak(self, user_id: str) -> int:
+        """
+        Get user's consecutive losing trades count.
+        Used for Dynamic Kelly Criterion adjustment.
+        
+        Returns:
+            Number of consecutive losing trades (0 if winning or no trades)
+        """
+        try:
+            # Get last 10 trades from user's trade history
+            trades_key = f"trades:completed:{user_id}"
+            trades_raw = await self.redis_client.lrange(trades_key, 0, 9)
+            
+            if not trades_raw:
+                return 0
+            
+            consecutive_losses = 0
+            for trade_raw in trades_raw:
+                try:
+                    trade_str = trade_raw.decode() if isinstance(trade_raw, bytes) else trade_raw
+                    trade = json.loads(trade_str)
+                    pnl = float(trade.get('pnl_percent', trade.get('pnl', 0)))
+                    
+                    if pnl < 0:
+                        consecutive_losses += 1
+                    else:
+                        # Hit a winning trade, stop counting
+                        break
+                except:
+                    continue
+            
+            return consecutive_losses
+            
+        except Exception as e:
+            logger.debug(f"Error getting losing streak for {user_id}: {e}")
+            return 0
     
             
     async def _load_stats(self):
