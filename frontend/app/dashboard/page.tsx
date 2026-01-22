@@ -687,6 +687,25 @@ export default function DashboardPage() {
                 <Target className="w-4 h-4 sm:w-5 sm:h-5 text-cyan-400" />
                 <h2 className="text-sm sm:text-base font-semibold text-white">Open Positions</h2>
                 <span className="text-[10px] sm:text-xs text-gray-500">({positions.length})</span>
+                {positions.length > 0 && (() => {
+                  // Calculate total unrealized P&L across all positions
+                  const totalPnl = positions.reduce((sum, pos) => {
+                    const pnl = parseFloat(pos.estimatedNetPnl || pos.unrealisedPnl || '0')
+                    return sum + pnl
+                  }, 0)
+                  const totalPnlEur = totalPnl * 0.92 // Convert to EUR
+                  const isPositive = totalPnlEur >= 0
+                  
+                  return (
+                    <span className={`ml-2 px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-bold ${
+                      isPositive 
+                        ? 'bg-emerald-500/20 text-emerald-400' 
+                        : 'bg-red-500/20 text-red-400'
+                    }`}>
+                      {isPositive ? '+' : ''}€{totalPnlEur.toFixed(2)}
+                    </span>
+                  )
+                })()}
               </div>
               <button onClick={loadDashboardData} className="p-1 sm:p-1.5 rounded-lg hover:bg-white/5">
                 <RefreshCw className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-gray-500" />
