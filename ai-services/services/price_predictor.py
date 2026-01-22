@@ -180,6 +180,11 @@ class PricePredictor:
             return float(np.clip(diff * 10, -1, 1))
         except:
             return 0.0
+    
+    async def shutdown(self):
+        """Cleanup resources on shutdown"""
+        self._cache.clear()
+        logger.info("Price Predictor shut down")
 
 
 # Singleton instance
