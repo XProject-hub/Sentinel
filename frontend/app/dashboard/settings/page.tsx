@@ -217,6 +217,14 @@ export default function SettingsPage() {
     
     setUserId(currentUserId)
     console.log('Settings page - User ID:', currentUserId)
+    
+    // DEBUG: Show alert with user info so we can verify on phone
+    if (typeof window !== 'undefined') {
+      const debugInfo = `User ID: ${currentUserId}\nEmail: ${storedUser ? JSON.parse(storedUser).email : 'N/A'}`
+      console.log('DEBUG Settings:', debugInfo)
+      // Uncomment to show alert on page load:
+      // alert(debugInfo)
+    }
   }, [])
 
   useEffect(() => {
@@ -346,8 +354,17 @@ export default function SettingsPage() {
     { id: 'guide', label: 'User Guide', icon: HelpCircle },
   ]
 
+  // Get stored user email for debug display
+  const storedUserForDebug = typeof window !== 'undefined' ? localStorage.getItem('sentinel_user') : null
+  const debugEmail = storedUserForDebug ? JSON.parse(storedUserForDebug).email : 'N/A'
+
   return (
     <div className="min-h-screen bg-[#060a13]">
+      {/* DEBUG BANNER - Remove after testing */}
+      <div className="bg-yellow-500/20 border border-yellow-500/50 text-yellow-300 text-xs px-4 py-2 text-center">
+        🔍 DEBUG: user_id={userId} | email={debugEmail}
+      </div>
+
       {/* Background Effects */}
       <div className="fixed inset-0 pointer-events-none">
         <div className="absolute inset-0 bg-[linear-gradient(rgba(6,182,212,0.03)_1px,transparent_1px),linear-gradient(90deg,rgba(6,182,212,0.03)_1px,transparent_1px)] bg-[size:44px_44px]" />
