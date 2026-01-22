@@ -1160,14 +1160,60 @@ class AutonomousTraderV2:
                     # Update size if changed
                     self.active_positions[user_id][symbol].size = size
                     
-        # Remove closed positions
+        # Remove closed positions and LOG THEM!
         if user_id in self.active_positions:
             for symbol in list(self.active_positions[user_id].keys()):
                 if symbol not in exchange_positions:
+                    # Get position info before deleting
+                    closed_pos = self.active_positions[user_id][symbol]
+                    
+                    # Try to estimate P&L from last known data
+                    estimated_pnl = 0.0
+                    pnl_value = 0.0
+                    close_reason = "Closed externally (Bybit SL/TP or manual)"
+                    
+                    # Check if we can get last price
+                    try:
+                        if closed_pos.peak_pnl_percent and closed_pos.peak_pnl_percent > 0.5:
+                            # Likely hit trailing stop or take profit
+                            estimated_pnl = closed_pos.peak_pnl_percent * 0.7  # Estimate
+                            close_reason = f"External close (was +{closed_pos.peak_pnl_percent:.1f}% peak)"
+                        elif closed_pos.entry_price and closed_pos.position_value:
+                            # Estimate based on current SL setting
+                            estimated_pnl = -self.emergency_stop_loss  # Assume SL hit
+                            close_reason = "External close (likely SL triggered on Bybit)"
+                        
+                        pnl_value = closed_pos.position_value * (estimated_pnl / 100) if closed_pos.position_value else 0
+                    except:
+                        pass
+                    
+                    # Delete from active positions
                     del self.active_positions[user_id][symbol]
-                    # Also remove from position_sizer
-                    await self.position_sizer.close_position(symbol, 0)
-                    logger.info(f"Position {symbol} closed externally, removed from tracker")
+                    
+                    # Remove from position_sizer
+                    await self.position_sizer.close_position(symbol, pnl_value)
+                    
+                    # LOG TO CONSOLE so user sees it on dashboard!
+                    await self._log_to_console(
+                        f"CLOSED {symbol}: {estimated_pnl:+.2f}% (${pnl_value:+.2f}) | {close_reason}",
+                        "TRADE",
+                        user_id
+                    )
+                    
+                    # STORE in trades:completed so it shows in Recent Trades!
+                    await self._store_trade_event(
+                        user_id, symbol, 'closed', estimated_pnl, close_reason, closed_pos, pnl_value
+                    )
+                    
+                    # Update user stats (approximate)
+                    user_stats = self._get_user_stats(user_id)
+                    user_stats['total_trades'] += 1
+                    if pnl_value > 0:
+                        user_stats['winning_trades'] += 1
+                    user_stats['total_pnl'] += pnl_value
+                    await self._save_user_stats(user_id)
+                    
+                    logger.info(f"Position {symbol} closed EXTERNALLY | Est P&L: {estimated_pnl:+.2f}% (${pnl_value:+.2f}) | {close_reason}")
         
         # IMPORTANT: Sync position sizer with exchange to remove any stale positions
         # This ensures position_sizer.open_positions matches actual exchange state
