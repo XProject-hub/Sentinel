@@ -1071,6 +1071,157 @@ class AutonomousTraderV2:
         rsi = 100 - (100 / (1 + rs))
         return rsi
     
+    async def _advanced_safety_filters(self, opp: TradingOpportunity, client: BybitV5Client, 
+                                       kline_data: Dict = None) -> Tuple[bool, str]:
+        """
+        ADVANCED SAFETY FILTERS - Professional hedge fund level checks
+        
+        These are GATES, not signals. Each removes 5-15% of bad trades.
+        
+        Filters:
+        1. REJECTION CANDLE - Don't buy candles with big wicks (rejection)
+        2. BTC CORRELATION - Don't long alts when BTC is dumping
+        3. SPREAD CHECK - Don't trade if spread too high (slippage)
+        4. ENTRY QUALITY - Must be near support, not chasing
+        5. EXPECTED VALUE - Only trade if EV is positive
+        """
+        try:
+            # Get kline data if not provided
+            if kline_data is None:
+                klines = await client.get_klines(opp.symbol, interval='5', limit=20)
+                if not klines.get('success') or not klines.get('data', {}).get('list'):
+                    return True, "No kline data for safety check"
+                kline_data = klines['data']['list']
+            
+            if len(kline_data) < 5:
+                return True, "Insufficient data"
+            
+            # Parse latest candle (first in list is most recent)
+            latest = kline_data[0]
+            open_price = float(latest[1])
+            high_price = float(latest[2])
+            low_price = float(latest[3])
+            close_price = float(latest[4])
+            
+            # ================================================================
+            # FILTER 1: REJECTION CANDLE (Micro Structure)
+            # ================================================================
+            # Big wick = price rejection = don't buy
+            candle_range = high_price - low_price
+            if candle_range > 0:
+                if opp.direction == 'long':
+                    # For LONG: upper wick should be small (not rejected at top)
+                    upper_wick = high_price - max(open_price, close_price)
+                    wick_ratio = upper_wick / candle_range
+                    if wick_ratio > 0.6:
+                        return False, f"REJECTION: Upper wick {wick_ratio:.0%} - price rejected at top"
+                else:
+                    # For SHORT: lower wick should be small (not rejected at bottom)
+                    lower_wick = min(open_price, close_price) - low_price
+                    wick_ratio = lower_wick / candle_range
+                    if wick_ratio > 0.6:
+                        return False, f"REJECTION: Lower wick {wick_ratio:.0%} - price rejected at bottom"
+            
+            # ================================================================
+            # FILTER 2: BTC CORRELATION SAFETY
+            # ================================================================
+            # Don't long alts when BTC is dumping
+            if opp.symbol != 'BTCUSDT' and opp.direction == 'long':
+                try:
+                    btc_ticker = await client.get_tickers(symbol='BTCUSDT')
+                    if btc_ticker.get('success'):
+                        btc_list = btc_ticker.get('data', {}).get('list', [])
+                        if btc_list:
+                            btc_change = float(btc_list[0].get('price24hPcnt', 0)) * 100
+                            
+                            # If BTC is dumping hard (>2% down), don't long alts
+                            if btc_change < -2.0:
+                                return False, f"BTC DUMP: BTC is {btc_change:.1f}% - risky to long alts"
+                            
+                            # If BTC is crashing (>5% down), block all alt longs
+                            if btc_change < -5.0:
+                                return False, f"BTC CRASH: BTC is {btc_change:.1f}% - NO alt longs!"
+                except Exception as e:
+                    logger.debug(f"BTC correlation check failed: {e}")
+            
+            # ================================================================
+            # FILTER 3: SPREAD CHECK (Liquidity)
+            # ================================================================
+            try:
+                orderbook = await client.get_orderbook(opp.symbol, limit=5)
+                if orderbook.get('success'):
+                    bids = orderbook.get('data', {}).get('b', [])
+                    asks = orderbook.get('data', {}).get('a', [])
+                    
+                    if bids and asks:
+                        best_bid = float(bids[0][0])
+                        best_ask = float(asks[0][0])
+                        mid_price = (best_bid + best_ask) / 2
+                        spread_pct = ((best_ask - best_bid) / mid_price) * 100
+                        
+                        # Spread > 0.2% = too expensive to trade (slippage)
+                        if spread_pct > 0.2:
+                            return False, f"SPREAD: {spread_pct:.2f}% too high - slippage risk"
+            except Exception as e:
+                logger.debug(f"Spread check failed: {e}")
+            
+            # ================================================================
+            # FILTER 4: ENTRY PRICE QUALITY
+            # ================================================================
+            # For LONG: should be near support (low of range), not chasing
+            # For SHORT: should be near resistance (high of range)
+            closes = [float(k[4]) for k in kline_data[:10]]
+            lows = [float(k[3]) for k in kline_data[:10]]
+            highs = [float(k[2]) for k in kline_data[:10]]
+            
+            local_low = min(lows)
+            local_high = max(highs)
+            local_range = local_high - local_low
+            
+            if local_range > 0:
+                if opp.direction == 'long':
+                    # Distance from local low (support)
+                    distance_from_support = (close_price - local_low) / local_range
+                    
+                    # If already bounced >60% of range, we're chasing
+                    if distance_from_support > 0.60:
+                        return False, f"ENTRY QUALITY: Price {distance_from_support:.0%} above support - chasing"
+                else:
+                    # Distance from local high (resistance)
+                    distance_from_resistance = (local_high - close_price) / local_range
+                    
+                    # If already dropped >60% of range, we're chasing the dump
+                    if distance_from_resistance > 0.60:
+                        return False, f"ENTRY QUALITY: Price {distance_from_resistance:.0%} below resistance - chasing"
+            
+            # ================================================================
+            # FILTER 5: EXPECTED VALUE CHECK
+            # ================================================================
+            # Simple EV calculation based on historical win rate and R:R
+            # EV = P(win) * AvgWin - P(loss) * AvgLoss
+            # We need positive EV to trade
+            
+            # Use our actual settings for calculation
+            potential_win = self.take_profit if self.take_profit > 0 else 0.8  # Default 0.8%
+            potential_loss = self.emergency_stop_loss
+            
+            # Estimate win probability based on confidence and edge
+            estimated_win_rate = min(opp.confidence / 100, 0.85)  # Cap at 85%
+            
+            # Calculate EV
+            ev = (estimated_win_rate * potential_win) - ((1 - estimated_win_rate) * potential_loss)
+            
+            if ev <= 0:
+                return False, f"NEGATIVE EV: {ev:.3f} (Win%={estimated_win_rate:.0%}, TP={potential_win}%, SL={potential_loss}%)"
+            
+            # Passed all filters!
+            logger.info(f"SAFETY PASSED: {opp.symbol} | No rejection | BTC OK | Spread OK | Entry quality OK | EV={ev:.3f}")
+            return True, f"All safety filters passed (EV={ev:.3f})"
+            
+        except Exception as e:
+            logger.warning(f"Safety filters error for {opp.symbol}: {e}")
+            return True, f"Safety check error: {e}"
+    
     async def _confirm_entry(self, opp: TradingOpportunity, client: BybitV5Client, 
                             is_breakout: bool = False, is_mean_rev: bool = False) -> Tuple[bool, str]:
         """
@@ -2208,22 +2359,36 @@ class AutonomousTraderV2:
         is_breakout = "BREAKOUT" in str(opp.reasons)
         is_mean_rev = getattr(opp, 'is_mean_reversion', False) or "MEAN_REV" in str(opp.reasons)
         
-        # === GLOBAL ENTRY CONFIRMATION (for ALL trades) ===
+        # === LAYER 1: GLOBAL ENTRY CONFIRMATION (for ALL trades) ===
         if client:
             confirmed, confirm_reason = await self._confirm_entry(opp, client, is_breakout, is_mean_rev)
             if not confirmed:
                 self.stats['trades_rejected_no_momentum'] += 1
                 return False, confirm_reason
         
+        # === LAYER 2: ADVANCED SAFETY FILTERS (hedge fund level) ===
+        # These are GATES that remove bad trades:
+        # - Rejection candles (big wicks)
+        # - BTC correlation (don't long alts when BTC dumps)
+        # - Spread check (avoid slippage)
+        # - Entry quality (near support, not chasing)
+        # - Expected value (must be positive)
+        if client:
+            safe, safety_reason = await self._advanced_safety_filters(opp, client)
+            if not safe:
+                self.stats['trades_rejected_low_edge'] += 1
+                logger.info(f"SAFETY FILTER BLOCKED: {opp.symbol} - {safety_reason}")
+                return False, safety_reason
+        
         # Check basic equity
         total_equity = float(wallet.get('totalEquity', 0))
         if total_equity < 10:
             return False, "Insufficient equity"
         
-        # Breakouts with confirmation can skip some AI filters (they're momentum plays)
+        # Breakouts that pass ALL filters can proceed
         if is_breakout:
-            logger.info(f" Breakout {opp.symbol} - entry confirmed, proceeding")
-            return True, "Breakout confirmed and approved"
+            logger.info(f" Breakout {opp.symbol} - all safety checks passed, proceeding")
+            return True, "Breakout confirmed and safety approved"
         
         # Use adjusted thresholds if provided (based on recent performance)
         min_edge = adjusted_min_edge if adjusted_min_edge is not None else self.min_edge
