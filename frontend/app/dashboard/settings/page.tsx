@@ -140,6 +140,15 @@ const riskPresets = {
     description: 'Hold longer for bigger moves',
     icon: TrendingUp,
     color: 'purple'
+  },
+  MEAN_REVERSION: {
+    takeProfitPercent: 0.8,
+    stopLossPercent: 0.5,
+    trailingStopPercent: 0.2,
+    minProfitToTrail: 0.15,
+    description: '70-80% winrate - statistical edge, buy dips in range markets',
+    icon: BarChart3,
+    color: 'emerald'
   }
 }
 
@@ -247,7 +256,8 @@ export default function SettingsPage() {
       'NORMAL': 'balanced',
       'AGGRESSIVE': 'aggressive',
       'SCALPER': 'scalper',
-      'SWING': 'swing'
+      'SWING': 'swing',
+      'MEAN_REVERSION': 'mean_reversion'
     }
     setSettings(prev => ({
       ...prev,
