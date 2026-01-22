@@ -183,16 +183,16 @@ class EdgeEstimator:
             'symbol_count': len(self._symbol_stats)
         }
 
-    async def calculate_edge(self, symbol: str, current_price: float, 
-                            direction: str, volatility: float = 0.0) -> EdgeData:
+    async def calculate_edge(self, symbol: str, direction: str = 'long',
+                            current_price: float = 0.0, volatility: float = 0.0) -> EdgeData:
         """
         Calculate edge for a potential trade (alias for estimate_edge with different signature)
         
         Args:
             symbol: Trading pair
-            current_price: Current market price
-            direction: 'LONG' or 'SHORT'
-            volatility: Current volatility measure
+            direction: 'LONG' or 'SHORT' or 'long' or 'short'
+            current_price: Current market price (optional)
+            volatility: Current volatility measure (optional)
             
         Returns:
             EdgeData compatible object
