@@ -1807,16 +1807,20 @@ async def get_settings(user_id: str = "default"):
     
     # Default settings
     defaults = {
-        "riskMode": "normal",
-        "strategyPreset": "balanced",  # conservative, balanced, aggressive, scalper, swing
-        "takeProfitPercent": 3.0,  # Take profit at +3%
-        "stopLossPercent": 1.5,  # Stop loss at -1.5% (time to recover)
-        "trailingStopPercent": 0.8,  # Trail by 0.8% from peak
-        "minProfitToTrail": 0.5,  # Start trailing at +0.5%
-        "minConfidence": 60,
+        # === AI FULL AUTO MODE ===
+        "aiFullAuto": False,  # When ON: AI manages everything (strategy, positions, risk)
+        "useMaxTradeTime": True,  # Use preset's max_trade_minutes (can disable if aiFullAuto is OFF)
+        
+        "riskMode": "micro",  # Default to MICRO (best preset)
+        "strategyPreset": "micro",  # scalp, micro, swing, conservative, balanced, aggressive
+        "takeProfitPercent": 0.9,  # MICRO default
+        "stopLossPercent": 0.5,  # MICRO default
+        "trailingStopPercent": 0.14,  # MICRO default
+        "minProfitToTrail": 0.45,  # MICRO default
+        "minConfidence": 65,
         "minEdge": 0.15,
         "maxPositionPercent": 5,
-        "maxOpenPositions": 0,  # 0 = unlimited
+        "maxOpenPositions": 0,  # 0 = unlimited (AI decides if aiFullAuto)
         "maxDailyDrawdown": 0,  # 0 = OFF (no daily limit)
         "maxTotalExposure": 100,  # 100% = can use entire budget
         "leverageMode": "auto",  # 1x, 2x, 3x, 5x, 10x, auto
@@ -1862,6 +1866,10 @@ async def get_settings(user_id: str = "default"):
             return {
                 "success": True,
                 "data": {
+                    # AI Full Auto Mode
+                    "aiFullAuto": parsed.get('aiFullAuto', 'false') == 'true',
+                    "useMaxTradeTime": parsed.get('useMaxTradeTime', 'true') == 'true',
+                    
                     "strategyPreset": parsed.get('strategyPreset', defaults['strategyPreset']),
                     "riskMode": parsed.get('riskMode', defaults['riskMode']),
                     "takeProfitPercent": float(parsed.get('takeProfitPercent', defaults['takeProfitPercent'])),
@@ -1929,11 +1937,15 @@ async def save_settings(request: Request, user_id: str = "default"):
     try:
         # Save to Redis - all settings
         settings_to_save = {
+            # === AI FULL AUTO MODE ===
+            'aiFullAuto': str(body.get('aiFullAuto', False)).lower(),
+            'useMaxTradeTime': str(body.get('useMaxTradeTime', True)).lower(),
+            
             # Strategy preset (applies defaults for selected strategy)
-            'strategyPreset': str(body.get('strategyPreset', 'balanced')),
+            'strategyPreset': str(body.get('strategyPreset', 'micro')),
             
             # Risk mode
-            'riskMode': str(body.get('riskMode', 'normal')),
+            'riskMode': str(body.get('riskMode', 'micro')),
             
             # Trading parameters (can override preset values)
             'takeProfitPercent': str(body.get('takeProfitPercent', 3.0)),

@@ -39,6 +39,10 @@ import {
 import Logo from '@/components/Logo'
 
 interface BotSettings {
+  // AI Full Auto Mode
+  aiFullAuto: boolean  // When ON: AI manages everything automatically
+  useMaxTradeTime: boolean  // Use preset's max trade time limit
+  
   strategyPreset: 'scalp' | 'micro' | 'swing' | 'conservative' | 'balanced' | 'aggressive'
   riskMode: 'SCALP' | 'MICRO' | 'SWING' | 'CONSERVATIVE' | 'BALANCED' | 'AGGRESSIVE'
   takeProfitPercent: number
@@ -67,6 +71,10 @@ interface BotSettings {
 }
 
 const defaultSettings: BotSettings = {
+  // AI Full Auto Mode
+  aiFullAuto: false,  // OFF by default - user controls strategy
+  useMaxTradeTime: true,  // Use preset's time limit by default
+  
   strategyPreset: 'micro',  // MICRO is the best default (70-80% winrate)
   riskMode: 'MICRO',
   takeProfitPercent: 0.9,  // MICRO default
@@ -471,11 +479,74 @@ export default function SettingsPage() {
                   </div>
                   <div>
                     <h2 className="text-xl font-semibold text-white">Trading Strategy</h2>
-                    <p className="text-sm text-gray-500">Select a preset or customize your approach</p>
+                    <p className="text-sm text-gray-500">Select a preset or let AI manage everything</p>
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {/* AI FULL AUTO MODE */}
+                <div className="mb-6 p-5 rounded-2xl bg-gradient-to-r from-purple-500/10 to-pink-500/10 border border-purple-500/20">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 rounded-lg bg-purple-500/20">
+                        <Brain className="w-5 h-5 text-purple-400" />
+                      </div>
+                      <div>
+                        <h3 className="font-semibold text-white">AI Full Auto Mode</h3>
+                        <p className="text-xs text-gray-400">AI manages strategy, positions & risk automatically</p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => updateSetting('aiFullAuto', !settings.aiFullAuto)}
+                      className={`relative w-14 h-7 rounded-full transition-colors ${
+                        settings.aiFullAuto ? 'bg-purple-500' : 'bg-gray-700'
+                      }`}
+                    >
+                      <div className={`absolute top-1 w-5 h-5 rounded-full bg-white transition-transform ${
+                        settings.aiFullAuto ? 'translate-x-8' : 'translate-x-1'
+                      }`} />
+                    </button>
+                  </div>
+                  
+                  {settings.aiFullAuto && (
+                    <div className="mt-3 p-3 rounded-lg bg-purple-500/10 border border-purple-500/20">
+                      <p className="text-xs text-purple-300">
+                        🤖 <span className="font-semibold">AI is in control!</span> The bot will automatically:
+                      </p>
+                      <ul className="mt-2 text-xs text-gray-400 space-y-1">
+                        <li>• Switch between SCALP, MICRO, SWING based on market conditions</li>
+                        <li>• Adjust position sizes based on volatility</li>
+                        <li>• Apply optimal entry/exit rules for current regime</li>
+                        <li>• Use max trade time limits from each preset</li>
+                      </ul>
+                    </div>
+                  )}
+                  
+                  {!settings.aiFullAuto && (
+                    <div className="flex items-center justify-between mt-3 pt-3 border-t border-white/10">
+                      <div>
+                        <p className="text-sm text-gray-300">Use Max Trade Time</p>
+                        <p className="text-xs text-gray-500">Close positions after preset's time limit</p>
+                      </div>
+                      <button
+                        onClick={() => updateSetting('useMaxTradeTime', !settings.useMaxTradeTime)}
+                        className={`relative w-12 h-6 rounded-full transition-colors ${
+                          settings.useMaxTradeTime ? 'bg-cyan-500' : 'bg-gray-700'
+                        }`}
+                      >
+                        <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${
+                          settings.useMaxTradeTime ? 'translate-x-7' : 'translate-x-1'
+                        }`} />
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Strategy Presets - only show if not in AI Full Auto */}
+                {!settings.aiFullAuto && (
+                  <p className="text-sm text-gray-400 mb-4">Select your trading strategy:</p>
+                )}
+                
+                <div className={`grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 ${settings.aiFullAuto ? 'opacity-50 pointer-events-none' : ''}`}
                   {(Object.keys(riskPresets) as Array<keyof typeof riskPresets>).map((mode) => {
                     const preset = riskPresets[mode]
                     const Icon = preset.icon

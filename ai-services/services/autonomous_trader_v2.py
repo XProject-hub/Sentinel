@@ -180,6 +180,11 @@ class AutonomousTraderV2:
         
         # Time stop
         self.max_trade_minutes = 25  # Maximum trade duration
+        self.use_max_trade_time = True  # Use preset's max_trade_minutes (user can disable)
+        
+        # === AI FULL AUTO MODE ===
+        self.ai_full_auto = False  # When ON: AI manages everything automatically
+        self.auto_selected_preset = 'micro'  # Preset AI selected based on market
         
         # Regime requirements
         self.regime_required = []  # List of required regimes (empty = any)
@@ -494,6 +499,83 @@ class AutonomousTraderV2:
         else:
             logger.warning(f"Unknown strategy preset '{preset}', using MICRO")
             self._apply_strategy_preset('micro')
+    
+    async def _auto_select_strategy(self, client: BybitV5Client = None) -> str:
+        """
+        AI FULL AUTO: Automatically select the best strategy based on market conditions
+        
+        Logic:
+        - SCALP: High volatility, range-bound, fast moves
+        - MICRO: Normal conditions, moderate volatility (DEFAULT)
+        - SWING: Strong trend, low noise, clear direction
+        
+        Returns the selected preset name
+        """
+        try:
+            # Get current regime
+            regime = "normal"
+            if self.regime_detector:
+                regime_info = self.regime_detector.get_current_regime()
+                regime = regime_info.get('regime', 'normal').lower()
+            
+            # Get BTC volatility as market indicator
+            btc_volatility = 1.5  # Default moderate
+            if client:
+                try:
+                    btc_klines = await client.get_klines('BTCUSDT', interval='15', limit=20)
+                    if btc_klines.get('success') and btc_klines.get('data', {}).get('list'):
+                        klines = btc_klines['data']['list']
+                        # Calculate ATR-like volatility
+                        ranges = []
+                        for k in klines[:10]:
+                            high = float(k[2])
+                            low = float(k[3])
+                            close = float(k[4])
+                            if close > 0:
+                                ranges.append((high - low) / close * 100)
+                        if ranges:
+                            btc_volatility = sum(ranges) / len(ranges)
+                except:
+                    pass
+            
+            # Get recent win rate from stats
+            recent_win_rate = 0.5
+            if self.stats.get('total_trades', 0) > 10:
+                recent_win_rate = self.stats.get('winning_trades', 0) / max(self.stats['total_trades'], 1)
+            
+            # Decision logic
+            selected_preset = 'micro'  # Default
+            
+            # HIGH VOLATILITY + RANGE = SCALP (quick trades)
+            if btc_volatility > 2.0 and regime in ['range', 'sideways', 'choppy']:
+                selected_preset = 'scalp'
+                logger.info(f"AI AUTO: Selected SCALP (volatility={btc_volatility:.1f}%, regime={regime})")
+            
+            # STRONG TREND = SWING (hold longer)
+            elif regime in ['bull', 'bear', 'trend', 'strong_trend']:
+                selected_preset = 'swing'
+                logger.info(f"AI AUTO: Selected SWING (regime={regime}, trend detected)")
+            
+            # LOW WIN RATE = CONSERVATIVE (protect capital)
+            elif recent_win_rate < 0.45:
+                selected_preset = 'conservative'
+                logger.info(f"AI AUTO: Selected CONSERVATIVE (win_rate={recent_win_rate:.0%} too low)")
+            
+            # NORMAL CONDITIONS = MICRO (best default)
+            else:
+                selected_preset = 'micro'
+                logger.info(f"AI AUTO: Selected MICRO (normal conditions, volatility={btc_volatility:.1f}%)")
+            
+            # Apply the selected preset
+            self._apply_strategy_preset(selected_preset)
+            self.auto_selected_preset = selected_preset
+            
+            return selected_preset
+            
+        except Exception as e:
+            logger.warning(f"Auto strategy selection failed: {e}, using MICRO")
+            self._apply_strategy_preset('micro')
+            return 'micro'
         
     async def initialize(
         self,
@@ -738,6 +820,13 @@ class AutonomousTraderV2:
                 await self._load_settings(user_id)
             except Exception as e:
                 logger.debug(f"Failed to load settings for {user_id}: {e}")
+            
+            # 0.5 AI FULL AUTO: Let AI select strategy based on market conditions
+            if self.ai_full_auto:
+                try:
+                    await self._auto_select_strategy(client)
+                except Exception as e:
+                    logger.debug(f"Auto strategy selection failed: {e}")
             
             # 1. Get wallet balance (5s timeout)
             try:
@@ -3504,11 +3593,25 @@ class AutonomousTraderV2:
                     for k, v in data.items()
                 }
                 
-                # Strategy preset (applies preset values FIRST, then custom overrides)
-                self.strategy_preset = parsed.get('strategyPreset', 'balanced')
-                self._apply_strategy_preset(self.strategy_preset)
+                # === AI FULL AUTO MODE ===
+                self.ai_full_auto = parsed.get('aiFullAuto', 'false').lower() == 'true'
+                self.use_max_trade_time = parsed.get('useMaxTradeTime', 'true').lower() == 'true'
                 
-                # Exit strategy (custom values override preset)
+                # If AI Full Auto is ON, AI decides the strategy based on market conditions
+                if self.ai_full_auto:
+                    # AI will select strategy in _auto_select_strategy()
+                    logger.info(f"AI FULL AUTO MODE: AI will manage strategy, positions, and risk")
+                else:
+                    # Use user's selected strategy preset
+                    self.strategy_preset = parsed.get('strategyPreset', 'micro')
+                    self._apply_strategy_preset(self.strategy_preset)
+                    
+                    # If useMaxTradeTime is OFF, disable the time limit
+                    if not self.use_max_trade_time:
+                        self.max_trade_minutes = 0  # 0 = disabled
+                        logger.info(f"Max trade time DISABLED by user")
+                
+                # Exit strategy (custom values override preset ONLY if not in Full Auto)
                 if 'stopLossPercent' in parsed:
                     self.emergency_stop_loss = float(parsed.get('stopLossPercent', self.emergency_stop_loss))
                 if 'takeProfitPercent' in parsed:
