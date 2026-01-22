@@ -200,17 +200,16 @@ export default function SettingsPage() {
 
   useEffect(() => {
     // Get user ID from localStorage (each user has their own settings!)
-    const storedUserId = localStorage.getItem('userId')
-    const storedUser = localStorage.getItem('user')
+    // MUST match dashboard logic: admin@sentinel.ai -> 'default', others -> their UUID
+    const storedUser = localStorage.getItem('sentinel_user')
     
     let currentUserId = 'default'
-    if (storedUserId) {
-      // Admin user (ID 1) maps to 'default'
-      currentUserId = storedUserId === '1' ? 'default' : storedUserId
-    } else if (storedUser) {
+    if (storedUser) {
       try {
         const user = JSON.parse(storedUser)
-        currentUserId = user.id === 1 ? 'default' : String(user.id)
+        // Admin user is identified by EMAIL, not numeric ID
+        const isAdmin = user.email === 'admin@sentinel.ai'
+        currentUserId = isAdmin ? 'default' : (user.id || user.userId || user.user_id || 'default')
       } catch (e) {
         console.error('Failed to parse user from localStorage')
       }
