@@ -704,8 +704,8 @@ class AutonomousTraderV2:
         
         self.is_running = True
         
-        # Load settings (default user for initial global settings)
-        await self._load_settings("default")
+        # DO NOT load global settings here! Each user loads their own in _process_user
+        # Settings are PER USER - no global settings!
         
         # Load stats
         await self._load_stats()
@@ -891,12 +891,9 @@ class AutonomousTraderV2:
                                 await asyncio.sleep(10)
                                 consecutive_errors = 0
                         
-                # Reload settings every 5 cycles (default user for global settings)
-                if cycle % 5 == 0:
-                    try:
-                        await asyncio.wait_for(self._load_settings("default"), timeout=5.0)
-                    except:
-                        pass  # Never fail on settings reload
+                # REMOVED: Global settings reload that was OVERWRITING user settings!
+                # Each user's settings are loaded in _process_user ONLY
+                # NO GLOBAL RELOAD - this was causing settings to be shared!
                 
                 # Log status every 100 cycles
                 if cycle % 100 == 0:
