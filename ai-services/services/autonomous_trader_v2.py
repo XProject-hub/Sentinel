@@ -2013,6 +2013,26 @@ class AutonomousTraderV2:
             except Exception as cancel_err:
                 logger.debug(f"Cancel orders check: {cancel_err}")
             
+            # Check if we already have a position in this symbol (prevents 110007)
+            try:
+                positions_result = await client.get_positions(symbol=opp.symbol)
+                if positions_result.get('success'):
+                    existing_positions = positions_result.get('data', {}).get('list', [])
+                    for pos in existing_positions:
+                        pos_size = float(pos.get('size', 0))
+                        pos_side = pos.get('side', '')
+                        if pos_size > 0:
+                            # Already have a position - check if same direction
+                            if (side == 'Buy' and pos_side == 'Buy') or (side == 'Sell' and pos_side == 'Sell'):
+                                logger.warning(f"Already have {pos_side} position in {opp.symbol} (size: {pos_size}) - skipping")
+                                await self._log_to_console(f"SKIP {opp.symbol}: Already have {pos_side} position", "WARNING", user_id)
+                                return
+                            else:
+                                # Opposite direction - this will be a reverse/close, which is OK
+                                logger.info(f"Have opposite {pos_side} position in {opp.symbol}, this order will reverse it")
+            except Exception as pos_err:
+                logger.debug(f"Position check error: {pos_err}")
+            
             result = await client.place_order(
                 category="linear",  # Explicitly set category
                 symbol=opp.symbol,
@@ -2084,6 +2104,22 @@ class AutonomousTraderV2:
                 error_code = result.get('code', 'unknown')
                 logger.error(f"ORDER FAILED: {opp.symbol} - Code: {error_code} - {error_msg}")
                 logger.error(f"Order params: symbol={opp.symbol}, side={side}, qty={qty_str}, price={opp.current_price}")
+                
+                # For 110007, add more debugging
+                if error_code == 110007:
+                    logger.error(f"110007 DEBUG: This might be due to: 1) Symbol not tradeable, 2) Account restrictions, 3) Insufficient margin for this specific symbol")
+                    # Check wallet balance
+                    try:
+                        wallet = await client.get_wallet_balance()
+                        if wallet.get('success'):
+                            available = 0
+                            for coin in wallet.get('data', {}).get('list', [{}])[0].get('coin', []):
+                                if coin.get('coin') == 'USDT':
+                                    available = float(coin.get('availableToWithdraw', 0))
+                            logger.error(f"110007 DEBUG: Available USDT: ${available:.2f}")
+                    except:
+                        pass
+                
                 await self._log_to_console(f"ORDER FAILED: {opp.symbol} - {error_msg[:50]}", "ERROR", user_id)
                 
                 # ADD COOLDOWN for failed orders - don't retry for 5 minutes
