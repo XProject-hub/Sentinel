@@ -1128,11 +1128,50 @@ class AutonomousTraderV2:
                     logger.error(f"BREAKOUT TRADE FAILED: {opp.symbol} - {e}")
                     await self._log_to_console(f"BREAKOUT FAILED: {opp.symbol} - {str(e)[:50]}", "ERROR", user_id)
             
+            # === SMART TRADING LOGIC ===
+            # Check recent performance - be more conservative if losing
+            user_stats = self._get_user_stats(user_id)
+            recent_trades = user_stats.get('total_trades', 0)
+            recent_wins = user_stats.get('winning_trades', 0)
+            recent_win_rate = (recent_wins / recent_trades * 100) if recent_trades > 0 else 50
+            
+            # Dynamic confidence threshold based on recent performance
+            # If losing (win rate < 50%), require higher confidence
+            adjusted_min_confidence = self.min_confidence
+            adjusted_min_edge = self.min_edge
+            
+            if recent_trades >= 10:  # Only adjust after 10 trades
+                if recent_win_rate < 40:
+                    # We're losing badly - be VERY conservative
+                    adjusted_min_confidence = max(75, self.min_confidence + 15)
+                    adjusted_min_edge = max(0.35, self.min_edge + 0.15)
+                    logger.info(f"CONSERVATIVE MODE: Win rate {recent_win_rate:.1f}% - requiring conf>{adjusted_min_confidence}, edge>{adjusted_min_edge}")
+                elif recent_win_rate < 50:
+                    # We're losing - be more conservative
+                    adjusted_min_confidence = max(70, self.min_confidence + 10)
+                    adjusted_min_edge = max(0.25, self.min_edge + 0.10)
+            
+            # Rate limiting: Only open 1 NORMAL trade per cycle (30 seconds)
+            # This prevents rushing to fill positions
+            normal_trades_this_cycle = 0
+            max_normal_trades_per_cycle = 1  # BE PATIENT - only 1 trade every 30 seconds
+            
+            # Check if we just opened a trade recently (global cooldown)
+            last_trade_time = getattr(self, '_last_trade_time', None)
+            if last_trade_time:
+                seconds_since_trade = (datetime.utcnow() - last_trade_time).total_seconds()
+                if seconds_since_trade < 60:  # Wait at least 60 seconds between trades
+                    logger.debug(f"Global cooldown: {60 - seconds_since_trade:.0f}s until next trade allowed")
+                    return
+            
             # === NORMAL OPPORTUNITY SCAN ===
             # Get opportunities from scanner
             opportunities = await self.market_scanner.get_tradeable_opportunities()
             
             self.stats['opportunities_scanned'] += len(opportunities)
+            # Update GLOBAL counter in Redis for landing page
+            if self.redis_client and len(opportunities) > 0:
+                await self.redis_client.hincrby('trader:stats', 'opportunities_scanned', len(opportunities))
             
             # Log opportunity search status and reset reject counter
             self._reject_count = 0
@@ -1143,18 +1182,22 @@ class AutonomousTraderV2:
             self._scan_log_counter = scan_log_interval + 1
             
             if opportunities:
-                logger.info(f"🔍 Found {len(opportunities)} potential opportunities")
+                logger.info(f"Found {len(opportunities)} opportunities (using conf>{adjusted_min_confidence}, edge>{adjusted_min_edge})")
                 # Console log only every 30 seconds
                 if should_log_scan:
                     top_opps = opportunities[:3]
                     opp_str = ", ".join([f"{o.symbol}({o.edge_score:.2f})" for o in top_opps])
                     await self._log_to_console(f"{len(opportunities)} opportunities | Best: {opp_str}", "SIGNAL")
             else:
-                logger.debug("🔍 No opportunities found in this scan")
+                logger.debug("No opportunities found in this scan")
                 if should_log_scan:
                     await self._log_to_console("Scanning... waiting for signals", "INFO")
             
             for opp in opportunities:
+                # Rate limit: only 1 normal trade per cycle
+                if normal_trades_this_cycle >= max_normal_trades_per_cycle:
+                    logger.debug(f"Rate limit: Already opened {normal_trades_this_cycle} trade(s) this cycle")
+                    break
                 # Skip if we have max positions (0 = unlimited)
                 num_positions = len(self.active_positions.get(user_id, {}))
                 if self.max_open_positions > 0 and num_positions >= self.max_open_positions:
@@ -1175,16 +1218,31 @@ class AutonomousTraderV2:
                         # Cooldown expired, remove from dict
                         del self._cooldown_symbols[opp.symbol]
                     
-                # Validate the opportunity
-                should_trade, reason = await self._validate_opportunity(opp, wallet, client)
+                # Validate the opportunity with ADJUSTED thresholds
+                should_trade, reason = await self._validate_opportunity(
+                    opp, wallet, client,
+                    adjusted_min_confidence=adjusted_min_confidence,
+                    adjusted_min_edge=adjusted_min_edge
+                )
                 
                 if should_trade:
-                    logger.info(f" OPENING TRADE: {opp.symbol} | Edge={opp.edge_score:.2f} | Conf={opp.confidence:.0f}%")
+                    # CONSULT Q-LEARNING before trading - use learned knowledge!
+                    q_value = await self._get_q_value_for_trade(opp.symbol, opp.direction)
+                    if q_value is not None and q_value < -0.1:
+                        logger.info(f"Q-Learning says AVOID {opp.symbol} (Q={q_value:.2f})")
+                        await self._log_to_console(f"SKIPPED {opp.symbol}: Q-Learning negative ({q_value:.2f})", "WARNING", user_id)
+                        continue
+                    
+                    logger.info(f"OPENING TRADE: {opp.symbol} | Edge={opp.edge_score:.2f} | Conf={opp.confidence:.0f}% | Q={q_value or 'N/A'}")
                     await self._execute_trade(user_id, client, opp, wallet)
+                    
+                    # Track trade timing for rate limiting
+                    self._last_trade_time = datetime.utcnow()
+                    normal_trades_this_cycle += 1
                 else:
                     # Log first 3 rejections per cycle to avoid spam
                     if not hasattr(self, '_reject_count') or self._reject_count < 3:
-                        logger.info(f" Rejected {opp.symbol}: {reason}")
+                        logger.info(f"Rejected {opp.symbol}: {reason}")
                         self._reject_count = getattr(self, '_reject_count', 0) + 1
                     
         except Exception as e:
@@ -1490,12 +1548,52 @@ class AutonomousTraderV2:
             logger.debug(f"News sentiment analysis error: {e}")
             return 0, "Analysis error"
             
-    async def _validate_opportunity(self, opp: TradingOpportunity, wallet: Dict, client: BybitV5Client = None) -> Tuple[bool, str]:
+    async def _get_q_value_for_trade(self, symbol: str, direction: str) -> Optional[float]:
+        """
+        CONSULT Q-LEARNING before trading!
+        
+        Returns the Q-value for this symbol/direction combo.
+        Positive Q = historically profitable
+        Negative Q = historically losing
+        """
+        try:
+            if not self.redis_client:
+                return None
+                
+            # Get current market regime
+            regime = "normal"
+            regime_data = await self.redis_client.get('bot:current_regime')
+            if regime_data:
+                regime = regime_data.decode() if isinstance(regime_data, bytes) else regime_data
+            
+            # Load Q-values
+            q_values_raw = await self.redis_client.get('ai:learning:q_values')
+            if not q_values_raw:
+                return None
+                
+            q_values = json.loads(q_values_raw)
+            
+            # Try to find Q-value for this regime and action
+            regime_q = q_values.get(regime, {})
+            action = 'buy' if direction == 'long' else 'sell'
+            
+            if action in regime_q:
+                return float(regime_q[action])
+            
+            # Try 'hold' as default
+            return float(regime_q.get('hold', 0))
+            
+        except Exception as e:
+            logger.debug(f"Q-value lookup failed: {e}")
+            return None
+    
+    async def _validate_opportunity(self, opp: TradingOpportunity, wallet: Dict, client: BybitV5Client = None,
+                                    adjusted_min_confidence: float = None, adjusted_min_edge: float = None) -> Tuple[bool, str]:
         """
         SUPERIOR validation using ALL AI models
         
         Checks:
-        1. Basic edge/confidence
+        1. Basic edge/confidence (with DYNAMIC thresholds based on recent performance)
         2. NEWS SENTIMENT (reads and understands news!)
         3. MOMENTUM FILTER (LOCK PROFIT only!)
         4. XGBoost ML classification
@@ -1516,15 +1614,19 @@ class AutonomousTraderV2:
                 return False, "Insufficient equity"
             return True, "Breakout trade approved"
         
-        # 1. Edge check
-        if opp.edge_score < self.min_edge:
+        # Use adjusted thresholds if provided (based on recent performance)
+        min_edge = adjusted_min_edge if adjusted_min_edge is not None else self.min_edge
+        min_confidence = adjusted_min_confidence if adjusted_min_confidence is not None else self.min_confidence
+        
+        # 1. Edge check (DYNAMIC based on recent performance)
+        if opp.edge_score < min_edge:
             self.stats['trades_rejected_low_edge'] += 1
-            return False, f"Edge too low ({opp.edge_score:.2f} < {self.min_edge})"
+            return False, f"Edge too low ({opp.edge_score:.2f} < {min_edge:.2f})"
             
-        # 2. Confidence check
-        if opp.confidence < self.min_confidence:
+        # 2. Confidence check (DYNAMIC based on recent performance)
+        if opp.confidence < min_confidence:
             self.stats['trades_rejected_low_edge'] += 1
-            return False, f"Confidence too low ({opp.confidence:.1f} < {self.min_confidence})"
+            return False, f"Confidence too low ({opp.confidence:.1f} < {min_confidence:.0f})"
         
         # 2.5 NEWS SENTIMENT ANALYSIS - AI reads and understands news!
         try:
