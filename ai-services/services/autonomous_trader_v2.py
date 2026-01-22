@@ -139,14 +139,16 @@ class AutonomousTraderV2:
         self.min_edge = 0.15  # Minimum edge to consider trade
         self.min_confidence = 60  # Minimum confidence
         
-        # Exit strategy - OPTIMIZED FOR PROFIT
-        # Key: Risk/Reward must be at least 1:1
-        # Old: Trail 0.15%, SL 1.5% = avg win ~+0.3%, avg loss ~-1.5% = LOSING
-        # New: Trail 0.5%, SL 0.8% = avg win ~+0.8%, avg loss ~-0.8% = BREAKEVEN minimum
-        self.min_profit_to_trail = 0.3  # Start trailing earlier at +0.3%
-        self.trail_from_peak = 0.5  # Let winners run - trail by 0.5% from peak
-        self.emergency_stop_loss = 0.8  # TIGHT stop loss at -0.8% (was 1.5%)
-        self.take_profit = 2.0  # Take profit at +2% (was 3%)
+        # Exit strategy - USER CONFIGURABLE
+        # User can choose strategy preset or customize values
+        self.min_profit_to_trail = 0.5  # Start trailing at +0.5%
+        self.trail_from_peak = 0.8  # Trail by 0.8% from peak (balanced)
+        self.emergency_stop_loss = 1.5  # Stop loss at -1.5% (give time to recover)
+        self.take_profit = 3.0  # Take profit at +3%
+        
+        # Strategy preset (user selectable)
+        # Options: 'conservative', 'balanced', 'aggressive', 'scalper', 'custom'
+        self.strategy_preset = 'balanced'
         
         # Smart exit (MICRO PROFIT mode)
         self.breakeven_trigger = 0.25  # Move SL to entry at +0.25%
@@ -219,6 +221,66 @@ class AutonomousTraderV2:
                 'opportunities_scanned': 0
             }
         return self.user_stats[user_id]
+    
+    def _apply_strategy_preset(self, preset: str):
+        """
+        Apply a trading strategy preset
+        
+        Presets:
+        - conservative: Tight SL, early TP, for capital preservation
+        - balanced: Middle ground, good for most users (DEFAULT)
+        - aggressive: Wide SL, let trades run, for experienced traders
+        - scalper: Very tight exits, high frequency, small gains
+        - swing: Wide stops, hold longer, for bigger moves
+        """
+        presets = {
+            'conservative': {
+                'stop_loss': 0.8,      # Tight SL to limit losses
+                'take_profit': 1.5,    # Early TP to secure gains
+                'trailing': 0.3,       # Tight trailing
+                'min_trail': 0.2,      # Trail early
+                'description': 'Small losses, small wins - capital preservation'
+            },
+            'balanced': {
+                'stop_loss': 1.5,      # Medium SL - time to recover
+                'take_profit': 3.0,    # Decent TP target
+                'trailing': 0.8,       # Balanced trailing
+                'min_trail': 0.5,      # Trail after some profit
+                'description': 'Balanced risk/reward - recommended for most'
+            },
+            'aggressive': {
+                'stop_loss': 2.5,      # Wide SL - more room
+                'take_profit': 5.0,    # High TP target
+                'trailing': 1.2,       # Wide trailing - let it run
+                'min_trail': 1.0,      # Trail only after big profit
+                'description': 'Big wins, big losses - for risk takers'
+            },
+            'scalper': {
+                'stop_loss': 0.5,      # Very tight SL
+                'take_profit': 0.8,    # Quick small profit
+                'trailing': 0.15,      # Ultra tight trailing
+                'min_trail': 0.1,      # Trail immediately
+                'description': 'Quick in/out - many small trades'
+            },
+            'swing': {
+                'stop_loss': 3.0,      # Very wide SL
+                'take_profit': 8.0,    # High TP for big moves
+                'trailing': 2.0,       # Wide trailing
+                'min_trail': 1.5,      # Trail after significant profit
+                'description': 'Hold longer for bigger moves'
+            }
+        }
+        
+        if preset in presets:
+            config = presets[preset]
+            self.emergency_stop_loss = config['stop_loss']
+            self.take_profit = config['take_profit']
+            self.trail_from_peak = config['trailing']
+            self.min_profit_to_trail = config['min_trail']
+            logger.info(f" Strategy preset '{preset}' applied: SL={config['stop_loss']}%, TP={config['take_profit']}%, Trail={config['trailing']}%")
+        else:
+            logger.warning(f"Unknown strategy preset '{preset}', using balanced")
+            self._apply_strategy_preset('balanced')
         
     async def initialize(
         self,
@@ -2605,11 +2667,19 @@ class AutonomousTraderV2:
                     for k, v in data.items()
                 }
                 
-                # Exit strategy
-                self.emergency_stop_loss = float(parsed.get('stopLossPercent', self.emergency_stop_loss))
-                self.take_profit = float(parsed.get('takeProfitPercent', self.take_profit))
-                self.trail_from_peak = float(parsed.get('trailingStopPercent', self.trail_from_peak))
-                self.min_profit_to_trail = float(parsed.get('minProfitToTrail', self.min_profit_to_trail))
+                # Strategy preset (applies preset values FIRST, then custom overrides)
+                self.strategy_preset = parsed.get('strategyPreset', 'balanced')
+                self._apply_strategy_preset(self.strategy_preset)
+                
+                # Exit strategy (custom values override preset)
+                if 'stopLossPercent' in parsed:
+                    self.emergency_stop_loss = float(parsed.get('stopLossPercent', self.emergency_stop_loss))
+                if 'takeProfitPercent' in parsed:
+                    self.take_profit = float(parsed.get('takeProfitPercent', self.take_profit))
+                if 'trailingStopPercent' in parsed:
+                    self.trail_from_peak = float(parsed.get('trailingStopPercent', self.trail_from_peak))
+                if 'minProfitToTrail' in parsed:
+                    self.min_profit_to_trail = float(parsed.get('minProfitToTrail', self.min_profit_to_trail))
                 
                 # Entry filters
                 self.min_confidence = float(parsed.get('minConfidence', self.min_confidence))

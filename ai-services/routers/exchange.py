@@ -1804,10 +1804,11 @@ async def get_settings():
     # Default settings
     defaults = {
         "riskMode": "normal",
-        "takeProfitPercent": 2.0,  # Take profit at +2%
-        "stopLossPercent": 0.8,  # TIGHT stop loss at -0.8% (better R:R)
-        "trailingStopPercent": 0.5,  # Let winners run - trail by 0.5%
-        "minProfitToTrail": 0.3,  # Start trailing earlier at +0.3%
+        "strategyPreset": "balanced",  # conservative, balanced, aggressive, scalper, swing
+        "takeProfitPercent": 3.0,  # Take profit at +3%
+        "stopLossPercent": 1.5,  # Stop loss at -1.5% (time to recover)
+        "trailingStopPercent": 0.8,  # Trail by 0.8% from peak
+        "minProfitToTrail": 0.5,  # Start trailing at +0.5%
         "minConfidence": 60,
         "minEdge": 0.15,
         "maxPositionPercent": 5,
@@ -1856,6 +1857,7 @@ async def get_settings():
             return {
                 "success": True,
                 "data": {
+                    "strategyPreset": parsed.get('strategyPreset', defaults['strategyPreset']),
                     "riskMode": parsed.get('riskMode', defaults['riskMode']),
                     "takeProfitPercent": float(parsed.get('takeProfitPercent', defaults['takeProfitPercent'])),
                     "stopLossPercent": float(parsed.get('stopLossPercent', defaults['stopLossPercent'])),
@@ -1918,14 +1920,17 @@ async def save_settings(request: Request):
     try:
         # Save to Redis - all settings
         settings_to_save = {
+            # Strategy preset (applies defaults for selected strategy)
+            'strategyPreset': str(body.get('strategyPreset', 'balanced')),
+            
             # Risk mode
             'riskMode': str(body.get('riskMode', 'normal')),
             
-            # Trading parameters
+            # Trading parameters (can override preset values)
             'takeProfitPercent': str(body.get('takeProfitPercent', 3.0)),
             'stopLossPercent': str(body.get('stopLossPercent', 1.5)),
-            'trailingStopPercent': str(body.get('trailingStopPercent', 1.0)),
-            'minProfitToTrail': str(body.get('minProfitToTrail', 0.8)),
+            'trailingStopPercent': str(body.get('trailingStopPercent', 0.8)),
+            'minProfitToTrail': str(body.get('minProfitToTrail', 0.5)),
             'minConfidence': str(body.get('minConfidence', 60)),
             'minEdge': str(body.get('minEdge', 0.15)),
             

@@ -39,6 +39,7 @@ import {
 import Logo from '@/components/Logo'
 
 interface BotSettings {
+  strategyPreset: 'conservative' | 'balanced' | 'aggressive' | 'scalper' | 'swing'
   riskMode: 'NORMAL' | 'LOCK_PROFIT' | 'MICRO_PROFIT' | 'SCALPER' | 'SWING'
   takeProfitPercent: number
   stopLossPercent: number
@@ -65,13 +66,68 @@ interface BotSettings {
   breakoutExtraSlots: boolean  // Allow +2 extra positions for breakouts
 }
 
+// Strategy presets with their configurations
+const STRATEGY_PRESETS = {
+  conservative: {
+    name: 'Conservative',
+    description: 'Small losses, small wins - capital preservation',
+    icon: '🛡️',
+    color: 'from-blue-500 to-cyan-500',
+    stopLoss: 0.8,
+    takeProfit: 1.5,
+    trailing: 0.3,
+    minTrail: 0.2
+  },
+  balanced: {
+    name: 'Balanced',
+    description: 'Balanced risk/reward - recommended for most',
+    icon: '⚖️',
+    color: 'from-green-500 to-emerald-500',
+    stopLoss: 1.5,
+    takeProfit: 3.0,
+    trailing: 0.8,
+    minTrail: 0.5
+  },
+  aggressive: {
+    name: 'Aggressive',
+    description: 'Big wins, big losses - for risk takers',
+    icon: '🔥',
+    color: 'from-orange-500 to-red-500',
+    stopLoss: 2.5,
+    takeProfit: 5.0,
+    trailing: 1.2,
+    minTrail: 1.0
+  },
+  scalper: {
+    name: 'Scalper',
+    description: 'Quick in/out - many small trades',
+    icon: '⚡',
+    color: 'from-yellow-500 to-amber-500',
+    stopLoss: 0.5,
+    takeProfit: 0.8,
+    trailing: 0.15,
+    minTrail: 0.1
+  },
+  swing: {
+    name: 'Swing Trader',
+    description: 'Hold longer for bigger moves',
+    icon: '📈',
+    color: 'from-purple-500 to-pink-500',
+    stopLoss: 3.0,
+    takeProfit: 8.0,
+    trailing: 2.0,
+    minTrail: 1.5
+  }
+}
+
 const defaultSettings: BotSettings = {
+  strategyPreset: 'balanced',
   riskMode: 'NORMAL',
-  takeProfitPercent: 0,
+  takeProfitPercent: 3.0,
   stopLossPercent: 1.5,
-  trailingStopPercent: 0.13,
-  minProfitToTrail: 0.35,
-  maxOpenPositions: 5,
+  trailingStopPercent: 0.8,
+  minProfitToTrail: 0.5,
+  maxOpenPositions: 10,
   maxPositionPercent: 10,
   maxTotalExposure: 80,
   maxDailyDrawdown: 0,  // 0 = OFF (no daily limit)
@@ -92,51 +148,52 @@ const defaultSettings: BotSettings = {
   breakoutExtraSlots: false  // OFF by default - user must enable
 }
 
+// Strategy presets - optimized risk/reward configurations
 const riskPresets = {
+  CONSERVATIVE: {
+    takeProfitPercent: 1.5,
+    stopLossPercent: 0.8,
+    trailingStopPercent: 0.3,
+    minProfitToTrail: 0.2,
+    description: 'Small losses, small wins - capital preservation',
+    icon: Shield,
+    color: 'blue'
+  },
   NORMAL: {
-    takeProfitPercent: 0,
+    takeProfitPercent: 3.0,
     stopLossPercent: 1.5,
-    trailingStopPercent: 0.13,
-    minProfitToTrail: 0.35,
-    description: 'Balanced risk/reward with trailing stops',
+    trailingStopPercent: 0.8,
+    minProfitToTrail: 0.5,
+    description: 'Balanced risk/reward - recommended for most',
     icon: Activity,
     color: 'cyan'
   },
-  LOCK_PROFIT: {
-    takeProfitPercent: 2.0,
-    stopLossPercent: 1.0,
-    trailingStopPercent: 0.25,
-    minProfitToTrail: 0.5,
-    description: 'Lock profits quickly with tight stops',
-    icon: Lock,
-    color: 'emerald'
-  },
-  MICRO_PROFIT: {
-    takeProfitPercent: 0.5,
-    stopLossPercent: 0.3,
-    trailingStopPercent: 0.10,
-    minProfitToTrail: 0.2,
-    description: 'Many small profits, minimal risk',
-    icon: Sparkles,
-    color: 'violet'
+  AGGRESSIVE: {
+    takeProfitPercent: 5.0,
+    stopLossPercent: 2.5,
+    trailingStopPercent: 1.2,
+    minProfitToTrail: 1.0,
+    description: 'Big wins, big losses - for risk takers',
+    icon: Zap,
+    color: 'orange'
   },
   SCALPER: {
-    takeProfitPercent: 0.3,
-    stopLossPercent: 0.2,
-    trailingStopPercent: 0.08,
-    minProfitToTrail: 0.15,
-    description: 'Ultra-fast high frequency trades',
-    icon: Zap,
+    takeProfitPercent: 0.8,
+    stopLossPercent: 0.5,
+    trailingStopPercent: 0.15,
+    minProfitToTrail: 0.1,
+    description: 'Quick in/out - many small trades',
+    icon: Sparkles,
     color: 'amber'
   },
   SWING: {
-    takeProfitPercent: 5.0,
-    stopLossPercent: 2.5,
-    trailingStopPercent: 0.5,
-    minProfitToTrail: 1.0,
-    description: 'Longer holds for bigger moves',
+    takeProfitPercent: 8.0,
+    stopLossPercent: 3.0,
+    trailingStopPercent: 2.0,
+    minProfitToTrail: 1.5,
+    description: 'Hold longer for bigger moves',
     icon: TrendingUp,
-    color: 'blue'
+    color: 'purple'
   }
 }
 
@@ -238,8 +295,17 @@ export default function SettingsPage() {
 
   const applyPreset = (mode: keyof typeof riskPresets) => {
     const preset = riskPresets[mode]
+    // Map frontend mode names to backend strategyPreset names
+    const presetMap: { [key: string]: string } = {
+      'CONSERVATIVE': 'conservative',
+      'NORMAL': 'balanced',
+      'AGGRESSIVE': 'aggressive',
+      'SCALPER': 'scalper',
+      'SWING': 'swing'
+    }
     setSettings(prev => ({
       ...prev,
+      strategyPreset: (presetMap[mode] || 'balanced') as BotSettings['strategyPreset'],
       riskMode: mode,
       takeProfitPercent: preset.takeProfitPercent,
       stopLossPercent: preset.stopLossPercent,
