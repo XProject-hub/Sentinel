@@ -2374,24 +2374,22 @@ class AutonomousTraderV2:
                 # Log the trade type
                 trade_type = "PRE-BREAKOUT" if is_pre_breakout else "BREAKOUT"
                 
-                # === QUALITY CHECK FOR BREAKOUTS ===
-                # Breakouts use USER'S settings (from Settings → AI Filters)
-                # But with a lower threshold since breakouts are momentum-based
-                breakout_min_confidence = max(50, self.min_confidence * 0.7)  # 70% of user's Min Confidence, min 50%
-                breakout_min_edge = max(0.1, self.min_edge * 0.8)  # 80% of user's Min Edge, min 0.1
+                # === FULL VALIDATION FOR BREAKOUTS ===
+                # Breakouts MUST pass ALL filters: RSI, candles, spread, BTC correlation, etc.
+                # This ensures we don't enter bad trades even during breakouts!
+                should_trade, reject_reason = await self._validate_opportunity(
+                    opp, wallet, client,
+                    adjusted_min_confidence=max(50, self.min_confidence * 0.7),  # Slightly lower confidence for breakouts
+                    adjusted_min_edge=max(0.1, self.min_edge * 0.8)  # Slightly lower edge for breakouts
+                )
                 
-                if opp.confidence < breakout_min_confidence:
-                    logger.info(f"🚫 {trade_type} BLOCKED: {opp.symbol} - Confidence {opp.confidence:.0f}% < {breakout_min_confidence:.0f}% (user: {self.min_confidence}%)")
-                    await self._log_to_console(f"{trade_type} BLOCKED: {opp.symbol} - Low confidence ({opp.confidence:.0f}%)", "WARNING", user_id)
+                if not should_trade:
+                    logger.info(f"🚫 {trade_type} BLOCKED: {opp.symbol} - {reject_reason}")
+                    await self._log_to_console(f"{trade_type} BLOCKED: {opp.symbol} - {reject_reason[:40]}", "WARNING", user_id)
                     continue
                 
-                if opp.edge_score < breakout_min_edge:
-                    logger.info(f"🚫 {trade_type} BLOCKED: {opp.symbol} - Edge {opp.edge_score:.2f} < {breakout_min_edge:.2f} (user: {self.min_edge})")
-                    await self._log_to_console(f"{trade_type} BLOCKED: {opp.symbol} - Low edge ({opp.edge_score:.2f})", "WARNING", user_id)
-                    continue
-                
-                # Passed quality checks - proceed with trade
-                logger.info(f"✅ {trade_type} APPROVED: {opp.symbol} | Conf: {opp.confidence:.0f}% | Edge: {opp.edge_score:.2f}")
+                # Passed ALL filters - proceed with trade
+                logger.info(f"✅ {trade_type} APPROVED: {opp.symbol} | Conf: {opp.confidence:.0f}% | Edge: {opp.edge_score:.2f} | Passed ALL filters")
                 logger.info(f"{trade_type} TRADE: {opp.symbol} | {opp.price_change_24h:+.1f}%")
                 await self._log_to_console(f"OPENING {trade_type}: {opp.symbol} {opp.price_change_24h:+.1f}%", "TRADE", user_id)
                 try:
@@ -2966,24 +2964,29 @@ class AutonomousTraderV2:
         
         # Breakouts ALSO need minimum quality thresholds based on USER'S settings
         if is_breakout:
-            # Use 70% of user's min_confidence, with floor of 50%
-            breakout_min_confidence = max(50, self.min_confidence * 0.7)
+            # Use adjusted thresholds if provided (from caller), otherwise calculate from user settings
+            if adjusted_min_confidence is not None:
+                breakout_min_confidence = adjusted_min_confidence
+            else:
+                breakout_min_confidence = max(50, self.min_confidence * 0.7)
+            
+            if adjusted_min_edge is not None:
+                breakout_min_edge = adjusted_min_edge
+            else:
+                breakout_min_edge = max(0.1, self.min_edge * 0.8)
             
             if opp.confidence < breakout_min_confidence:
                 self.stats['trades_rejected_low_edge'] += 1
                 logger.info(f"BREAKOUT BLOCKED: {opp.symbol} - Confidence {opp.confidence:.0f}% < {breakout_min_confidence:.0f}% (user: {self.min_confidence}%)")
                 return False, f"Breakout confidence too low ({opp.confidence:.0f}% < {breakout_min_confidence:.0f}%)"
             
-            # Use 80% of user's min_edge, with floor of 0.1
-            breakout_min_edge = max(0.1, self.min_edge * 0.8)
-            
             if opp.edge_score < breakout_min_edge:
                 self.stats['trades_rejected_low_edge'] += 1
                 logger.info(f"BREAKOUT BLOCKED: {opp.symbol} - Edge {opp.edge_score:.2f} < {breakout_min_edge:.2f} (user: {self.min_edge})")
                 return False, f"Breakout edge too low ({opp.edge_score:.2f} < {breakout_min_edge:.2f})"
             
-            logger.info(f"✅ Breakout {opp.symbol} APPROVED - Conf: {opp.confidence:.0f}%, Edge: {opp.edge_score:.2f}")
-            return True, "Breakout confirmed with quality checks"
+                logger.info(f"✅ Breakout {opp.symbol} APPROVED - Conf: {opp.confidence:.0f}%, Edge: {opp.edge_score:.2f} | RSI/Candles/Spread/BTC OK!")
+            return True, "Breakout: ALL filters passed (RSI, candles, spread, BTC, news)"
         
         # Use adjusted thresholds if provided (based on recent performance)
         min_edge = adjusted_min_edge if adjusted_min_edge is not None else self.min_edge
