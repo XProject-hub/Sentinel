@@ -25,11 +25,21 @@ class RegimeState:
     confidence: float  # 0-1
     volatility: float  # ATR-based
     trend_strength: float  # -1 to 1
+    recommended_action: str = 'HOLD'  # BUY, SELL, HOLD
+    liquidity_score: float = 50.0  # 0-100
     timestamp: datetime = None
     
     def __post_init__(self):
         if self.timestamp is None:
             self.timestamp = datetime.utcnow()
+        # Auto-set recommended action based on regime
+        if not self.recommended_action or self.recommended_action == 'HOLD':
+            if self.regime == 'BULL':
+                self.recommended_action = 'BUY'
+            elif self.regime == 'BEAR':
+                self.recommended_action = 'SELL'
+            else:
+                self.recommended_action = 'HOLD'
 
 
 class RegimeDetector:
@@ -95,7 +105,9 @@ class RegimeDetector:
                 regime='RANGE',
                 confidence=0.3,
                 volatility=1.5,
-                trend_strength=0.0
+                trend_strength=0.0,
+                recommended_action='HOLD',
+                liquidity_score=50.0
             )
     
     def _calculate_regime(self, klines: list) -> RegimeState:
@@ -107,7 +119,7 @@ class RegimeDetector:
             lows = [float(k[3]) for k in klines[:50]]
             
             if len(closes) < 20:
-                return RegimeState(regime='RANGE', confidence=0.5, volatility=1.5, trend_strength=0.0)
+                return RegimeState(regime='RANGE', confidence=0.5, volatility=1.5, trend_strength=0.0, recommended_action='HOLD', liquidity_score=50.0)
             
             # Calculate indicators
             closes_arr = np.array(closes)
@@ -147,16 +159,29 @@ class RegimeDetector:
                 regime = 'RANGE'
                 confidence = 0.7
             
+            # Determine recommended action
+            if regime == 'BULL' and trend_strength > 0.3:
+                action = 'BUY'
+            elif regime == 'BEAR' and trend_strength < -0.3:
+                action = 'SELL'
+            else:
+                action = 'HOLD'
+            
+            # Estimate liquidity score (based on volatility - lower vol = higher liquidity usually)
+            liquidity = max(0, min(100, 100 - volatility * 20))
+            
             return RegimeState(
                 regime=regime,
                 confidence=confidence,
                 volatility=volatility,
-                trend_strength=trend_strength
+                trend_strength=trend_strength,
+                recommended_action=action,
+                liquidity_score=liquidity
             )
             
         except Exception as e:
             logger.error(f"Regime calculation failed: {e}")
-            return RegimeState(regime='RANGE', confidence=0.5, volatility=1.5, trend_strength=0.0)
+            return RegimeState(regime='RANGE', confidence=0.5, volatility=1.5, trend_strength=0.0, recommended_action='HOLD', liquidity_score=50.0)
     
     def get_current_regime(self) -> Dict[str, Any]:
         """Get current overall market regime (from cache)"""

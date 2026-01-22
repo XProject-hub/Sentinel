@@ -725,13 +725,27 @@ async def get_ai_intelligence():
             intelligence["strategy_mode"] = settings.get("riskMode", "NORMAL").upper()
         
         # Get trader stats for pairs analyzed
-        stats_raw = await r.get("trader:stats")
-        if stats_raw:
-            stats = json.loads(stats_raw)
-            intelligence["pairs_analyzed"] = int(stats.get("opportunities_scanned", 0))
+        try:
+            stats_raw = await r.get("trader:stats")
+            if stats_raw:
+                stats = json.loads(stats_raw)
+                intelligence["pairs_analyzed"] = int(stats.get("opportunities_scanned", 0))
+        except Exception:
+            # Try hash format
+            try:
+                stats = await r.hgetall("trader:stats")
+                if stats:
+                    pairs = stats.get(b'opportunities_scanned') or stats.get('opportunities_scanned')
+                    if pairs:
+                        intelligence["pairs_analyzed"] = int(pairs)
+            except Exception:
+                pass
         
-        # Get last console log for last action
-        console_logs_raw = await r.lrange("bot:console:logs", 0, 5)
+        # Get last console log for last action - use user-specific key
+        try:
+            console_logs_raw = await r.lrange("bot:console:logs:default", 0, 5)
+        except Exception:
+            console_logs_raw = []
         if console_logs_raw:
             # Find the most recent TRADE or SIGNAL action
             for log_raw in console_logs_raw:

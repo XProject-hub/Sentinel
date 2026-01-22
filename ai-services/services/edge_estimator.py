@@ -135,7 +135,7 @@ class EdgeEstimator:
                 sample_size=0
             )
     
-    def record_outcome(self, symbol: str, won: bool, pnl_percent: float):
+    async def record_outcome(self, symbol: str, entry_edge: float, won: bool, pnl_percent: float = 0.0):
         """Record trade outcome for future edge calculations"""
         try:
             # Update symbol stats
