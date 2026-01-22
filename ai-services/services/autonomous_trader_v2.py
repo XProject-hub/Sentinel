@@ -184,6 +184,10 @@ class AutonomousTraderV2:
         self._cooldown_symbols: Dict[str, datetime] = {}
         self.cooldown_seconds = 60  # Wait 60 seconds before reopening same symbol
         
+        # FAILED ORDER COOLDOWN: Prevent retrying failed orders immediately
+        self._failed_order_symbols: Dict[str, datetime] = {}
+        self.failed_order_cooldown = 300  # Wait 5 minutes before retrying failed order
+        
         # Per-user statistics (isolated per user)
         self.user_stats: Dict[str, Dict] = {}
         
@@ -1121,6 +1125,17 @@ class AutonomousTraderV2:
                     logger.debug(f"BREAKOUT {opp.symbol} skipped - already in position")
                     continue
                 
+                # Check if this symbol recently failed - don't retry for 5 minutes
+                if opp.symbol in self._failed_order_symbols:
+                    failed_time = self._failed_order_symbols[opp.symbol]
+                    elapsed = (datetime.utcnow() - failed_time).total_seconds()
+                    if elapsed < self.failed_order_cooldown:
+                        logger.debug(f"BREAKOUT {opp.symbol} skipped - failed order cooldown ({int(self.failed_order_cooldown - elapsed)}s remaining)")
+                        continue
+                    else:
+                        # Cooldown expired, remove from dict
+                        del self._failed_order_symbols[opp.symbol]
+                
                 # Breakouts skip most validation - they're already high-conviction
                 logger.info(f"BREAKOUT TRADE: {opp.symbol} | {opp.price_change_24h:+.1f}%")
                 await self._log_to_console(f"OPENING BREAKOUT: {opp.symbol} {opp.price_change_24h:+.1f}%", "TRADE", user_id)
@@ -1216,11 +1231,21 @@ class AutonomousTraderV2:
                     cooldown_time = self._cooldown_symbols[opp.symbol]
                     elapsed = (datetime.utcnow() - cooldown_time).total_seconds()
                     if elapsed < self.cooldown_seconds:
-                        logger.debug(f" {opp.symbol} on cooldown ({int(self.cooldown_seconds - elapsed)}s remaining)")
+                        logger.debug(f"{opp.symbol} on cooldown ({int(self.cooldown_seconds - elapsed)}s remaining)")
                         continue
                     else:
                         # Cooldown expired, remove from dict
                         del self._cooldown_symbols[opp.symbol]
+                
+                # Skip if symbol recently had failed order - don't spam retries
+                if opp.symbol in self._failed_order_symbols:
+                    failed_time = self._failed_order_symbols[opp.symbol]
+                    elapsed = (datetime.utcnow() - failed_time).total_seconds()
+                    if elapsed < self.failed_order_cooldown:
+                        logger.debug(f"{opp.symbol} on failed order cooldown ({int(self.failed_order_cooldown - elapsed)}s remaining)")
+                        continue
+                    else:
+                        del self._failed_order_symbols[opp.symbol]
                     
                 # Validate the opportunity with ADJUSTED thresholds
                 should_trade, reason = await self._validate_opportunity(
@@ -2027,9 +2052,16 @@ class AutonomousTraderV2:
                 logger.error(f"ORDER FAILED: {opp.symbol} - {error_msg}")
                 await self._log_to_console(f"ORDER FAILED: {opp.symbol} - {error_msg[:50]}", "ERROR", user_id)
                 
+                # ADD COOLDOWN for failed orders - don't retry for 5 minutes
+                self._failed_order_symbols[opp.symbol] = datetime.utcnow()
+                logger.info(f"Added {opp.symbol} to failed order cooldown for {self.failed_order_cooldown}s")
+                
         except Exception as e:
             logger.error(f"Execute trade error for {opp.symbol}: {e}")
             await self._log_to_console(f"TRADE ERROR: {opp.symbol} - {str(e)[:50]}", "ERROR", user_id)
+            
+            # Also add to cooldown on exception
+            self._failed_order_symbols[opp.symbol] = datetime.utcnow()
             
     async def _get_ticker(self, client: BybitV5Client, symbol: str) -> Optional[Dict]:
         """Get current ticker for a symbol"""
