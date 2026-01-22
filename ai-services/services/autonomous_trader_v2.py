@@ -45,6 +45,14 @@ from services.price_predictor import price_predictor
 from services.capital_allocator import capital_allocator, MarketOpportunity
 from services.whale_tracker import whale_tracker
 
+# V4 HuggingFace Safety Models (GATES, not signals!)
+try:
+    from services.hf_safety_models import hf_safety, get_hf_safety
+    HF_SAFETY_AVAILABLE = True
+except ImportError:
+    HF_SAFETY_AVAILABLE = False
+    logger.warning("HuggingFace safety models not available")
+
 
 def safe_float(val, default=0.0):
     """Safely convert value to float"""
@@ -677,6 +685,17 @@ class AutonomousTraderV2:
             logger.info("Whale tracker started")
         except Exception as e:
             logger.warning(f"Whale tracker failed to start: {e}")
+        
+        # Initialize HuggingFace safety models (OPTIONAL - these are GATES, not signals)
+        if HF_SAFETY_AVAILABLE:
+            try:
+                hf = await get_hf_safety()
+                if hf.initialized:
+                    logger.info("HuggingFace safety models loaded (sentiment, topic, emotion)")
+                else:
+                    logger.warning("HuggingFace safety models failed to initialize - using fallback")
+            except Exception as e:
+                logger.warning(f"HuggingFace safety models not available: {e}")
         
         logger.info("Ultimate Autonomous Trader v2.0 initialized!")
         logger.info(f"Components: RegimeDetector={self.regime_detector is not None}, "
@@ -2719,6 +2738,51 @@ class AutonomousTraderV2:
         # Determine trade type
         is_breakout = "BREAKOUT" in str(opp.reasons)
         is_mean_rev = getattr(opp, 'is_mean_reversion', False) or "MEAN_REV" in str(opp.reasons)
+        
+        # === LAYER 0: HUGGINGFACE SAFETY GATE (NEWS/SENTIMENT/TOPIC) ===
+        # These models say WHEN NOT TO TRADE, not BUY/SELL!
+        if HF_SAFETY_AVAILABLE:
+            try:
+                hf = await get_hf_safety()
+                
+                # Check if trading is paused due to dangerous news
+                is_paused, pause_reason = hf.is_trading_paused()
+                if is_paused:
+                    self.stats['trades_rejected_regime'] += 1
+                    return False, f"HF Safety: {pause_reason}"
+                
+                # Get recent news for context (if available)
+                news_context = []
+                try:
+                    news_data = await self.redis_client.lrange('market:news:recent', 0, 4)
+                    if news_data:
+                        for item in news_data:
+                            try:
+                                news = json.loads(item)
+                                if 'title' in news:
+                                    news_context.append(news['title'])
+                            except:
+                                pass
+                except:
+                    pass
+                
+                # Check if this trade should be allowed
+                allowed, hf_reason = await hf.should_allow_trade(
+                    opp.symbol, 
+                    opp.direction,
+                    news_context
+                )
+                
+                if not allowed:
+                    self.stats['trades_rejected_regime'] += 1
+                    logger.info(f"HF GATE BLOCKED: {opp.symbol} - {hf_reason}")
+                    return False, hf_reason
+                
+                # Apply risk modifier to position sizing later
+                # (stored in hf.risk_modifier)
+                
+            except Exception as e:
+                logger.debug(f"HF safety check skipped: {e}")
         
         # === LAYER 1: GLOBAL ENTRY CONFIRMATION (for ALL trades) ===
         if client:
