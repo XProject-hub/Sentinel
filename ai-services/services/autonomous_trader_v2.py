@@ -278,28 +278,33 @@ class AutonomousTraderV2:
     def _get_user_settings(self, user_id: str) -> Dict:
         """
         Get settings for a specific user - CRITICAL FOR MULTI-USER ISOLATION!
-        Returns user-specific settings or default settings if not set.
+        Returns user-specific settings or HARDCODED defaults if not set.
+        
+        CRITICAL: NEVER use instance variables (self.take_profit, etc.) as fallback!
+        That would leak one user's settings to another user!
         """
         if user_id not in self.user_settings:
-            # Initialize with default settings
+            # Initialize with HARDCODED defaults - NEVER use instance variables!
+            # These are MICRO preset defaults (the safest default strategy)
             self.user_settings[user_id] = {
-                'take_profit': self.take_profit,
-                'stop_loss': self.emergency_stop_loss,
-                'trailing': self.trail_from_peak,
-                'min_profit_to_trail': self.min_profit_to_trail,
-                'max_open_positions': self.max_open_positions,
-                'max_exposure_percent': self.max_exposure_percent,
-                'max_daily_drawdown': self.max_daily_drawdown,
-                'breakout_extra_slots': self.breakout_extra_slots,
-                'ai_full_auto': self.ai_full_auto,
-                'use_max_trade_time': self.use_max_trade_time,
-                'max_trade_minutes': self.max_trade_minutes,
-                'min_confidence': self.min_confidence,
-                'min_edge': self.min_edge,
-                'risk_mode': self.risk_mode,
+                'take_profit': 0.9,        # MICRO default
+                'stop_loss': 0.5,          # MICRO default
+                'trailing': 0.14,          # MICRO default
+                'min_profit_to_trail': 0.45,  # MICRO default
+                'max_open_positions': 10,
+                'max_exposure_percent': 100,
+                'max_daily_drawdown': 0,   # 0 = OFF
+                'breakout_extra_slots': False,
+                'ai_full_auto': False,
+                'use_max_trade_time': True,
+                'max_trade_minutes': 30,   # MICRO default
+                'min_confidence': 65,
+                'min_edge': 0.15,
+                'risk_mode': 'MICRO',
                 'strategy_preset': 'micro',
-                'leverage_mode': self.leverage_mode,
+                'leverage_mode': 'auto',
             }
+            logger.info(f"Created DEFAULT settings for user {user_id} (not loaded from Redis yet)")
         return self.user_settings[user_id]
     
     def _get_user_setting(self, user_id: str, key: str, default=None):
@@ -3872,26 +3877,28 @@ class AutonomousTraderV2:
             
         except Exception as e:
             logger.error(f"Failed to load settings for {user_id}: {e}")
-            # Initialize with defaults if failed
+            # Initialize with HARDCODED MICRO preset defaults if failed
+            # CRITICAL: NEVER copy from instance variables - that leaks settings between users!
             if user_id not in self.user_settings:
                 self.user_settings[user_id] = {
-                    'take_profit': 0.8,
-                    'stop_loss': 0.5,
-                    'trailing': 0.15,
-                    'min_profit_to_trail': 0.25,
+                    'take_profit': 0.9,        # MICRO default
+                    'stop_loss': 0.5,          # MICRO default  
+                    'trailing': 0.14,          # MICRO default
+                    'min_profit_to_trail': 0.45,  # MICRO default
                     'max_open_positions': 10,
                     'max_exposure_percent': 100,
-                    'max_daily_drawdown': 3.0,
+                    'max_daily_drawdown': 0,   # 0 = OFF
                     'breakout_extra_slots': False,
                     'ai_full_auto': False,
-                    'min_confidence': 55,
-                    'min_edge': 0.2,
-                    'risk_mode': 'normal',
+                    'min_confidence': 65,
+                    'min_edge': 0.15,
+                    'risk_mode': 'MICRO',
                     'strategy_preset': 'micro',
                     'leverage_mode': 'auto',
-                    'max_trade_minutes': 15,
+                    'max_trade_minutes': 30,   # MICRO default
                     'use_max_trade_time': True,
                 }
+                logger.warning(f"Using HARDCODED defaults for user {user_id} (Redis load failed)")
     
     def _get_preset_settings(self, preset: str) -> Dict:
         """Get default settings for a strategy preset"""
