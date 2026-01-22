@@ -239,19 +239,29 @@ async def get_user_client(user_id: str, exchange: str = "bybit") -> Optional[Byb
     # Try to load from Redis
     try:
         r = await get_redis()
+        api_key = None
+        api_secret = None
+        is_testnet = False
+        
+        # 1. Try new format: user:{user_id}:exchange:{exchange}
         key = f"user:{user_id}:exchange:{exchange}"
         data = await r.hgetall(key)
         
-        if not data:
-            return None
+        if data:
+            is_active = data.get(b"is_active", b"0").decode() == "1"
+            if is_active:
+                api_key = simple_decrypt(data.get(b"api_key", b"").decode())
+                api_secret = simple_decrypt(data.get(b"api_secret", b"").decode())
+                is_testnet = data.get(b"is_testnet", b"0").decode() == "1"
         
-        is_active = data.get(b"is_active", b"0").decode() == "1"
-        if not is_active:
-            return None
-        
-        api_key = simple_decrypt(data.get(b"api_key", b"").decode())
-        api_secret = simple_decrypt(data.get(b"api_secret", b"").decode())
-        is_testnet = data.get(b"is_testnet", b"0").decode() == "1"
+        # 2. Try legacy format: exchange:credentials:default (for admin/default user)
+        if not api_key and user_id == "default":
+            legacy_data = await r.hgetall("exchange:credentials:default")
+            if legacy_data:
+                api_key = simple_decrypt(legacy_data.get(b"api_key", b"").decode())
+                api_secret = simple_decrypt(legacy_data.get(b"api_secret", b"").decode())
+                is_testnet = legacy_data.get(b"testnet", b"0").decode() == "1"
+                logger.debug(f"Using legacy credentials for default user")
         
         if not api_key or not api_secret:
             return None
@@ -317,9 +327,12 @@ async def connect_exchange(credentials: ExchangeCredentials):
             
         # Store connection in memory
         exchange_connections["default"] = client
+        user_exchange_connections["default:bybit"] = client
         
-        # PERSIST credentials to Redis (encrypted)
+        # PERSIST credentials to Redis (encrypted) - BOTH formats for compatibility
         r = await get_redis()
+        
+        # Legacy format (for backwards compatibility)
         await r.hset("exchange:credentials:default", mapping={
             "exchange": credentials.exchange,
             "api_key": simple_encrypt(credentials.apiKey),
@@ -328,7 +341,16 @@ async def connect_exchange(credentials: ExchangeCredentials):
             "connected_at": str(json.dumps({"ts": "now"})),
         })
         
-        logger.info("Exchange credentials saved to Redis - will persist across restarts")
+        # New format (for get_user_client)
+        await r.hset("user:default:exchange:bybit", mapping={
+            "api_key": simple_encrypt(credentials.apiKey),
+            "api_secret": simple_encrypt(credentials.apiSecret),
+            "is_testnet": "1" if credentials.testnet else "0",
+            "is_active": "1",
+            "updated_at": datetime.utcnow().isoformat(),
+        })
+        
+        logger.info("Exchange credentials saved to Redis (both formats) - will persist across restarts")
         
         return {
             "success": True,
