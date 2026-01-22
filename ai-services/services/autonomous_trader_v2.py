@@ -243,6 +243,12 @@ class AutonomousTraderV2:
         # Per-user statistics (isolated per user)
         self.user_stats: Dict[str, Dict] = {}
         
+        # ============================================================
+        # PER-USER SETTINGS - CRITICAL FOR MULTI-USER ISOLATION!
+        # Each user has their OWN settings, NOT shared instance variables!
+        # ============================================================
+        self.user_settings: Dict[str, Dict] = {}
+        
         # Global stats for AI learning (aggregated from all users)
         self.stats = {
             'total_trades': 0,
@@ -268,6 +274,38 @@ class AutonomousTraderV2:
                 'opportunities_scanned': 0
             }
         return self.user_stats[user_id]
+    
+    def _get_user_settings(self, user_id: str) -> Dict:
+        """
+        Get settings for a specific user - CRITICAL FOR MULTI-USER ISOLATION!
+        Returns user-specific settings or default settings if not set.
+        """
+        if user_id not in self.user_settings:
+            # Initialize with default settings
+            self.user_settings[user_id] = {
+                'take_profit': self.take_profit,
+                'stop_loss': self.emergency_stop_loss,
+                'trailing': self.trail_from_peak,
+                'min_profit_to_trail': self.min_profit_to_trail,
+                'max_open_positions': self.max_open_positions,
+                'max_exposure_percent': self.max_exposure_percent,
+                'max_daily_drawdown': self.max_daily_drawdown,
+                'breakout_extra_slots': self.breakout_extra_slots,
+                'ai_full_auto': self.ai_full_auto,
+                'use_max_trade_time': self.use_max_trade_time,
+                'max_trade_minutes': self.max_trade_minutes,
+                'min_confidence': self.min_confidence,
+                'min_edge': self.min_edge,
+                'risk_mode': self.risk_mode,
+                'strategy_preset': 'micro',
+                'leverage_mode': self.leverage_mode,
+            }
+        return self.user_settings[user_id]
+    
+    def _get_user_setting(self, user_id: str, key: str, default=None):
+        """Get a specific setting for a user"""
+        settings = self._get_user_settings(user_id)
+        return settings.get(key, default)
     
     def _apply_strategy_preset(self, preset: str):
         """
@@ -924,6 +962,28 @@ class AutonomousTraderV2:
                 await self._load_settings(user_id)
             except Exception as e:
                 logger.debug(f"Failed to load settings for {user_id}: {e}")
+            
+            # ============================================================
+            # CONTEXT SWITCH: Apply this user's settings to instance variables
+            # This ensures ALL methods use THIS USER's settings during processing!
+            # ============================================================
+            user_set = self._get_user_settings(user_id)
+            self.take_profit = user_set.get('take_profit', 0.8)
+            self.emergency_stop_loss = user_set.get('stop_loss', 0.5)
+            self.trail_from_peak = user_set.get('trailing', 0.15)
+            self.min_profit_to_trail = user_set.get('min_profit_to_trail', 0.25)
+            self.max_open_positions = user_set.get('max_open_positions', 10)
+            self.max_exposure_percent = user_set.get('max_exposure_percent', 100)
+            self.max_daily_drawdown = user_set.get('max_daily_drawdown', 3.0)
+            self.breakout_extra_slots = user_set.get('breakout_extra_slots', False)
+            self.ai_full_auto = user_set.get('ai_full_auto', False)
+            self.min_confidence = user_set.get('min_confidence', 55)
+            self.min_edge = user_set.get('min_edge', 0.2)
+            self.risk_mode = user_set.get('risk_mode', 'normal')
+            self.leverage_mode = user_set.get('leverage_mode', 'auto')
+            self.max_trade_minutes = user_set.get('max_trade_minutes', 15)
+            self.use_max_trade_time = user_set.get('use_max_trade_time', True)
+            self.active_strategy_name = user_set.get('strategy_preset', 'micro').upper()
             
             # 0.5 AI FULL AUTO: Let AI select strategy based on market conditions
             if self.ai_full_auto:
@@ -3725,169 +3785,133 @@ class AutonomousTraderV2:
             logger.debug(f"Trade event store error: {e}")
             
     async def _load_settings(self, user_id: str = "default"):
-        """Load settings from Redis - PER USER!"""
+        """
+        Load settings from Redis - PER USER!
+        
+        CRITICAL: Settings are stored in self.user_settings[user_id], NOT in instance variables!
+        This ensures COMPLETE ISOLATION between users!
+        """
         try:
-            # Settings are PER-USER now!
+            # Try to get settings as JSON string first (new format)
             settings_key = f'bot:settings:{user_id}'
-            data = await self.redis_client.hgetall(settings_key)
+            data_raw = await self.redis_client.get(settings_key)
             
-            # Fallback to default settings if user has no custom settings
-            if not data:
-                data = await self.redis_client.hgetall('bot:settings:default')
+            parsed = {}
+            if data_raw:
+                try:
+                    parsed = json.loads(data_raw)
+                except:
+                    pass
             
-            if data:
-                parsed = {
-                    k.decode() if isinstance(k, bytes) else k: 
-                    v.decode() if isinstance(v, bytes) else v 
-                    for k, v in data.items()
-                }
-                
-                # === AI FULL AUTO MODE ===
-                self.ai_full_auto = parsed.get('aiFullAuto', 'false').lower() == 'true'
-                self.use_max_trade_time = parsed.get('useMaxTradeTime', 'true').lower() == 'true'
-                
-                # ============================================================
-                # MAX DAILY DRAWDOWN - ALWAYS RESPECT USER'S SETTING!
-                # This is the ONLY setting user controls when AI Full Auto is ON
-                # ============================================================
-                self.max_daily_drawdown = float(parsed.get('maxDailyDrawdown', self.max_daily_drawdown))
-                user_max_drawdown = self.max_daily_drawdown
-                
-                # If AI Full Auto is ON, AI decides EVERYTHING except max daily drawdown
-                if self.ai_full_auto:
-                    logger.info(f"AI FULL AUTO MODE: AI controls everything")
-                    logger.info(f"  -> User's Max Daily Drawdown: {user_max_drawdown}% (PROTECTED)")
-                    
-                    # AI will select strategy dynamically in _auto_select_strategy()
-                    # AI decides: strategy, TP, SL, trailing, positions, etc.
-                    # AI still respects all safety filters (RSI, BTC correlation, spread, etc.)
-                    
-                    # AI decides optimal max positions based on market (5-15 range)
-                    self.max_open_positions = 10  # AI default, will be adjusted
-                    self.max_exposure_percent = 80  # AI uses 80% max exposure
-                    self.breakout_extra_slots = True  # AI uses breakout slots
-                    
-                else:
-                    # User controls everything manually
-                    self.strategy_preset = parsed.get('strategyPreset', 'micro')
-                    self._apply_strategy_preset(self.strategy_preset)
-                    
-                    # If useMaxTradeTime is OFF, disable the time limit
-                    if not self.use_max_trade_time:
-                        self.max_trade_minutes = 0  # 0 = disabled
-                        logger.info(f"Max trade time DISABLED by user")
-                    
-                    # User's custom exit strategy overrides preset
-                    if 'stopLossPercent' in parsed:
-                        self.emergency_stop_loss = float(parsed.get('stopLossPercent', self.emergency_stop_loss))
-                    if 'takeProfitPercent' in parsed:
-                        self.take_profit = float(parsed.get('takeProfitPercent', self.take_profit))
-                    if 'trailingStopPercent' in parsed:
-                        self.trail_from_peak = float(parsed.get('trailingStopPercent', self.trail_from_peak))
-                    if 'minProfitToTrail' in parsed:
-                        self.min_profit_to_trail = float(parsed.get('minProfitToTrail', self.min_profit_to_trail))
-                    
-                    # User's entry filters
-                    self.min_confidence = float(parsed.get('minConfidence', self.min_confidence))
-                    self.min_edge = float(parsed.get('minEdge', self.min_edge))
-                    
-                    # User's risk limits (0 = unlimited)
-                    self.max_open_positions = int(float(parsed.get('maxOpenPositions', self.max_open_positions)))
-                    self.max_exposure_percent = float(parsed.get('maxTotalExposure', self.max_exposure_percent))
-                    
-                    # User's breakout settings
-                    self.breakout_extra_slots = parsed.get('breakoutExtraSlots', 'false') == 'true'
-                
-                # Breakout settings
-                self.breakout_extra_slots = parsed.get('breakoutExtraSlots', 'false') == 'true'
-                
-                # Get risk mode from settings (or detect from parameters for backwards compatibility)
-                saved_risk_mode = parsed.get('riskMode', 'normal')
-                if saved_risk_mode in ['lock_profit', 'micro_profit', 'safe', 'aggressive']:
-                    self.risk_mode = saved_risk_mode
-                else:
-                    # Backwards compatibility: detect from trailing settings
-                    is_lock_profit = self.trail_from_peak <= 0.1 and self.min_profit_to_trail <= 0.05
-                    self.risk_mode = "lock_profit" if is_lock_profit else "normal"
-                
-                # Smart exit settings (breakeven + partial exits)
-                self.breakeven_trigger = float(parsed.get('breakevenTrigger', 0.3))
-                self.partial_exit_trigger = float(parsed.get('partialExitTrigger', 0.4))
-                self.partial_exit_percent = float(parsed.get('partialExitPercent', 50))
-                self.momentum_threshold = float(parsed.get('momentumThreshold', 0.05))
-                
-                # Enable smart exit for MICRO PROFIT mode automatically
-                self.use_smart_exit = self.risk_mode == 'micro_profit' or parsed.get('useSmartExit', 'false').lower() == 'true'
-                
-                # Time stop settings (MICRO PROFIT)
-                self.time_stop_minutes = float(parsed.get('timeStopMinutes', 4))
-                self.time_stop_min_pnl = float(parsed.get('timeStopMinPnl', 0.15))
-                self.use_time_stop = self.risk_mode == 'micro_profit'  # Auto-enable for MICRO PROFIT
-                
-                # AI Model toggles
-                self.use_dynamic_sizing = parsed.get('useDynamicSizing', 'true').lower() == 'true'
-                self.use_regime_detection = parsed.get('useRegimeDetection', 'true').lower() == 'true'
-                self.use_edge_estimation = parsed.get('useEdgeEstimation', 'true').lower() == 'true'
-                self.use_crypto_bert = parsed.get('useCryptoBert', 'true').lower() == 'true'
-                self.use_xgboost_classifier = parsed.get('useXgboostClassifier', 'true').lower() == 'true'
-                self.use_price_predictor = parsed.get('usePricePredictor', 'true').lower() == 'true'
-                self.use_whale_detection = parsed.get('useWhaleDetection', 'true').lower() == 'true'
-                self.use_funding_rate = parsed.get('useFundingRate', 'true').lower() == 'true'
-                self.use_pattern_recognition = parsed.get('usePatternRecognition', 'true').lower() == 'true'
-                self.use_q_learning = parsed.get('useQLearning', 'true').lower() == 'true'
-                
-                # Position sizing
-                self.max_position_percent = float(parsed.get('maxPositionPercent', 5))
-                self.kelly_multiplier = float(parsed.get('kellyMultiplier', 0.5))
-                
-                # Leverage mode
-                self.leverage_mode = parsed.get('leverageMode', 'auto')
-                if self.leverage_mode not in ['1x', '2x', '3x', '5x', '10x', 'auto']:
-                    self.leverage_mode = 'auto'
-                
-                # Sync ALL settings to position sizer (HOT RELOAD)
-                if self.position_sizer:
-                    self.position_sizer.leverage_mode = self.leverage_mode
-                    self.position_sizer.MAX_OPEN_POSITIONS = self.max_open_positions
-                    self.position_sizer.MAX_TOTAL_EXPOSURE = self.max_exposure_percent / 100  # Convert to fraction
-                    self.position_sizer.MAX_DAILY_DRAWDOWN = self.max_daily_drawdown / 100  # Convert to fraction
-                    self.position_sizer.max_position_percent = self.max_position_percent
-                    self.position_sizer.kelly_multiplier = self.kelly_multiplier
-                    self.position_sizer.use_dynamic_sizing = self.use_dynamic_sizing
-                
-                # Mode display names
-                mode_names = {
-                    'lock_profit': ' LOCK PROFIT',
-                    'micro_profit': ' MICRO PROFIT',
-                    'safe': ' SAFE',
-                    'aggressive': ' AGGRESSIVE',
-                    'normal': ' NORMAL'
-                }
-                mode_name = mode_names.get(self.risk_mode, ' NORMAL')
-                
-                # Update market scanner's risk mode for optimized scanning
-                if self.market_scanner:
-                    self.market_scanner.set_risk_mode(self.risk_mode)
-                
-                # Only log on first load or when settings actually change
-                tp_display = f"{self.take_profit}%" if self.take_profit > 0 else "OFF"
-                leverage_display = self.leverage_mode.upper()
-                new_settings_str = f"Mode={self.risk_mode},SL={self.emergency_stop_loss}%,TP={tp_display},Trail={self.trail_from_peak}%,MinTrail={self.min_profit_to_trail}%,Lev={self.leverage_mode}"
-                if not hasattr(self, '_last_settings_str') or self._last_settings_str != new_settings_str:
-                    logger.info(f" Settings [{mode_name}]: SL={self.emergency_stop_loss}%, TP={tp_display}, "
-                               f"Trail={self.trail_from_peak}%, MinProfitToTrail={self.min_profit_to_trail}%, "
-                               f"MinConf={self.min_confidence}%, MinEdge={self.min_edge}, "
-                               f"MaxPos={'Unlimited' if self.max_open_positions == 0 else self.max_open_positions}, "
-                               f"Leverage={leverage_display}")
-                    if self.take_profit == 0:
-                        logger.info(f" TRAILING ONLY MODE: No Take Profit limit, sells only when trailing stop triggers")
-                    if self.risk_mode == 'lock_profit':
-                        logger.info(f" LOCK PROFIT MODE: Sells on {self.trail_from_peak}% drop from peak")
-                    elif self.risk_mode == 'micro_profit':
-                        logger.info(f" MICRO PROFIT MODE: Quick +{self.take_profit}% profits, -{self.emergency_stop_loss}% stop loss, HIGH confidence required")
-                    self._last_settings_str = new_settings_str
+            # Fallback to hash format if JSON not found
+            if not parsed:
+                data = await self.redis_client.hgetall(settings_key)
+                if data:
+                    parsed = {
+                        k.decode() if isinstance(k, bytes) else k: 
+                        v.decode() if isinstance(v, bytes) else v 
+                        for k, v in data.items()
+                    }
+            
+            # Initialize user settings dict if not exists
+            if user_id not in self.user_settings:
+                self.user_settings[user_id] = {}
+            
+            user_set = self.user_settings[user_id]
+            
+            # ============================================================
+            # PARSE ALL SETTINGS INTO USER-SPECIFIC DICTIONARY
+            # NOTHING goes into instance variables - ALL per-user!
+            # ============================================================
+            
+            # AI Full Auto mode
+            user_set['ai_full_auto'] = str(parsed.get('aiFullAuto', 'false')).lower() == 'true'
+            user_set['use_max_trade_time'] = str(parsed.get('useMaxTradeTime', 'true')).lower() == 'true'
+            
+            # Max Daily Drawdown - ALWAYS user controlled
+            user_set['max_daily_drawdown'] = float(parsed.get('maxDailyDrawdown', 3.0))
+            
+            # Strategy preset
+            user_set['strategy_preset'] = parsed.get('strategyPreset', 'micro')
+            
+            # Apply preset defaults first
+            preset = user_set['strategy_preset']
+            preset_settings = self._get_preset_settings(preset)
+            
+            if user_set['ai_full_auto']:
+                # AI Full Auto - AI decides everything except max_daily_drawdown
+                user_set['take_profit'] = preset_settings.get('take_profit', 0.8)
+                user_set['stop_loss'] = preset_settings.get('stop_loss', 0.5)
+                user_set['trailing'] = preset_settings.get('trailing', 0.15)
+                user_set['min_profit_to_trail'] = preset_settings.get('min_trail', 0.25)
+                user_set['max_open_positions'] = 10
+                user_set['max_exposure_percent'] = 80
+                user_set['breakout_extra_slots'] = True
+                user_set['max_trade_minutes'] = preset_settings.get('max_trade_minutes', 15)
+            else:
+                # User manual control - use their settings
+                user_set['take_profit'] = float(parsed.get('takeProfitPercent', preset_settings.get('take_profit', 0.8)))
+                user_set['stop_loss'] = float(parsed.get('stopLossPercent', preset_settings.get('stop_loss', 0.5)))
+                user_set['trailing'] = float(parsed.get('trailingStopPercent', preset_settings.get('trailing', 0.15)))
+                user_set['min_profit_to_trail'] = float(parsed.get('minProfitToTrail', preset_settings.get('min_trail', 0.25)))
+                user_set['max_open_positions'] = int(float(parsed.get('maxOpenPositions', 10)))
+                user_set['max_exposure_percent'] = float(parsed.get('maxTotalExposure', 100))
+                user_set['breakout_extra_slots'] = str(parsed.get('breakoutExtraSlots', 'false')).lower() == 'true'
+                user_set['max_trade_minutes'] = preset_settings.get('max_trade_minutes', 15) if user_set['use_max_trade_time'] else 0
+            
+            # Entry filters
+            user_set['min_confidence'] = float(parsed.get('minConfidence', 55))
+            user_set['min_edge'] = float(parsed.get('minEdge', 0.2))
+            
+            # Risk mode
+            user_set['risk_mode'] = parsed.get('riskMode', 'normal')
+            
+            # Leverage
+            user_set['leverage_mode'] = parsed.get('leverageMode', 'auto')
+            
+            # AI model toggles
+            user_set['use_dynamic_sizing'] = str(parsed.get('useDynamicSizing', 'true')).lower() == 'true'
+            user_set['use_regime_detection'] = str(parsed.get('useRegimeDetection', 'true')).lower() == 'true'
+            user_set['use_edge_estimation'] = str(parsed.get('useEdgeEstimation', 'true')).lower() == 'true'
+            
+            logger.debug(f"Loaded settings for {user_id}: TP={user_set['take_profit']}%, SL={user_set['stop_loss']}%, Trail={user_set['trailing']}%")
+            
         except Exception as e:
-            logger.debug(f"Load settings error: {e}")
+            logger.error(f"Failed to load settings for {user_id}: {e}")
+            # Initialize with defaults if failed
+            if user_id not in self.user_settings:
+                self.user_settings[user_id] = {
+                    'take_profit': 0.8,
+                    'stop_loss': 0.5,
+                    'trailing': 0.15,
+                    'min_profit_to_trail': 0.25,
+                    'max_open_positions': 10,
+                    'max_exposure_percent': 100,
+                    'max_daily_drawdown': 3.0,
+                    'breakout_extra_slots': False,
+                    'ai_full_auto': False,
+                    'min_confidence': 55,
+                    'min_edge': 0.2,
+                    'risk_mode': 'normal',
+                    'strategy_preset': 'micro',
+                    'leverage_mode': 'auto',
+                    'max_trade_minutes': 15,
+                    'use_max_trade_time': True,
+                }
+    
+    def _get_preset_settings(self, preset: str) -> Dict:
+        """Get default settings for a strategy preset"""
+        presets = {
+            'scalp': {'take_profit': 0.55, 'stop_loss': 0.35, 'trailing': 0.12, 'min_trail': 0.35, 'max_trade_minutes': 5},
+            'micro': {'take_profit': 0.8, 'stop_loss': 0.5, 'trailing': 0.15, 'min_trail': 0.25, 'max_trade_minutes': 10},
+            'swing': {'take_profit': 2.5, 'stop_loss': 1.2, 'trailing': 0.6, 'min_trail': 1.0, 'max_trade_minutes': 60},
+            'conservative': {'take_profit': 0.6, 'stop_loss': 0.3, 'trailing': 0.1, 'min_trail': 0.3, 'max_trade_minutes': 8},
+            'balanced': {'take_profit': 1.2, 'stop_loss': 0.8, 'trailing': 0.3, 'min_trail': 0.5, 'max_trade_minutes': 20},
+            'aggressive': {'take_profit': 3.0, 'stop_loss': 1.5, 'trailing': 0.8, 'min_trail': 1.2, 'max_trade_minutes': 45},
+            'mean_reversion': {'take_profit': 0.6, 'stop_loss': 0.4, 'trailing': 0.12, 'min_trail': 0.3, 'max_trade_minutes': 8},
+        }
+        return presets.get(preset.lower(), presets['micro'])
+    
             
     async def _load_stats(self):
         """Load stats from Redis, preserving any new keys"""

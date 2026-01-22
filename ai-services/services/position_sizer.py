@@ -122,17 +122,31 @@ class PositionSizer:
         
         logger.info("Position Sizer initialized - Risk management active")
         
-    async def _load_settings(self):
-        """Load user risk settings from Redis"""
+    async def _load_settings(self, user_id: str = "default"):
+        """Load user risk settings from Redis - PER USER!"""
         try:
-            settings_data = await self.redis_client.hgetall('bot:settings')
-            if settings_data:
-                parsed = {
-                    k.decode() if isinstance(k, bytes) else k: 
-                    v.decode() if isinstance(v, bytes) else v 
-                    for k, v in settings_data.items()
-                }
-                
+            # Try JSON string format first
+            settings_raw = await self.redis_client.get(f'bot:settings:{user_id}')
+            parsed = {}
+            
+            if settings_raw:
+                try:
+                    import json
+                    parsed = json.loads(settings_raw)
+                except:
+                    pass
+            
+            # Fallback to hash format
+            if not parsed:
+                settings_data = await self.redis_client.hgetall(f'bot:settings:{user_id}')
+                if settings_data:
+                    parsed = {
+                        k.decode() if isinstance(k, bytes) else k: 
+                        v.decode() if isinstance(v, bytes) else v 
+                        for k, v in settings_data.items()
+                    }
+            
+            if parsed:
                 # Apply settings
                 self.MAX_DAILY_DRAWDOWN = float(parsed.get('maxDailyDrawdown', 0)) / 100  # 0 = OFF
                 self.MAX_TOTAL_EXPOSURE = float(parsed.get('maxTotalExposure', 100)) / 100
@@ -145,13 +159,13 @@ class PositionSizer:
                 if self.leverage_mode not in ['1x', '2x', '3x', '5x', '10x', 'auto']:
                     self.leverage_mode = 'auto'
                 
-                logger.info(f"Loaded position sizer settings: MaxDD={'OFF' if self.MAX_DAILY_DRAWDOWN == 0 else f'{self.MAX_DAILY_DRAWDOWN*100:.1f}%'}, "
+                logger.debug(f"Loaded position sizer settings for {user_id}: MaxDD={'OFF' if self.MAX_DAILY_DRAWDOWN == 0 else f'{self.MAX_DAILY_DRAWDOWN*100:.1f}%'}, "
                            f"MaxExposure={self.MAX_TOTAL_EXPOSURE*100:.0f}%, "
                            f"MaxPos={self.MAX_SINGLE_POSITION*100:.0f}%, "
                            f"MaxOpenPos={'Unlimited' if self.MAX_OPEN_POSITIONS == 0 else self.MAX_OPEN_POSITIONS}, "
                            f"Leverage={self.leverage_mode}")
         except Exception as e:
-            logger.debug(f"Load settings error: {e}")
+            logger.debug(f"Load settings error for {user_id}: {e}")
         
     async def shutdown(self):
         """Cleanup"""
