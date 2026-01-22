@@ -1071,6 +1071,110 @@ class AutonomousTraderV2:
         rsi = 100 - (100 / (1 + rs))
         return rsi
     
+    async def _confirm_entry(self, opp: TradingOpportunity, client: BybitV5Client, 
+                            is_breakout: bool = False, is_mean_rev: bool = False) -> Tuple[bool, str]:
+        """
+        GLOBAL ENTRY CONFIRMATION - All trades must pass this!
+        
+        Different checks for different trade types:
+        - BREAKOUT: Momentum continuation (green candles, volume up)
+        - MEAN_REV: Already confirmed in detection (RSI recovering, green candle)
+        - NORMAL: Basic health checks (not falling, some stability)
+        
+        This prevents buying into falling knives for ALL strategies.
+        """
+        try:
+            # Mean reversion trades are already confirmed during detection
+            if is_mean_rev:
+                return True, "Mean reversion pre-confirmed"
+            
+            # Get klines for analysis
+            klines = await client.get_klines(opp.symbol, interval='5', limit=20)
+            if not klines.get('success') or not klines.get('data', {}).get('list'):
+                # Can't get data - allow trade but log warning
+                logger.warning(f"CONFIRM: {opp.symbol} - no kline data, allowing trade")
+                return True, "No data available"
+            
+            kline_list = klines['data']['list']
+            if len(kline_list) < 10:
+                return True, "Insufficient kline data"
+            
+            # Parse klines (most recent first in Bybit)
+            closes = [float(k[4]) for k in reversed(kline_list)]
+            opens = [float(k[1]) for k in reversed(kline_list)]
+            volumes = [float(k[5]) for k in reversed(kline_list)]
+            lows = [float(k[3]) for k in reversed(kline_list)]
+            highs = [float(k[2]) for k in reversed(kline_list)]
+            
+            # Calculate indicators
+            rsi = self._calculate_rsi(closes, period=14)
+            last_candle_green = closes[-1] > opens[-1]
+            prev_candle_green = closes[-2] > opens[-2]
+            
+            # Count green vs red candles in last 5
+            green_count = sum(1 for i in range(-5, 0) if closes[i] > opens[i])
+            
+            # Volume trend
+            recent_vol = sum(volumes[-3:]) / 3
+            older_vol = sum(volumes[-8:-3]) / 5 if len(volumes) > 8 else recent_vol
+            volume_increasing = recent_vol > older_vol * 0.9
+            
+            # Price making new lows?
+            recent_low = min(lows[-3:])
+            older_low = min(lows[-8:-3]) if len(lows) > 8 else recent_low
+            making_new_lows = recent_low < older_low * 0.998
+            
+            # === BREAKOUT CONFIRMATION ===
+            if is_breakout:
+                # Breakouts need MOMENTUM CONTINUATION
+                # Must have: mostly green candles, volume not dying
+                
+                if green_count < 2:
+                    return False, f"Breakout {opp.symbol}: Only {green_count}/5 green candles - momentum weak"
+                
+                if not last_candle_green:
+                    return False, f"Breakout {opp.symbol}: Last candle RED - momentum fading"
+                
+                # RSI shouldn't be extremely overbought (>85 = exhaustion)
+                if opp.direction == 'long' and rsi > 85:
+                    return False, f"Breakout {opp.symbol}: RSI={rsi:.0f} - exhaustion risk"
+                
+                logger.info(f"CONFIRM BREAKOUT: {opp.symbol} | {green_count}/5 green | RSI={rsi:.0f} | Vol {'UP' if volume_increasing else 'down'}")
+                return True, f"Breakout confirmed: {green_count}/5 green, RSI={rsi:.0f}"
+            
+            # === NORMAL TRADE CONFIRMATION ===
+            # For non-breakout, non-mean-rev trades
+            
+            # DON'T buy if making new lows (falling knife)
+            if making_new_lows and opp.direction == 'long':
+                return False, f"{opp.symbol}: Still making new lows - wait for stabilization"
+            
+            # For LONG: Need some green candles (not all red)
+            if opp.direction == 'long':
+                if green_count < 2:
+                    return False, f"{opp.symbol}: Only {green_count}/5 green - no buy signal"
+                
+                # RSI check - don't buy extreme oversold without confirmation
+                if rsi < 25 and not last_candle_green:
+                    return False, f"{opp.symbol}: RSI={rsi:.0f} oversold but no reversal candle"
+            
+            # For SHORT: Need some red candles
+            if opp.direction == 'short':
+                red_count = 5 - green_count
+                if red_count < 2:
+                    return False, f"{opp.symbol}: Only {red_count}/5 red - no sell signal"
+                
+                # Don't short extreme overbought without confirmation
+                if rsi > 75 and last_candle_green:
+                    return False, f"{opp.symbol}: RSI={rsi:.0f} overbought but still rising"
+            
+            logger.info(f"CONFIRM NORMAL: {opp.symbol} | {green_count}/5 green | RSI={rsi:.0f} | LastGreen={last_candle_green}")
+            return True, f"Entry confirmed: {green_count}/5 green, RSI={rsi:.0f}"
+            
+        except Exception as e:
+            logger.warning(f"CONFIRM {opp.symbol}: Error {e} - allowing trade")
+            return True, f"Confirmation error: {e}"
+    
     async def _find_mean_reversion_opportunities(self, user_id: str, client: BybitV5Client, wallet: Dict) -> List[TradingOpportunity]:
         """
         MEAN REVERSION STRATEGY v2.0 - Professional Statistical Edge
@@ -2085,9 +2189,10 @@ class AutonomousTraderV2:
     async def _validate_opportunity(self, opp: TradingOpportunity, wallet: Dict, client: BybitV5Client = None,
                                     adjusted_min_confidence: float = None, adjusted_min_edge: float = None) -> Tuple[bool, str]:
         """
-        SUPERIOR validation using ALL AI models
+        SUPERIOR validation using ALL AI models + GLOBAL CONFIRMATION CHECKS
         
         Checks:
+        0. GLOBAL ENTRY CONFIRMATION (RSI, candles, volume, price structure)
         1. Basic edge/confidence (with DYNAMIC thresholds based on recent performance)
         2. NEWS SENTIMENT (reads and understands news!)
         3. MOMENTUM FILTER (LOCK PROFIT only!)
@@ -2099,15 +2204,26 @@ class AutonomousTraderV2:
         9. Position sizing
         """
         
-        # 0. BREAKOUT BYPASS - If this is a breakout trade, skip most filters
+        # Determine trade type
         is_breakout = "BREAKOUT" in str(opp.reasons)
+        is_mean_rev = getattr(opp, 'is_mean_reversion', False) or "MEAN_REV" in str(opp.reasons)
+        
+        # === GLOBAL ENTRY CONFIRMATION (for ALL trades) ===
+        if client:
+            confirmed, confirm_reason = await self._confirm_entry(opp, client, is_breakout, is_mean_rev)
+            if not confirmed:
+                self.stats['trades_rejected_no_momentum'] += 1
+                return False, confirm_reason
+        
+        # Check basic equity
+        total_equity = float(wallet.get('totalEquity', 0))
+        if total_equity < 10:
+            return False, "Insufficient equity"
+        
+        # Breakouts with confirmation can skip some AI filters (they're momentum plays)
         if is_breakout:
-            logger.info(f" Breakout trade {opp.symbol} - bypassing strict filters")
-            # Only check basic risk limits for breakouts
-            total_equity = float(wallet.get('totalEquity', 0))
-            if total_equity < 10:
-                return False, "Insufficient equity"
-            return True, "Breakout trade approved"
+            logger.info(f" Breakout {opp.symbol} - entry confirmed, proceeding")
+            return True, "Breakout confirmed and approved"
         
         # Use adjusted thresholds if provided (based on recent performance)
         min_edge = adjusted_min_edge if adjusted_min_edge is not None else self.min_edge
