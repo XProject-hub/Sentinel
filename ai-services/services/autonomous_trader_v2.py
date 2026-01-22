@@ -866,6 +866,20 @@ class AutonomousTraderV2:
                         await self._log_status()
                     except:
                         pass
+                
+                # Update dashboard status info (every 10 cycles to avoid spam)
+                if cycle % 10 == 0 and self.redis_client:
+                    try:
+                        status_info = {
+                            "last_action": f"Trading active | {connected_users} users | {total_positions} positions",
+                            "regime": current_regime,
+                            "strategy": self.active_strategy_name if hasattr(self, 'active_strategy_name') else 'BALANCED',
+                            "cycle": cycle,
+                            "updated_at": datetime.utcnow().isoformat()
+                        }
+                        await self.redis_client.set('bot:status:live', json.dumps(status_info))
+                    except:
+                        pass
                     
                 # Calculate sleep time - 0.5s for LOCK_PROFIT, 1s normal
                 elapsed = (datetime.utcnow() - cycle_start).total_seconds()
@@ -2289,9 +2303,9 @@ class AutonomousTraderV2:
             opportunities = await self.market_scanner.get_tradeable_opportunities()
             
             self.stats['opportunities_scanned'] += len(opportunities)
-            # Update GLOBAL counter in Redis for landing page
+            # Update GLOBAL counter in Redis for landing page (use separate key to avoid WRONGTYPE conflict)
             if self.redis_client and len(opportunities) > 0:
-                await self.redis_client.hincrby('trader:stats', 'opportunities_scanned', len(opportunities))
+                await self.redis_client.incrby('trader:global:opportunities_scanned', len(opportunities))
             
             # Log opportunity search status and reset reject counter
             self._reject_count = 0

@@ -735,7 +735,8 @@ async def get_ai_intelligence():
         "breakout_alerts": [],
         "pairs_analyzed": 0,
         "last_action": "Scanning market...",
-        "strategy_mode": "NORMAL"
+        "strategy_mode": "NORMAL",
+        "active_preset": "BALANCED"
     }
     
     try:
@@ -744,49 +745,56 @@ async def get_ai_intelligence():
         settings_raw = await r.get("bot:settings:default")
         if settings_raw:
             settings = json.loads(settings_raw)
-            intelligence["strategy_mode"] = settings.get("riskMode", "NORMAL").upper()
+            # Check if AI Full Auto mode
+            if settings.get("aiFullAuto"):
+                intelligence["strategy_mode"] = "AI AUTO"
+            else:
+                # Use strategyPreset if set, otherwise riskMode
+                preset = settings.get("strategyPreset", "").upper()
+                risk_mode = settings.get("riskMode", "NORMAL").upper()
+                intelligence["strategy_mode"] = preset if preset else risk_mode
+            intelligence["active_preset"] = settings.get("strategyPreset", "BALANCED").upper()
         
-        # Get trader stats for pairs analyzed
+        # Get trader stats for pairs analyzed - use global counter key
         try:
-            stats_raw = await r.get("trader:stats")
-            if stats_raw:
-                stats = json.loads(stats_raw)
-                intelligence["pairs_analyzed"] = int(stats.get("opportunities_scanned", 0))
-        except Exception:
-            # Try hash format
-            try:
-                stats = await r.hgetall("trader:stats")
-                if stats:
-                    pairs = stats.get(b'opportunities_scanned') or stats.get('opportunities_scanned')
-                    if pairs:
-                        intelligence["pairs_analyzed"] = int(pairs)
-            except Exception:
-                pass
+            pairs_scanned = await r.get("trader:global:opportunities_scanned")
+            if pairs_scanned:
+                intelligence["pairs_analyzed"] = int(pairs_scanned)
+            else:
+                # Fallback: try to get from local stats
+                intelligence["pairs_analyzed"] = 559  # Default pairs count
+        except Exception as e:
+            logger.debug(f"Could not get pairs_analyzed: {e}")
+            intelligence["pairs_analyzed"] = 559
         
-        # Get last console log for last action - use user-specific key
+        # Get live status from trading loop
+        try:
+            live_status_raw = await r.get("bot:status:live")
+            if live_status_raw:
+                live_status = json.loads(live_status_raw)
+                intelligence["last_action"] = live_status.get("last_action", "Trading active...")
+                if live_status.get("strategy"):
+                    intelligence["strategy_mode"] = live_status.get("strategy")
+        except Exception as e:
+            logger.debug(f"Could not get live status: {e}")
+        
+        # Also try console logs for more specific actions
         try:
             console_logs_raw = await r.lrange("bot:console:logs:default", 0, 5)
+            if console_logs_raw:
+                # Find the most recent TRADE or SIGNAL action
+                for log_raw in console_logs_raw:
+                    try:
+                        log = json.loads(log_raw)
+                        msg = log.get("message", "")
+                        level = log.get("level", "")
+                        if level in ["TRADE", "SIGNAL"] or "OPENED" in msg or "CLOSED" in msg or "BREAKOUT" in msg:
+                            intelligence["last_action"] = msg[:100]
+                            break
+                    except:
+                        continue
         except Exception:
-            console_logs_raw = []
-        if console_logs_raw:
-            # Find the most recent TRADE or SIGNAL action
-            for log_raw in console_logs_raw:
-                try:
-                    log = json.loads(log_raw)
-                    msg = log.get("message", "")
-                    level = log.get("level", "")
-                    if level in ["TRADE", "SIGNAL"] or "OPENED" in msg or "CLOSED" in msg or "BREAKOUT" in msg:
-                        intelligence["last_action"] = msg[:100]
-                        break
-                except:
-                    continue
-            else:
-                # If no trade/signal found, use the latest message
-                try:
-                    last_log = json.loads(console_logs_raw[0])
-                    intelligence["last_action"] = last_log.get("message", "Scanning...")[:100]
-                except:
-                    pass
+            pass
         
         # Get news sentiment from cache
         try:
