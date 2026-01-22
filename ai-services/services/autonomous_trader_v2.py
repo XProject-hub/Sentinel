@@ -1985,12 +1985,33 @@ class AutonomousTraderV2:
             logger.info(f"EXECUTING: {side} {opp.symbol} | Qty: {qty_str} | Leverage: {leverage}x | "
                        f"Edge: {opp.edge_score:.2f} | Confidence: {opp.confidence:.1f}%")
             
+            # Get instrument info to verify minimum qty
+            try:
+                inst_info = await client.get_instrument_info(opp.symbol)
+                if inst_info.get('success'):
+                    inst_list = inst_info.get('data', {}).get('list', [])
+                    if inst_list:
+                        inst_data = inst_list[0]
+                        min_qty = float(inst_data.get('lotSizeFilter', {}).get('minOrderQty', 0))
+                        qty_step = float(inst_data.get('lotSizeFilter', {}).get('qtyStep', 0.001))
+                        logger.debug(f"{opp.symbol}: min_qty={min_qty}, qty_step={qty_step}, our_qty={qty}")
+                        if qty < min_qty:
+                            logger.warning(f"Order qty {qty} < min {min_qty} for {opp.symbol}")
+                            await self._log_to_console(f"ORDER SKIP: {opp.symbol} qty {qty} < min {min_qty}", "WARNING", user_id)
+                            return
+            except Exception as inst_err:
+                logger.debug(f"Could not check instrument info: {inst_err}")
+            
             result = await client.place_order(
+                category="linear",  # Explicitly set category
                 symbol=opp.symbol,
                 side=side,
                 order_type='Market',
                 qty=qty_str  # Pass as string!
             )
+            
+            # Log full result for debugging
+            logger.info(f"Order result for {opp.symbol}: {result}")
             
             if result.get('success'):
                 logger.info(f"ORDER SUCCESS: {opp.symbol} {side} {qty}")
@@ -2049,7 +2070,9 @@ class AutonomousTraderV2:
                 
             else:
                 error_msg = result.get('error', result.get('message', str(result)))
-                logger.error(f"ORDER FAILED: {opp.symbol} - {error_msg}")
+                error_code = result.get('code', 'unknown')
+                logger.error(f"ORDER FAILED: {opp.symbol} - Code: {error_code} - {error_msg}")
+                logger.error(f"Order params: symbol={opp.symbol}, side={side}, qty={qty_str}, price={opp.current_price}")
                 await self._log_to_console(f"ORDER FAILED: {opp.symbol} - {error_msg[:50]}", "ERROR", user_id)
                 
                 # ADD COOLDOWN for failed orders - don't retry for 5 minutes
