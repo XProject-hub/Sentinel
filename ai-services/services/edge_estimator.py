@@ -39,6 +39,7 @@ class EdgeData:
     win_probability: float = 0.5  # Default 50%
     risk_reward_ratio: float = 1.0  # Default 1:1
     symbol: str = ""  # Symbol being analyzed
+    kelly_fraction: float = 0.0  # Dynamic Kelly fraction (0.0 = blocked)
 
 
 class EdgeEstimator:
