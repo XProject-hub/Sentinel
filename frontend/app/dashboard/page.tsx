@@ -184,18 +184,45 @@ export default function DashboardPage() {
       setUserId(currentUserId)
       setIsAdmin(isAdminUser)
       
-      const response = await fetch('/api/exchanges', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      })
+      // Check if user has exchange connection
+      // For admin, also verify with AI service that credentials exist
+      let hasConnection = false
       
-      if (response.ok) {
-        const data = await response.json()
-        const hasConnection = data.data?.length > 0 || user.email === 'admin@sentinel.ai'
-        setHasExchangeConnection(hasConnection)
-        
-        if (hasConnection) {
-          loadDashboardData(currentUserId)
+      if (isAdminUser) {
+        // Admin: check AI service for credentials
+        try {
+          const aiStatusRes = await fetch(`/ai/exchange/trading/status?user_id=default`)
+          if (aiStatusRes.ok) {
+            const aiStatus = await aiStatusRes.json()
+            // If we get a valid response and it doesn't say "not connected", assume connected
+            // Also check balance endpoint to verify credentials work
+            const balanceRes = await fetch(`/ai/exchange/balance?user_id=default`)
+            if (balanceRes.ok) {
+              const balanceData = await balanceRes.json()
+              // If balance returns an error about no connection, credentials are missing
+              hasConnection = balanceData.success !== false || balanceData.error !== "No exchange connected for this user"
+            }
+          }
+        } catch (e) {
+          console.error('Failed to check admin connection:', e)
+          hasConnection = false
         }
+      } else {
+        // Regular users: check Laravel backend
+        const response = await fetch('/api/exchanges', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        })
+        
+        if (response.ok) {
+          const data = await response.json()
+          hasConnection = data.data?.length > 0
+        }
+      }
+      
+      setHasExchangeConnection(hasConnection)
+      
+      if (hasConnection) {
+        loadDashboardData(currentUserId)
       }
     } catch (error) {
       console.error('Auth check failed:', error)
@@ -452,7 +479,7 @@ export default function DashboardPage() {
     )
   }
 
-  if (!hasExchangeConnection && !isAdmin) {
+  if (!hasExchangeConnection) {
     return <ConnectExchangePrompt />
   }
 
