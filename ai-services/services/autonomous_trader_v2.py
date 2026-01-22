@@ -1730,8 +1730,8 @@ class AutonomousTraderV2:
                 return False, f"NEGATIVE EV: {ev:.3f} (Win%={estimated_win_rate:.0%}, TP={potential_win}%, SL={potential_loss}%)"
             
             # Passed all filters!
-            logger.info(f"SAFETY PASSED: {opp.symbol} | No rejection | BTC OK | Spread OK | Entry quality OK | EV={ev:.3f}")
-            return True, f"All safety filters passed (EV={ev:.3f})"
+            logger.info(f"✅ SAFETY PASSED: {opp.symbol} | Wick OK | BTC OK | Spread OK | Entry quality OK | EV={ev:.3f}")
+            return True, f"Filters passed: Wick/BTC/Spread/Entry/EV"
             
         except Exception as e:
             logger.warning(f"Safety filters error for {opp.symbol}: {e}")
@@ -2389,9 +2389,9 @@ class AutonomousTraderV2:
                     continue
                 
                 # Passed ALL filters - proceed with trade
-                logger.info(f"✅ {trade_type} APPROVED: {opp.symbol} | Conf: {opp.confidence:.0f}% | Edge: {opp.edge_score:.2f} | Passed ALL filters")
+                logger.info(f"✅ {trade_type} APPROVED: {opp.symbol} | Conf: {opp.confidence:.0f}% | Edge: {opp.edge_score:.2f} | RSI/Candles/Spread/BTC/EV OK")
                 logger.info(f"{trade_type} TRADE: {opp.symbol} | {opp.price_change_24h:+.1f}%")
-                await self._log_to_console(f"OPENING {trade_type}: {opp.symbol} {opp.price_change_24h:+.1f}%", "TRADE", user_id)
+                await self._log_to_console(f"✅ {trade_type}: {opp.symbol} | Filters: RSI/Candles/Spread/BTC/Edge OK", "TRADE", user_id)
                 try:
                     await self._execute_trade(user_id, client, opp, wallet)
                     breakout_trades_opened += 1
@@ -2515,7 +2515,8 @@ class AutonomousTraderV2:
                         await self._log_to_console(f"SKIPPED {opp.symbol}: Q-Learning negative ({q_value:.2f})", "WARNING", user_id)
                         continue
                     
-                    logger.info(f"OPENING TRADE: {opp.symbol} | Edge={opp.edge_score:.2f} | Conf={opp.confidence:.0f}% | Q={q_value or 'N/A'}")
+                    logger.info(f"✅ OPENING TRADE: {opp.symbol} | Edge={opp.edge_score:.2f} | Conf={opp.confidence:.0f}% | All filters passed")
+                    await self._log_to_console(f"✅ TRADE: {opp.symbol} | Filters: RSI/Candles/Spread/BTC/Edge OK", "TRADE", user_id)
                     await self._execute_trade(user_id, client, opp, wallet)
                     
                     # Track trade timing for rate limiting
