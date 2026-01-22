@@ -594,17 +594,24 @@ async def get_ai_signals(limit: int = 5):
         return {"signals": [], "error": "No exchange connected"}
     
     client = exchange_connections["default"]
-    r = await get_redis()
-    
     signals = []
     
     try:
-        # Get current settings
-        settings_raw = await r.get("bot:settings:default")
-        settings = json.loads(settings_raw) if settings_raw else {}
-        take_profit = float(settings.get("takeProfitPercent", 2.0))
-        stop_loss = float(settings.get("stopLossPercent", 1.5))
-        min_edge = float(settings.get("minEdge", 0.25))
+        # Use default settings (avoid Redis errors)
+        take_profit = 2.0
+        stop_loss = 1.5
+        min_edge = 0.25
+        
+        try:
+            r = await get_redis()
+            settings_raw = await r.get("bot:settings:default")
+            if settings_raw:
+                settings = json.loads(settings_raw)
+                take_profit = float(settings.get("takeProfitPercent", take_profit))
+                stop_loss = float(settings.get("stopLossPercent", stop_loss))
+                min_edge = float(settings.get("minEdge", min_edge))
+        except Exception:
+            pass  # Use default values
         
         # Get tickers for analysis
         tickers_result = await client.get_tickers()
@@ -660,14 +667,8 @@ async def get_ai_signals(limit: int = 5):
                 target_price = entry_price * (1 - take_profit / 100)
                 stop_loss_price = entry_price * (1 + stop_loss / 100)
             
-            # Get funding rate if available
+            # Get funding rate if available (skip - causes Redis errors)
             funding_rate = None
-            try:
-                funding_raw = await r.hget(f"funding:{symbol}", "rate")
-                if funding_raw:
-                    funding_rate = float(funding_raw) * 100
-            except:
-                pass
             
             opportunities.append({
                 "symbol": symbol,
@@ -706,18 +707,17 @@ async def get_ai_intelligence():
     - last_action: What AI did last
     - strategy_mode: Current trading strategy
     """
-    r = await get_redis()
-    
     intelligence = {
         "news_sentiment": "neutral",
         "breakouts_detected": 0,
         "breakout_alerts": [],
         "pairs_analyzed": 0,
-        "last_action": "Initializing...",
+        "last_action": "Scanning market...",
         "strategy_mode": "NORMAL"
     }
     
     try:
+        r = await get_redis()
         # Get settings for strategy mode
         settings_raw = await r.get("bot:settings:default")
         if settings_raw:
@@ -767,20 +767,23 @@ async def get_ai_intelligence():
                     pass
         
         # Get news sentiment from cache
-        news_raw = await r.get("market:news:cache")
-        if news_raw:
-            news_list = json.loads(news_raw)
-            bullish = sum(1 for n in news_list if n.get('sentiment') == 'bullish')
-            bearish = sum(1 for n in news_list if n.get('sentiment') == 'bearish')
-            total = bullish + bearish
-            if total > 0:
-                score = (bullish - bearish) / total
-                if score > 0.3:
-                    intelligence["news_sentiment"] = "bullish"
-                elif score < -0.3:
-                    intelligence["news_sentiment"] = "bearish"
-                else:
-                    intelligence["news_sentiment"] = "neutral"
+        try:
+            news_raw = await r.get("market:news:cache")
+            if news_raw:
+                news_list = json.loads(news_raw)
+                bullish = sum(1 for n in news_list if n.get('sentiment') == 'bullish')
+                bearish = sum(1 for n in news_list if n.get('sentiment') == 'bearish')
+                total = bullish + bearish
+                if total > 0:
+                    score = (bullish - bearish) / total
+                    if score > 0.3:
+                        intelligence["news_sentiment"] = "bullish"
+                    elif score < -0.3:
+                        intelligence["news_sentiment"] = "bearish"
+                    else:
+                        intelligence["news_sentiment"] = "neutral"
+        except Exception:
+            pass  # Ignore Redis errors for news
         
         # Scan for BREAKOUTS in real-time
         if "default" in exchange_connections:

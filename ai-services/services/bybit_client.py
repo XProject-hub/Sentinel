@@ -222,6 +222,27 @@ class BybitV5Client:
             "limit": limit
         }
         return await self._request("GET", "/v5/market/orderbook", params)
+    
+    async def get_klines(self, symbol: str, interval: str = "5", limit: int = 100, category: str = "linear") -> Dict:
+        """
+        Get kline/candlestick data
+        
+        Args:
+            symbol: Trading pair (e.g., 'BTCUSDT')
+            interval: Kline interval. 1,3,5,15,30,60,120,240,360,720,D,M,W
+            limit: Limit for data size (max 1000)
+            category: Product type (linear, inverse, spot)
+            
+        Returns:
+            Dict with kline data: [[start_time, open, high, low, close, volume, turnover], ...]
+        """
+        params = {
+            "category": category,
+            "symbol": symbol,
+            "interval": interval,
+            "limit": limit
+        }
+        return await self._request("GET", "/v5/market/kline", params)
         
     async def get_kline(
         self, 
