@@ -554,6 +554,32 @@ class BybitV5Client:
             "sellLeverage": leverage
         }
         return await self._request("POST", "/v5/position/set-leverage", params, auth=True)
+    
+    async def switch_position_mode(self, mode: int = 0, category: str = "linear", coin: str = "USDT") -> Dict:
+        """
+        Switch position mode between One-Way (0) and Hedge (3)
+        mode: 0 = One-Way Mode (default), 3 = Hedge Mode
+        """
+        params = {
+            "category": category,
+            "mode": mode,
+            "coin": coin
+        }
+        return await self._request("POST", "/v5/position/switch-mode", params, auth=True)
+    
+    async def switch_margin_mode(self, symbol: str, margin_mode: int = 0, category: str = "linear") -> Dict:
+        """
+        Switch margin mode between Cross (0) and Isolated (1)
+        margin_mode: 0 = Cross margin, 1 = Isolated margin
+        """
+        params = {
+            "category": category,
+            "symbol": symbol,
+            "tradeMode": margin_mode,  # 0 = cross, 1 = isolated
+            "buyLeverage": "2",  # Required when switching
+            "sellLeverage": "2"
+        }
+        return await self._request("POST", "/v5/position/switch-isolated", params, auth=True)
         
     async def set_trading_stop(
         self,

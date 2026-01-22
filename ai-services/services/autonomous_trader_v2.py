@@ -2002,6 +2002,17 @@ class AutonomousTraderV2:
             except Exception as inst_err:
                 logger.debug(f"Could not check instrument info: {inst_err}")
             
+            # IMPORTANT: Cancel any pending orders for this symbol first
+            # This prevents "Order already cancelled" error (110007)
+            try:
+                cancel_result = await client.cancel_all_orders(category="linear", symbol=opp.symbol)
+                if cancel_result.get('success'):
+                    cancelled = cancel_result.get('data', {}).get('list', [])
+                    if cancelled:
+                        logger.info(f"Cancelled {len(cancelled)} pending orders for {opp.symbol} before new order")
+            except Exception as cancel_err:
+                logger.debug(f"Cancel orders check: {cancel_err}")
+            
             result = await client.place_order(
                 category="linear",  # Explicitly set category
                 symbol=opp.symbol,
