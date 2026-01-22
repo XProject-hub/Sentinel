@@ -832,3 +832,33 @@ class LearningEngine:
             return [json.loads(e) for e in events]
         except:
             return []
+
+    async def update(self, state: Dict, action: str, reward: float, next_state: Dict):
+        """Update Q-values from state-action-reward tuple (for external training)"""
+        try:
+            regime = state.get('regime', 'sideways')
+            
+            if regime not in self.strategy_q_values:
+                self.strategy_q_values[regime] = {s: 0.0 for s in self.strategies}
+                
+            if action not in self.strategy_q_values[regime]:
+                self.strategy_q_values[regime][action] = 0.0
+                
+            # Q-learning update
+            current_q = self.strategy_q_values[regime][action]
+            max_future_q = max(self.strategy_q_values.get(regime, {}).values()) if self.strategy_q_values.get(regime) else 0
+            
+            new_q = current_q + self.learning_rate * (
+                reward + self.discount_factor * max_future_q - current_q
+            )
+            
+            self.strategy_q_values[regime][action] = new_q
+            
+            logger.debug(f"Q-Learning update: {regime}/{action} Q={new_q:.4f} reward={reward:.4f}")
+            
+        except Exception as e:
+            logger.error(f"Q-Learning update error: {e}")
+
+
+# Global instance
+learning_engine = LearningEngine()
