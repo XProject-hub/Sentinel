@@ -66,60 +66,6 @@ interface BotSettings {
   breakoutExtraSlots: boolean  // Allow +2 extra positions for breakouts
 }
 
-// Strategy presets with their configurations
-const STRATEGY_PRESETS = {
-  conservative: {
-    name: 'Conservative',
-    description: 'Small losses, small wins - capital preservation',
-    icon: '🛡️',
-    color: 'from-blue-500 to-cyan-500',
-    stopLoss: 0.8,
-    takeProfit: 1.5,
-    trailing: 0.3,
-    minTrail: 0.2
-  },
-  balanced: {
-    name: 'Balanced',
-    description: 'Balanced risk/reward - recommended for most',
-    icon: '⚖️',
-    color: 'from-green-500 to-emerald-500',
-    stopLoss: 1.5,
-    takeProfit: 3.0,
-    trailing: 0.8,
-    minTrail: 0.5
-  },
-  aggressive: {
-    name: 'Aggressive',
-    description: 'Big wins, big losses - for risk takers',
-    icon: '🔥',
-    color: 'from-orange-500 to-red-500',
-    stopLoss: 2.5,
-    takeProfit: 5.0,
-    trailing: 1.2,
-    minTrail: 1.0
-  },
-  scalper: {
-    name: 'Scalper',
-    description: 'Quick in/out - many small trades',
-    icon: '⚡',
-    color: 'from-yellow-500 to-amber-500',
-    stopLoss: 0.5,
-    takeProfit: 0.8,
-    trailing: 0.15,
-    minTrail: 0.1
-  },
-  swing: {
-    name: 'Swing Trader',
-    description: 'Hold longer for bigger moves',
-    icon: '📈',
-    color: 'from-purple-500 to-pink-500',
-    stopLoss: 3.0,
-    takeProfit: 8.0,
-    trailing: 2.0,
-    minTrail: 1.5
-  }
-}
-
 const defaultSettings: BotSettings = {
   strategyPreset: 'balanced',
   riskMode: 'NORMAL',
