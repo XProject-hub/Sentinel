@@ -360,10 +360,11 @@ export default function SettingsPage() {
 
   return (
     <div className="min-h-screen bg-[#060a13]">
-      {/* DEBUG BANNER - Remove after testing */}
+      {/* DEBUG BANNER - Commented out after confirming multi-user isolation works
       <div className="bg-yellow-500/20 border border-yellow-500/50 text-yellow-300 text-xs px-4 py-2 text-center">
         🔍 DEBUG: user_id={userId} | email={debugEmail}
       </div>
+      */}
 
       {/* Background Effects */}
       <div className="fixed inset-0 pointer-events-none">
