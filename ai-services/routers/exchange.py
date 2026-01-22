@@ -1796,10 +1796,14 @@ async def get_trading_pairs():
 # ============================================
 
 @router.get("/settings")
-async def get_settings():
-    """Get current bot settings"""
+async def get_settings(user_id: str = "default"):
+    """Get current bot settings for specific user"""
     
     r = await redis.from_url(settings.REDIS_URL)
+    
+    # Settings key is PER-USER (not global!)
+    settings_key = f'bot:settings:{user_id}'
+    logger.info(f"Loading settings for user: {user_id} from key: {settings_key}")
     
     # Default settings
     defaults = {
@@ -1844,7 +1848,7 @@ async def get_settings():
     }
     
     try:
-        settings_data = await r.hgetall('bot:settings')
+        settings_data = await r.hgetall(settings_key)
         
         if settings_data:
             parsed = {
@@ -1852,6 +1856,7 @@ async def get_settings():
                 v.decode() if isinstance(v, bytes) else v 
                 for k, v in settings_data.items()
             }
+            logger.info(f"Loaded {len(parsed)} settings for user {user_id}")
             
             # Convert string values to proper types
             return {
@@ -1910,10 +1915,14 @@ async def get_settings():
 
 
 @router.post("/settings")
-async def save_settings(request: Request):
-    """Save bot settings and apply them to trader"""
+async def save_settings(request: Request, user_id: str = "default"):
+    """Save bot settings for specific user and apply them to trader"""
     
     body = await request.json()
+    
+    # Settings key is PER-USER (not global!)
+    settings_key = f'bot:settings:{user_id}'
+    logger.info(f"Saving settings for user: {user_id} to key: {settings_key}")
     
     r = await redis.from_url(settings.REDIS_URL)
     
@@ -1979,7 +1988,9 @@ async def save_settings(request: Request):
             'breakoutExtraSlots': str(body.get('breakoutExtraSlots', False)).lower(),
         }
         
-        await r.hset('bot:settings', mapping=settings_to_save)
+        # Save to user-specific key
+        await r.hset(settings_key, mapping=settings_to_save)
+        logger.info(f"Saved {len(settings_to_save)} settings for user {user_id}")
         
         # Apply settings to autonomous trader (both v1 and v2)
         trader = get_trader()

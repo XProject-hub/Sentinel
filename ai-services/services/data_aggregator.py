@@ -57,7 +57,6 @@ class DataAggregator:
             asyncio.create_task(self._collect_liquidations()),
             asyncio.create_task(self._collect_fear_greed_index()),
             asyncio.create_task(self._collect_onchain_metrics()),
-            asyncio.create_task(self._collect_crypto_news()),  # NEW: Real-time news
         ]
         
     async def _collect_whale_alerts(self):
@@ -314,182 +313,6 @@ class DataAggregator:
                 logger.error(f"On-chain metrics error: {e}")
                 await asyncio.sleep(120)
                 
-    async def _collect_crypto_news(self):
-        """Collect real-time crypto news from multiple sources"""
-        while self.is_running:
-            try:
-                all_news = []
-                
-                # === Source 1: CryptoCompare News API (Free) ===
-                try:
-                    url = "https://min-api.cryptocompare.com/data/v2/news/?lang=EN&sortOrder=latest"
-                    response = await self.http_client.get(url)
-                    
-                    if response.status_code == 200:
-                        data = response.json()
-                        for item in data.get('Data', [])[:15]:
-                            # Calculate sentiment from title
-                            title_lower = item.get('title', '').lower()
-                            sentiment = 'neutral'
-                            if any(w in title_lower for w in ['surge', 'soar', 'bull', 'rally', 'pump', 'gain', 'rise', 'up', 'high', 'ath', 'record']):
-                                sentiment = 'bullish'
-                            elif any(w in title_lower for w in ['crash', 'dump', 'bear', 'fall', 'drop', 'down', 'low', 'fear', 'sell', 'hack', 'scam']):
-                                sentiment = 'bearish'
-                                
-                            # Extract mentioned coins
-                            categories = item.get('categories', '').upper()
-                            coins = [c.strip() for c in categories.split('|') if c.strip()][:3]
-                            
-                            all_news.append({
-                                'source': item.get('source_info', {}).get('name', 'CryptoCompare'),
-                                'title': item.get('title', ''),
-                                'body': item.get('body', '')[:200] + '...' if len(item.get('body', '')) > 200 else item.get('body', ''),
-                                'url': item.get('url', ''),
-                                'image': item.get('imageurl', ''),
-                                'published': datetime.fromtimestamp(item.get('published_on', 0)).isoformat(),
-                                'sentiment': sentiment,
-                                'coins': coins,
-                                'categories': categories,
-                            })
-                except Exception as e:
-                    logger.debug(f"CryptoCompare news error: {e}")
-                    
-                # === Source 2: CoinGecko News (via trending) ===
-                try:
-                    url = "https://api.coingecko.com/api/v3/search/trending"
-                    response = await self.http_client.get(url)
-                    
-                    if response.status_code == 200:
-                        data = response.json()
-                        trending_coins = []
-                        for item in data.get('coins', [])[:7]:
-                            coin = item.get('item', {})
-                            trending_coins.append({
-                                'name': coin.get('name', ''),
-                                'symbol': coin.get('symbol', ''),
-                                'market_cap_rank': coin.get('market_cap_rank', 0),
-                                'price_btc': coin.get('price_btc', 0),
-                            })
-                            
-                        # Add trending as a news item
-                        if trending_coins:
-                            trending_symbols = [c['symbol'] for c in trending_coins[:5]]
-                            all_news.append({
-                                'source': 'CoinGecko Trending',
-                                'title': f"Trending Now: {', '.join(trending_symbols)}",
-                                'body': f"Most searched coins on CoinGecko: {', '.join([c['name'] for c in trending_coins])}",
-                                'url': 'https://www.coingecko.com/en/discover/trending-crypto',
-                                'image': '',
-                                'published': datetime.utcnow().isoformat(),
-                                'sentiment': 'neutral',
-                                'coins': trending_symbols,
-                                'categories': 'TRENDING',
-                                'trending_data': trending_coins,
-                            })
-                except Exception as e:
-                    logger.debug(f"CoinGecko trending error: {e}")
-                    
-                # === Source 3: CoinPaprika News ===
-                try:
-                    url = "https://api.coinpaprika.com/v1/news"
-                    response = await self.http_client.get(url)
-                    
-                    if response.status_code == 200:
-                        data = response.json()
-                        for item in data[:10]:
-                            title_lower = item.get('title', '').lower()
-                            sentiment = 'neutral'
-                            if any(w in title_lower for w in ['surge', 'soar', 'bull', 'rally', 'pump', 'gain']):
-                                sentiment = 'bullish'
-                            elif any(w in title_lower for w in ['crash', 'dump', 'bear', 'fall', 'drop']):
-                                sentiment = 'bearish'
-                                
-                            all_news.append({
-                                'source': item.get('source', 'CoinPaprika'),
-                                'title': item.get('title', ''),
-                                'body': item.get('description', '')[:200] + '...' if item.get('description') else '',
-                                'url': item.get('url', ''),
-                                'image': item.get('image', ''),
-                                'published': item.get('published_at', datetime.utcnow().isoformat()),
-                                'sentiment': sentiment,
-                                'coins': item.get('coins', []),
-                                'categories': ','.join(item.get('tags', [])),
-                            })
-                except Exception as e:
-                    logger.debug(f"CoinPaprika news error: {e}")
-                    
-                # === Source 4: Reddit Crypto (via API proxy) ===
-                try:
-                    # Top posts from r/cryptocurrency
-                    url = "https://www.reddit.com/r/cryptocurrency/hot.json?limit=10"
-                    headers = {'User-Agent': 'SentinelBot/1.0'}
-                    response = await self.http_client.get(url, headers=headers)
-                    
-                    if response.status_code == 200:
-                        data = response.json()
-                        for post in data.get('data', {}).get('children', []):
-                            post_data = post.get('data', {})
-                            
-                            # Skip if score too low
-                            if post_data.get('score', 0) < 100:
-                                continue
-                                
-                            title_lower = post_data.get('title', '').lower()
-                            sentiment = 'neutral'
-                            if any(w in title_lower for w in ['bull', 'moon', 'pump', 'gain', 'up']):
-                                sentiment = 'bullish'
-                            elif any(w in title_lower for w in ['bear', 'dump', 'crash', 'down', 'fear']):
-                                sentiment = 'bearish'
-                                
-                            all_news.append({
-                                'source': 'Reddit r/cryptocurrency',
-                                'title': post_data.get('title', ''),
-                                'body': f"Score: {post_data.get('score', 0)} | Comments: {post_data.get('num_comments', 0)}",
-                                'url': f"https://reddit.com{post_data.get('permalink', '')}",
-                                'image': '',
-                                'published': datetime.fromtimestamp(post_data.get('created_utc', 0)).isoformat(),
-                                'sentiment': sentiment,
-                                'coins': [],
-                                'categories': 'REDDIT,COMMUNITY',
-                            })
-                except Exception as e:
-                    logger.debug(f"Reddit news error: {e}")
-                    
-                # Sort by published date (newest first)
-                all_news.sort(key=lambda x: x.get('published', ''), reverse=True)
-                
-                # Calculate overall news sentiment
-                bullish_count = sum(1 for n in all_news if n.get('sentiment') == 'bullish')
-                bearish_count = sum(1 for n in all_news if n.get('sentiment') == 'bearish')
-                total = len(all_news) or 1
-                
-                news_sentiment = {
-                    'bullish_percent': round(bullish_count / total * 100, 1),
-                    'bearish_percent': round(bearish_count / total * 100, 1),
-                    'neutral_percent': round((total - bullish_count - bearish_count) / total * 100, 1),
-                    'overall': 'bullish' if bullish_count > bearish_count else ('bearish' if bearish_count > bullish_count else 'neutral'),
-                    'total_articles': total,
-                }
-                
-                # Store news in Redis
-                await self.redis_client.set(
-                    'data:crypto_news',
-                    json.dumps({
-                        'articles': all_news[:30],  # Keep top 30
-                        'sentiment': news_sentiment,
-                        'timestamp': datetime.utcnow().isoformat()
-                    }),
-                    ex=300  # 5 min expiry
-                )
-                
-                logger.info(f"Collected {len(all_news)} news articles. Sentiment: {news_sentiment['overall']}")
-                self.last_update['news'] = datetime.utcnow()
-                await asyncio.sleep(180)  # Every 3 minutes
-                
-            except Exception as e:
-                logger.error(f"Crypto news collection error: {e}")
-                await asyncio.sleep(60)
-                
     async def get_aggregated_data(self) -> Dict[str, Any]:
         """Get all aggregated data"""
         data = {}
@@ -540,21 +363,7 @@ class DataAggregator:
                 for k, v in onchain.items()
             }
             
-        # Crypto News
-        news_data = await self.redis_client.get('data:crypto_news')
-        if news_data:
-            data['news'] = json.loads(news_data)
-            
         return data
-        
-    async def get_news(self, limit: int = 20) -> Dict[str, Any]:
-        """Get latest crypto news"""
-        news_data = await self.redis_client.get('data:crypto_news')
-        if news_data:
-            data = json.loads(news_data)
-            data['articles'] = data.get('articles', [])[:limit]
-            return data
-        return {'articles': [], 'sentiment': {}, 'timestamp': None}
         
     async def get_market_insight(self) -> str:
         """Generate AI insight based on all data"""

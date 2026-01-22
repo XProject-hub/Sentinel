@@ -67,292 +67,54 @@ class AutonomousTrader:
         self.is_running = False
         self.redis_client = None
         self.learning_engine: Optional[LearningEngine] = None
-        self.ai_coordinator = None  # Advanced AI brain (LSTM + Patterns + Sentiment)
         
         # Connected exchange clients per user
         self.user_clients: Dict[str, BybitV5Client] = {}
         
-        # ALL Bybit USDT Perpetual pairs - 200+ coins (Complete List)
+        # Top trading pairs - focus on liquid markets
         self.trading_pairs = [
-            # === TOP TIER: Major Cryptocurrencies ===
+            # Tier 1 - Most liquid
             'BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT',
-            'ADAUSDT', 'DOGEUSDT', 'AVAXUSDT', 'TRXUSDT', 'DOTUSDT',
-            'LINKUSDT', 'MATICUSDT', 'SHIBUSDT', 'LTCUSDT', 'ATOMUSDT',
-            'UNIUSDT', 'XLMUSDT', 'ETCUSDT', 'BCHUSDT', 'APTUSDT',
-            
-            # === LAYER 1 BLOCKCHAINS ===
-            'NEARUSDT', 'FILUSDT', 'ICPUSDT', 'HBARUSDT', 'VETUSDT',
-            'ALGOUSDT', 'FTMUSDT', 'EGLDUSDT', 'FLOWUSDT', 'NEOUSDT',
-            'XTZUSDT', 'EOSUSDT', 'IOTAUSDT', 'WAVESUSDT', 'ZILUSDT',
-            'ONTUSDT', 'IOSTUSDT', 'QNTUSDT', 'KASUSDT', 'SUIUSDT',
-            'SEIUSDT', 'TIAUSDT', 'TONUSDT', 'AABORUSDT',
-            
-            # === LAYER 2 & SCALING ===
-            'ARBUSDT', 'OPUSDT', 'STRKUSDT', 'MANTAUSDT', 'BLASTUSDT',
-            'ZKUSDT', 'SCROLLUSDT', 'LINEAUSDT', 'METISUSDT', 'BOBAUSDT',
-            'IMXUSDT', 'LRCUSDT', 'CELRUSDT', 'CTSIUSDT', 'SKLUSDT',
-            
-            # === DEFI PROTOCOLS ===
-            'AAVEUSDT', 'MKRUSDT', 'UNIUSDT', 'CRVUSDT', 'SNXUSDT',
-            'COMPUSDT', '1INCHUSDT', 'YFIUSDT', 'SUSHIUSDT', 'BALUSDT',
-            'DYDXUSDT', 'GMXUSDT', 'PENDLEUSDT', 'LDOUSDT', 'RDNTUSDT',
-            'WOOUSDT', 'PERPUSDT', 'API3USDT', 'ZRXUSDT', 'RENUSDT',
-            'RUNEUSDT', 'KAVAUSDT', 'CELOUSDT', 'JOEUSDT', 'QUICKUSDT',
-            'UMAUSDT', 'RPLETHUSDT', 'STGUSDT', 'CAKEUSDT', 'OSMOUSDT',
-            
-            # === AI & DEPIN ===
-            'FETUSDT', 'AGIXUSDT', 'OCEANUSDT', 'RNDRUSDT', 'TAOUSDT',
-            'WLDUSDT', 'AKTUSDT', 'ARKMUSDT', 'AIUSDT', 'NFPUSDT',
-            'ABORUSDT', 'PHBUSDT', 'RLCUSDT', 'GLMUSDT', 'IOTXUSDT',
-            
-            # === MEME COINS ===
-            'PEPEUSDT', 'FLOKIUSDT', 'BONKUSDT', 'WIFUSDT', 'BOMEUSDT',
-            'MABORUSDT', 'NEIROUSDT', 'NOTUSDT', 'MEMEUSD', 'PEOPLEUSDT',
-            'SATSUSDT', 'RATSUSDT', 'MEWUSDT', 'DOGUSDT', 'COQIUSDT',
-            'MYRIAUSDT', 'BIDENUSDT', 'TURBOUSUSDT', 'LADYSUSDT',
-            
-            # === GAMING & METAVERSE ===
-            'SANDUSDT', 'MANAUSDT', 'AXSUSDT', 'GALAUSDT', 'ENJUSDT',
-            'ILVUSDT', 'MAGICUSDT', 'BEAMUSDT', 'PIXELUSDT', 'APEUSDT',
-            'GMTUSDT', 'LOOKSUSDT', 'BLURUSDT', 'HIGHUSDT', 'YGGUSDT',
-            'PRIMEUSDT', 'PORTALUSDT', 'XABORUSDT', 'ALICEUSDT', 'TLMUSDT',
-            'SLPUSDT', 'MCUSDT', 'STARUSDT', 'DARLUSDT', 'VABORUSDT',
-            
-            # === ORACLES & DATA ===
-            'LINKUSDT', 'GRTUSDT', 'BANDUSDT', 'APIUSDT', 'PYABORUSDT',
-            'PYTHUSDT', 'FLUXUSDT', 'REQUSDT', 'TELUSUSDT',
-            
-            # === EXCHANGE TOKENS ===
-            'BNBUSDT', 'OKBUSDT', 'HTUSDT', 'MXUSDT', 'GTUSDT',
-            'KCSUSDT', 'CROUSDT', 'FTUSDT', 'LEXUSDT',
-            
-            # === STORAGE & COMPUTING ===
-            'FILUSDT', 'ARUSDT', 'STORJUSDT', 'SIACUSDT', 'BTUSDT',
-            'ANKRUSDT', 'NGLUSDT', 'BLOBUSDT',
-            
-            # === PRIVACY COINS ===
-            'XMRUSDT', 'ZECUSDT', 'DASHUSDT', 'SCRTUSDT', 'ROSEUSDT',
-            'OASYUSDT', 'ZENUSDT', 'ERNUSDT',
-            
-            # === STAKING & LIQUID STAKING ===
-            'LDOUSDT', 'RPLETHUSDT', 'CBETHUSDT', 'FRXETHUSDT', 'SWETHUSDT',
-            'ANKRUSDT', 'SSVUSDT', 'OETHUSDT',
-            
-            # === SOCIAL & CONTENT ===
-            'MASKUSDT', 'GALAUSDT', 'CHZUSDT', 'AUDIOUSDT', 'LIVEPEERUSDT',
-            'THETAUSDT', 'TFUELUSDT', 'RALLYUSDT', 'BATUSDT', 'STEEMUSDT',
-            
-            # === CROSS-CHAIN & BRIDGES ===
-            'ATOMUSDT', 'RUNEUSDT', 'RENUSD', 'SYNUSDT', 'WOOFIUSDT',
-            'STGUSDT', 'MULTIUSDT', 'CELRUSDT', 'HOPUSDT', 'LIFIUSDT',
-            
-            # === BITCOIN ECOSYSTEM ===
-            'ORDIUSDT', 'SATSUSDT', 'RATSUSDT', 'STXUSDT', 'CFXUSDT',
-            'CKBUSDT', 'RSRUSDT', 'BSVUSDT', 'BTGUSDT', 'BCHUSDT',
-            
-            # === SOLANA ECOSYSTEM ===
-            'SOLUSDT', 'RAYUSDT', 'SRMUSDT', 'ABORUSDT', 'MNDEUSDT',
-            'ORCAUSDT', 'PORTOUSDT', 'SABORUSDT', 'STEPUSDT', 'SLNDUSDT',
-            
-            # === OTHER TRENDING ===
-            'INJUSDT', 'JUPUSDT', 'JTOUSDT', 'ONDOUSDT', 'STRKUSDT',
-            'TAOABRUSDT', 'WABRUSDT', 'ENAUSDT', 'ETHFIUSDT', 'ALTUSDT',
-            'ACEUSDT', 'XAIUSDT', 'MANTAUSDT', 'DYMUSDT', 'PIXELUSDT',
-            'PORTALUSDT', 'STRKUSDT', 'AEVOUSDT', 'MAVIAUSDT', 'VANRYUSDT',
-            
-            # === ADDITIONAL COINS ===
-            'COTIUSDT', 'MTLUSDT', 'JASMYUSDT', 'ACHUSDT', 'HOTUSDT',
-            'DENTUSDT', 'TUSDT', 'AGLDUSDT', 'ENSUSDT', 'BICOUSDT',
-            'MINAUSDT', 'KSMUSDT', 'TRBUSDT', 'NMRUSDT', 'MLNUSDT',
-            'LPTUSDT', 'CVXUSDT', 'FXSUSDT', 'FRAXUSDT', 'ALPHABUSDT',
-            'SPELLUSDT', 'ICXUSDT', 'SCUSDT', 'KLAYUSDT', 'ONGUSDT',
-            'WINUSDT', 'SUNUSDT', 'JSTUSDT', 'NKNUSDT', 'STMXUSDT',
-            'DGBUSDT', 'RVNUSDT', 'KAVAUSDT', 'HARDUSDT', 'MDXUSDT',
-            'PERPUSDT', 'LINAUSDT', 'XEMUSDT', 'CTKUSDT', 'TOMOUSDT',
-            'PUNDIXUSDT', 'AKROUSDT', 'BAKEUSDT', 'BURGERUSDT', 'SFPUSDT',
-            'LITUSDT', 'VIDTUSDT', 'EPXUSDT', 'GMTUSDT', 'ARPAUSDT',
+            # Tier 2 - High volume
+            'ADAUSDT', 'DOGEUSDT', 'AVAXUSDT', 'DOTUSDT', 'LINKUSDT',
+            'MATICUSDT', 'LTCUSDT', 'ATOMUSDT', 'UNIUSDT', 'NEARUSDT',
+            # Tier 3 - Good liquidity
+            'APTUSDT', 'ARBUSDT', 'OPUSDT', 'FILUSDT', 'INJUSDT',
         ]
         
-        # Remove duplicates while preserving order
-        seen = set()
-        unique_pairs = []
-        for pair in self.trading_pairs:
-            if pair not in seen:
-                seen.add(pair)
-                unique_pairs.append(pair)
-        self.trading_pairs = unique_pairs
-        
         # ============================================
-        # ============================================
-        # PROFITABLE BOT PARAMETERS
-        # Key: Quality over quantity, let winners run!
+        # SMART MODE PARAMETERS
         # ============================================
         
-        # Analysis settings - QUALITY SIGNALS ONLY
-        self.analysis_interval_seconds = 30  # Analyze every 30s (patience)
-        self.min_confidence = 70.0           # Only HIGH confidence trades!
+        # Analysis settings
+        self.analysis_interval_seconds = 30  # Analyze every 30 seconds
+        self.min_confidence = 65.0  # Only trade when 65%+ confident
         
-        # Position sizing - Dynamic based on settings
-        self.min_position_percent = 4.0      # 4% per trade (~€5.6)
-        self.max_position_percent = 8.0      # Max 8% per trade (~€11.2)
-        self.max_open_positions = 0          # 0 = UNLIMITED positions!
+        # Position sizing - DYNAMIC based on confidence
+        self.min_position_percent = 5.0   # Minimum 5% per trade
+        self.max_position_percent = 20.0  # Maximum 20% per trade (high confidence)
+        self.max_open_positions = 10      # Reasonable diversification
         
-        # === PROFITABLE EXIT STRATEGY ===
-        # The KEY to profitability: Let winners run, cut losers fast
+        # EXIT STRATEGY - ALWAYS TRAIL FROM PEAK
+        self.emergency_stop_loss = 2.0    # Emergency stop: -2% from entry (protection)
+        self.trail_from_peak = 0.8        # Sell when drops 0.8% from PEAK (highest price)
         
-        # STOP LOSS: Cut losers at -1.5%
-        self.emergency_stop_loss = 1.5       # Exit if -1.5% from entry
-        
-        # TAKE PROFIT: Activate trailing ONLY after +1% profit
-        self.min_profit_to_trail = 1.0       # Need +1% profit before trailing activates
-        
-        # TRAILING STOP: Once in profit, trail at 1.2% from peak
-        self.trail_from_peak = 1.2           # Wider trailing (was 0.5%)
-        
-        # This gives us:
-        # - Risk: -1.5% (stop loss)
-        # - Reward: +1% minimum, potentially unlimited with trailing
-        # - Risk/Reward ratio: At least 1:0.67, improves as profits run
-        
-        # Market filters - Focus on liquid pairs
-        self.min_24h_volume = 5_000_000      # $5M daily volume minimum
-        self.max_spread_percent = 0.15       # Max 0.15% spread (liquidity)
+        # Market filters
+        self.min_24h_volume = 10_000_000  # Only trade pairs with $10M+ daily volume
+        self.max_spread_percent = 0.1     # Max 0.1% spread
         
         # Track state
         self.last_trade_time: Dict[str, datetime] = {}
         self.active_positions: Dict[str, Dict] = {}
         self.market_data_cache: Dict[str, Dict] = {}
         
-    async def initialize(self, learning_engine: LearningEngine, ai_coordinator=None):
+    async def initialize(self, learning_engine: LearningEngine):
         """Initialize autonomous trader"""
         logger.info("Initializing SMART AI Trading System...")
         self.redis_client = await redis.from_url(settings.REDIS_URL)
         self.learning_engine = learning_engine
-        self.ai_coordinator = ai_coordinator  # Advanced AI brain
         self.is_running = True
-        
-        # Dynamically load available symbols after first user connects
-        self.dynamic_symbols_loaded = False
-        
-        # Load saved settings from Redis
-        await self._load_settings_from_redis()
-        
-        if self.ai_coordinator:
-            logger.info("AI Coordinator (Brain) connected - LSTM + Patterns + Sentiment active")
-        
-        logger.info(f"SMART AI Trading System initialized with {len(self.trading_pairs)} default pairs")
-        logger.info("Will fetch ALL available Bybit pairs when first user connects")
-    
-    async def _log_console(self, level: str, message: str, symbol: str = None, data: Dict = None):
-        """Log to Redis console for dashboard real-time display"""
-        try:
-            if not self.redis_client:
-                return
-            
-            log_entry = {
-                "time": datetime.utcnow().isoformat(),
-                "level": level,
-                "message": message,
-                "symbol": symbol,
-                "data": data
-            }
-            
-            # Add to console logs (keep last 100)
-            await self.redis_client.lpush('bot:console:logs', json.dumps(log_entry))
-            await self.redis_client.ltrim('bot:console:logs', 0, 99)
-            
-            # Set current action if it's an INFO or important message
-            if level in ['INFO', 'TRADE', 'SIGNAL']:
-                await self.redis_client.set('bot:current_action', message, ex=60)
-                
-        except Exception as e:
-            pass  # Silent fail for logging
-    
-    async def _log_decision(self, symbol: str, decision: str, reason: str, data: Dict = None):
-        """Log trading decision for dashboard"""
-        try:
-            if not self.redis_client:
-                return
-            
-            decision_entry = {
-                "time": datetime.utcnow().isoformat(),
-                "symbol": symbol,
-                "decision": decision,
-                "reason": reason,
-                "data": data or {}
-            }
-            
-            await self.redis_client.lpush('bot:decisions', json.dumps(decision_entry))
-            await self.redis_client.ltrim('bot:decisions', 0, 49)
-            
-        except Exception:
-            pass
-    
-    async def _load_settings_from_redis(self):
-        """Load user settings from Redis"""
-        try:
-            settings_data = await self.redis_client.hgetall('bot:settings')
-            
-            if settings_data:
-                parsed = {
-                    k.decode() if isinstance(k, bytes) else k: 
-                    v.decode() if isinstance(v, bytes) else v 
-                    for k, v in settings_data.items()
-                }
-                
-                # Apply settings
-                self.emergency_stop_loss = float(parsed.get('stopLossPercent', self.emergency_stop_loss))
-                self.trail_from_peak = float(parsed.get('trailingStopPercent', self.trail_from_peak))
-                self.min_profit_to_trail = float(parsed.get('minProfitToTrail', self.min_profit_to_trail))
-                self.min_confidence = float(parsed.get('minConfidence', self.min_confidence))
-                self.max_position_percent = float(parsed.get('maxPositionPercent', self.max_position_percent))
-                self.max_open_positions = int(float(parsed.get('maxOpenPositions', self.max_open_positions)))
-                
-                # Take profit (new)
-                self.take_profit_percent = float(parsed.get('takeProfitPercent', 5.0))
-                
-                logger.info(f"Loaded settings: SL={self.emergency_stop_loss}%, "
-                           f"Trail={self.trail_from_peak}%, MinProfit={self.min_profit_to_trail}%, "
-                           f"TP={self.take_profit_percent}%, Confidence={self.min_confidence}%")
-            else:
-                self.take_profit_percent = 5.0  # Default
-                
-        except Exception as e:
-            logger.error(f"Failed to load settings: {e}")
-            self.take_profit_percent = 5.0
-    
-    async def _load_all_bybit_symbols(self, client: BybitV5Client):
-        """Dynamically fetch ALL available USDT perpetual pairs from Bybit"""
-        if self.dynamic_symbols_loaded:
-            return
-            
-        try:
-            logger.info("Fetching ALL available trading pairs from Bybit...")
-            
-            # Get all linear (USDT perpetual) symbols
-            all_symbols = await client.get_all_symbols(category="linear")
-            
-            if all_symbols and len(all_symbols) > 50:
-                # Use all fetched symbols
-                self.trading_pairs = all_symbols
-                self.dynamic_symbols_loaded = True
-                logger.info(f"Loaded {len(self.trading_pairs)} USDT perpetual pairs from Bybit!")
-                
-                # Store in Redis for reference
-                await self.redis_client.set(
-                    'trading:available_symbols',
-                    ','.join(self.trading_pairs)
-                )
-                await self.redis_client.set(
-                    'trading:symbols_count',
-                    str(len(self.trading_pairs))
-                )
-            else:
-                logger.warning(f"Only found {len(all_symbols) if all_symbols else 0} symbols, keeping defaults")
-                
-        except Exception as e:
-            logger.error(f"Failed to load dynamic symbols: {e}")
-            # Keep using default symbols
+        logger.info("SMART AI Trading System initialized - Intelligent trading enabled")
         
     async def shutdown(self):
         """Graceful shutdown"""
@@ -377,10 +139,6 @@ class AutonomousTrader:
             if result.get('success'):
                 self.user_clients[user_id] = client
                 logger.info(f"User {user_id} connected for SMART AI trading")
-                
-                # Load ALL available symbols from Bybit (only once)
-                await self._load_all_bybit_symbols(client)
-                
                 return True
             else:
                 await client.close()
@@ -400,7 +158,6 @@ class AutonomousTrader:
     async def run_trading_loop(self):
         """Main trading loop - SMART AI mode"""
         logger.info("Starting SMART AI trading loop...")
-        await self._log_console("INFO", "🚀 SMART AI Trading System started")
         
         cycle_count = 0
         
@@ -412,25 +169,15 @@ class AutonomousTrader:
                 # Get global market data first
                 market_sentiment = await self._get_market_sentiment()
                 
-                # Update scan stats
-                if self.redis_client:
-                    await self.redis_client.hset('bot:scan_stats', mapping={
-                        'pairs_scanned': str(len(self.trading_pairs)),
-                        'last_scan_time': datetime.utcnow().isoformat(),
-                        'cycle_count': str(cycle_count)
-                    })
-                
                 for user_id, client in list(self.user_clients.items()):
                     try:
                         await self._process_user_trading(user_id, client, market_sentiment)
                     except Exception as e:
                         logger.error(f"Error processing user {user_id}: {e}")
-                        await self._log_console("ERROR", f"User trading error: {str(e)[:50]}")
                         
                 # Log status every 50 cycles
                 if cycle_count % 50 == 0:
                     await self._log_trading_status()
-                    await self._log_console("INFO", f"📊 Cycle {cycle_count}: Scanning {len(self.trading_pairs)} pairs...")
                     
                 # Wait for next analysis cycle
                 cycle_duration = (datetime.utcnow() - cycle_start).total_seconds()
@@ -535,9 +282,7 @@ class AutonomousTrader:
             await self._check_smart_exit(user_id, client, position)
             
         # 4. Analyze for new opportunities (if we have room)
-        # max_open_positions = 0 means UNLIMITED
-        can_open_more = self.max_open_positions == 0 or len(current_positions) < self.max_open_positions
-        if can_open_more:
+        if len(current_positions) < self.max_open_positions:
             await self._find_smart_trades(user_id, client, current_positions, 
                                           available_usdt, total_equity, market_sentiment)
                     
@@ -557,16 +302,6 @@ class AutonomousTrader:
             last_trade = self.last_trade_time.get(f"{user_id}:{symbol}")
             if last_trade and (datetime.utcnow() - last_trade).seconds < self.analysis_interval_seconds:
                 continue
-            
-            # Skip if this symbol has been consistently losing
-            symbol_stats = await self.redis_client.hgetall(f"symbol:stats:{symbol}")
-            if symbol_stats:
-                wins = int(symbol_stats.get(b'wins', 0))
-                losses = int(symbol_stats.get(b'losses', 0))
-                total = wins + losses
-                if total >= 3 and losses > wins * 2:  # More than 2:1 loss ratio
-                    logger.debug(f"SKIPPING {symbol}: AI learned it loses (W:{wins}/L:{losses})")
-                    continue
                 
             # Deep analysis
             signal = await self._analyze_with_ai(symbol, client, market_sentiment)
@@ -589,10 +324,6 @@ class AutonomousTrader:
         """Deep AI analysis combining multiple factors"""
         
         try:
-            # === USE AI COORDINATOR IF AVAILABLE ===
-            if self.ai_coordinator:
-                return await self._analyze_with_coordinator(symbol, client, market_sentiment)
-            
             # Get real-time market data
             ticker_result = await client.get_tickers(symbol=symbol)
             if not ticker_result.get('success'):
@@ -715,51 +446,21 @@ class AutonomousTrader:
                 bearish_score += 10
                 reasoning_parts.append("Longs paying funding")
                 
-            # === DECISION - ONLY HIGH QUALITY SIGNALS ===
+            # === DECISION ===
             
-            # CRITICAL: Check if learning engine says this regime is PROFITABLE
-            # If Q-value is negative, AI has learned this regime loses money!
-            if q_value < -0.5:
-                logger.debug(f"{symbol}: AI learned to AVOID {regime} (Q={q_value:.2f})")
-                return None
-            
-            # Need STRONG edge to trade (was 30, now 40)
-            # Also need to beat opposite score by at least 15 (was 10)
-            if bullish_score >= 40 and bullish_score > bearish_score + 15:
+            # Need significant edge to trade
+            if bullish_score >= 30 and bullish_score > bearish_score + 10:
                 action = 'buy'
                 confidence_adjustments = bullish_score
-            elif bearish_score >= 40 and bearish_score > bullish_score + 15:
+            elif bearish_score >= 30 and bearish_score > bullish_score + 10:
                 action = 'sell'
                 confidence_adjustments = bearish_score
                 
             if action == 'hold':
                 return None
-            
-            # CRITICAL: Check if this specific strategy has worked
-            # Learned strategies with negative Q-values = avoid!
-            strategy_q = self.learning_engine.strategy_q_values.get(regime, {}).get(best_strategy, 0)
-            if strategy_q < -1.0:
-                logger.debug(f"{symbol}: AI learned {best_strategy} FAILS in {regime} (Q={strategy_q:.2f})")
-                return None
                 
-            # Extra filter: Don't buy when market is extremely greedy
-            if action == 'buy' and fear_greed > 75:
-                logger.debug(f"{symbol}: Skip BUY - market too greedy ({fear_greed})")
-                return None
-                
-            # Extra filter: Don't sell when market is extremely fearful
-            if action == 'sell' and fear_greed < 25:
-                logger.debug(f"{symbol}: Skip SELL - market too fearful ({fear_greed})")
-                return None
-                
-            # Calculate final confidence (stricter formula)
-            # BOOST confidence if AI has learned this strategy works well (positive Q-value)
-            q_bonus = max(0, q_value * 10)  # Up to +15% for well-learned strategies
-            final_confidence = min(95, base_confidence + (confidence_adjustments * 0.4) + q_bonus)
-            
-            # Log when AI knowledge is being applied
-            if q_value > 0.5:
-                logger.info(f"{symbol}: AI LEARNED {best_strategy} works in {regime} (Q={q_value:.2f}, +{q_bonus:.0f}% bonus)")
+            # Calculate final confidence
+            final_confidence = min(95, base_confidence + (confidence_adjustments * 0.5))
             
             # Skip if below threshold
             if final_confidence < self.min_confidence:
@@ -799,96 +500,6 @@ class AutonomousTrader:
         except Exception as e:
             logger.error(f"AI analysis error for {symbol}: {e}")
             return None
-    
-    async def _analyze_with_coordinator(self, symbol: str, client: BybitV5Client,
-                                         market_sentiment: Dict) -> Optional[TradeSignal]:
-        """Use AI Coordinator (all models combined) for analysis"""
-        try:
-            # Get real-time market data
-            ticker_result = await client.get_tickers(symbol=symbol)
-            if not ticker_result.get('success'):
-                return None
-                
-            tickers = ticker_result.get('data', {}).get('list', [])
-            if not tickers:
-                return None
-                
-            ticker = tickers[0]
-            last_price = safe_float(ticker.get('lastPrice'))
-            price_change_24h = safe_float(ticker.get('price24hPcnt')) * 100
-            volume_24h = safe_float(ticker.get('volume24h'))
-            funding_rate = safe_float(ticker.get('fundingRate')) * 100
-            
-            if last_price <= 0 or volume_24h < self.min_24h_volume:
-                return None
-            
-            # Get regime data
-            regime_data = await self.redis_client.hgetall(f"regime:{symbol}")
-            if regime_data:
-                regime = regime_data.get(b'regime', b'sideways').decode()
-                rsi = safe_float(regime_data.get(b'rsi', b'50').decode())
-            else:
-                regime = 'sideways' if abs(price_change_24h) < 3 else ('bull_trend' if price_change_24h > 0 else 'bear_trend')
-                rsi = 50 + (price_change_24h * 3)
-                rsi = max(20, min(80, rsi))
-            
-            # Prepare market data for AI Coordinator
-            market_data = {
-                'current_price': last_price,
-                'rsi': rsi,
-                'price_change_24h': price_change_24h,
-                'funding_rate': funding_rate,
-                'volume_24h': volume_24h,
-                'regime': regime
-            }
-            
-            # === GET AI DECISION FROM COORDINATOR ===
-            decision = await self.ai_coordinator.get_ai_decision(symbol, market_data)
-            
-            if not decision:
-                return None
-                
-            # Map AI decision to trade signal
-            if decision.action in ['strong_buy', 'buy']:
-                action = 'buy'
-            elif decision.action in ['strong_sell', 'sell']:
-                action = 'sell'
-            else:
-                return None  # Hold = no trade
-                
-            # Check confidence threshold
-            if decision.confidence < self.min_confidence:
-                return None
-            
-            # Log detailed AI decision
-            logger.info(f"AI BRAIN: {symbol} → {decision.action.upper()} "
-                       f"(LSTM={decision.lstm_score:.0f}, Pattern={decision.pattern_score:.0f}, "
-                       f"Sentiment={decision.sentiment_score:.0f}, Tech={decision.technical_score:.0f})")
-            
-            if decision.reasons:
-                logger.info(f"AI REASONS: {' | '.join(decision.reasons[:3])}")
-                
-            if decision.patterns_detected:
-                logger.info(f"AI PATTERNS: {', '.join(decision.patterns_detected)}")
-            
-            return TradeSignal(
-                symbol=symbol,
-                action=action,
-                confidence=decision.confidence,
-                strategy='ai_coordinator',
-                regime=regime,
-                entry_price=last_price,
-                stop_loss=decision.suggested_stop_loss,
-                take_profit=decision.suggested_take_profit,
-                position_size_percent=decision.suggested_position_size,
-                reasoning=' | '.join(decision.reasons[:3]) if decision.reasons else 'AI Coordinator decision',
-                sentiment_score=decision.sentiment_score,
-                fear_greed=market_sentiment.get('fear_greed', 50),
-            )
-            
-        except Exception as e:
-            logger.error(f"AI Coordinator analysis error for {symbol}: {e}")
-            return None
             
     async def _execute_smart_trade(self, user_id: str, client: BybitV5Client, 
                                     signal: TradeSignal, available_usdt: float, 
@@ -900,9 +511,8 @@ class AutonomousTrader:
             trade_value = total_equity * (signal.position_size_percent / 100)
             trade_value = min(trade_value, available_usdt * 0.9)  # Keep 10% buffer
             
-            # Bybit minimum is $5, we use $5.5 for safety
-            if trade_value < 5.5:
-                logger.warning(f"Trade value too low: ${trade_value:.2f} (min $5.5)")
+            if trade_value < 10:
+                logger.warning(f"Trade value too low: ${trade_value:.2f}")
                 return
                 
             # Calculate quantity
@@ -935,12 +545,6 @@ class AutonomousTrader:
             logger.info(f"SMART ORDER: {side} {symbol} qty={quantity} @ ${signal.entry_price:.2f} "
                        f"(${order_value:.2f}, {signal.position_size_percent:.1f}% of portfolio)")
             
-            await self._log_console("TRADE", f"🎯 Executing {side} {symbol} @ ${signal.entry_price:.2f}", symbol, {
-                "qty": quantity,
-                "value": order_value,
-                "confidence": signal.confidence
-            })
-            
             order_result = await client.place_order(
                 symbol=symbol,
                 side=side,
@@ -950,7 +554,6 @@ class AutonomousTrader:
             
             if order_result.get('success'):
                 logger.info(f"SMART ORDER SUCCESS: {symbol} {side}")
-                await self._log_console("TRADE", f"✅ {side} {symbol} SUCCESS - ${order_value:.2f}", symbol)
                 
                 # Record trade
                 trade_record = {
@@ -1051,29 +654,18 @@ class AutonomousTrader:
         should_close = False
         close_reason = ""
         
-        # === PROFITABLE EXIT LOGIC ===
-        # Uses settings from user configuration
+        # === EXIT LOGIC ===
         
-        # Get take profit from settings (reloaded periodically)
-        take_profit = getattr(self, 'take_profit_percent', 5.0)
-        
-        # 1. STOP LOSS: Exit if down from ENTRY (cut losers fast!)
+        # 1. EMERGENCY STOP: Exit if down -2% from ENTRY (protection against big loss)
         if pnl_from_entry <= -self.emergency_stop_loss:
             should_close = True
-            close_reason = f"STOP LOSS: {pnl_from_entry:.2f}% loss (limit: -{self.emergency_stop_loss}%)"
+            close_reason = f"EMERGENCY STOP: {pnl_from_entry:.2f}% from entry"
             
-        # 2. TAKE PROFIT: Exit when profit reaches target
-        elif profit_from_entry >= take_profit:
+        # 2. TRAILING STOP: Exit if dropped 0.8% from PEAK
+        #    This is ALWAYS active - no activation threshold!
+        elif drop_from_peak >= self.trail_from_peak:
             should_close = True
-            close_reason = f"TAKE PROFIT: +{profit_from_entry:.2f}% (target: +{take_profit}%)"
-            
-        # 3. TRAILING STOP: Only activates AFTER minimum profit
-        #    This lets winners run while protecting profits
-        elif profit_from_entry >= self.min_profit_to_trail:
-            # We're in profit! Now use trailing stop from peak
-            if drop_from_peak >= self.trail_from_peak:
-                should_close = True
-                close_reason = f"TRAILING STOP: +{profit_from_entry:.2f}% (dropped {drop_from_peak:.2f}% from peak)"
+            close_reason = f"TRAILING STOP: Dropped {drop_from_peak:.2f}% from peak (profit: +{profit_from_entry:.2f}%)"
                 
         # Log position status
         logger.debug(f"{symbol}: entry=${entry_price:.2f}, current=${current_price:.2f}, "
@@ -1146,16 +738,6 @@ class AutonomousTrader:
             # Update learning
             if self.learning_engine:
                 await self.learning_engine.update_from_trade(outcome)
-            
-            # Track per-symbol statistics for smarter future decisions
-            symbol = position['symbol']
-            if pnl > 0:
-                await self.redis_client.hincrby(f"symbol:stats:{symbol}", 'wins', 1)
-                await self.redis_client.hincrbyfloat(f"symbol:stats:{symbol}", 'total_profit', pnl)
-            else:
-                await self.redis_client.hincrby(f"symbol:stats:{symbol}", 'losses', 1)
-                await self.redis_client.hincrbyfloat(f"symbol:stats:{symbol}", 'total_loss', abs(pnl))
-            await self.redis_client.hincrby(f"symbol:stats:{symbol}", 'total_trades', 1)
                 
             # Store completed trade
             await self.redis_client.lpush(

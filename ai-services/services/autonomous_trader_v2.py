@@ -327,8 +327,8 @@ class AutonomousTraderV2:
         
         self.is_running = True
         
-        # Load settings
-        await self._load_settings()
+        # Load settings (default user for initial global settings)
+        await self._load_settings("default")
         
         # Load stats
         await self._load_stats()
@@ -503,10 +503,10 @@ class AutonomousTraderV2:
                                 await asyncio.sleep(10)
                                 consecutive_errors = 0
                         
-                # Reload settings every 5 cycles
+                # Reload settings every 5 cycles (default user for global settings)
                 if cycle % 5 == 0:
                     try:
-                        await asyncio.wait_for(self._load_settings(), timeout=5.0)
+                        await asyncio.wait_for(self._load_settings("default"), timeout=5.0)
                     except:
                         pass  # Never fail on settings reload
                 
@@ -542,6 +542,12 @@ class AutonomousTraderV2:
         This method MUST NEVER crash - all operations have timeouts and error handling
         """
         try:
+            # 0. Load user-specific settings (CRITICAL - each user has their own settings!)
+            try:
+                await self._load_settings(user_id)
+            except Exception as e:
+                logger.debug(f"Failed to load settings for {user_id}: {e}")
+            
             # 1. Get wallet balance (5s timeout)
             try:
                 wallet = await asyncio.wait_for(self._get_wallet(client), timeout=5.0)
@@ -3261,10 +3267,17 @@ class AutonomousTraderV2:
         except Exception as e:
             logger.debug(f"Trade event store error: {e}")
             
-    async def _load_settings(self):
-        """Load settings from Redis"""
+    async def _load_settings(self, user_id: str = "default"):
+        """Load settings from Redis - PER USER!"""
         try:
-            data = await self.redis_client.hgetall('bot:settings')
+            # Settings are PER-USER now!
+            settings_key = f'bot:settings:{user_id}'
+            data = await self.redis_client.hgetall(settings_key)
+            
+            # Fallback to default settings if user has no custom settings
+            if not data:
+                data = await self.redis_client.hgetall('bot:settings:default')
+            
             if data:
                 parsed = {
                     k.decode() if isinstance(k, bytes) else k: 

@@ -171,15 +171,41 @@ export default function SettingsPage() {
   const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'error'>('idle')
   const [hasChanges, setHasChanges] = useState(false)
   const [activeSection, setActiveSection] = useState('strategy')
+  const [userId, setUserId] = useState<string>('default')
 
   useEffect(() => {
-    loadSettings()
+    // Get user ID from localStorage (each user has their own settings!)
+    const storedUserId = localStorage.getItem('userId')
+    const storedUser = localStorage.getItem('user')
+    
+    let currentUserId = 'default'
+    if (storedUserId) {
+      // Admin user (ID 1) maps to 'default'
+      currentUserId = storedUserId === '1' ? 'default' : storedUserId
+    } else if (storedUser) {
+      try {
+        const user = JSON.parse(storedUser)
+        currentUserId = user.id === 1 ? 'default' : String(user.id)
+      } catch (e) {
+        console.error('Failed to parse user from localStorage')
+      }
+    }
+    
+    setUserId(currentUserId)
+    console.log('Settings page - User ID:', currentUserId)
   }, [])
+
+  useEffect(() => {
+    if (userId) {
+      loadSettings()
+    }
+  }, [userId])
 
   const loadSettings = async () => {
     setIsLoading(true)
     try {
-      const response = await fetch('/ai/exchange/settings?user_id=default')
+      console.log('Loading settings for user:', userId)
+      const response = await fetch(`/ai/exchange/settings?user_id=${userId}`)
       if (response.ok) {
         const data = await response.json()
         if (data.data) {
@@ -223,7 +249,8 @@ export default function SettingsPage() {
         usePricePredictor: settings.usePatternRecognition,
       }
       
-      const response = await fetch('/ai/exchange/settings?user_id=default', {
+      console.log('Saving settings for user:', userId)
+      const response = await fetch(`/ai/exchange/settings?user_id=${userId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(settingsToSave)
