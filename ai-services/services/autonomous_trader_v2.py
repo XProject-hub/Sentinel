@@ -139,11 +139,14 @@ class AutonomousTraderV2:
         self.min_edge = 0.15  # Minimum edge to consider trade
         self.min_confidence = 60  # Minimum confidence
         
-        # Exit strategy
-        self.min_profit_to_trail = 0.8  # % profit before trailing
-        self.trail_from_peak = 1.0  # Trail by 1% from peak
-        self.emergency_stop_loss = 1.5  # Hard stop at -1.5%
-        self.take_profit = 3.0  # Take profit at +3%
+        # Exit strategy - OPTIMIZED FOR PROFIT
+        # Key: Risk/Reward must be at least 1:1
+        # Old: Trail 0.15%, SL 1.5% = avg win ~+0.3%, avg loss ~-1.5% = LOSING
+        # New: Trail 0.5%, SL 0.8% = avg win ~+0.8%, avg loss ~-0.8% = BREAKEVEN minimum
+        self.min_profit_to_trail = 0.3  # Start trailing earlier at +0.3%
+        self.trail_from_peak = 0.5  # Let winners run - trail by 0.5% from peak
+        self.emergency_stop_loss = 0.8  # TIGHT stop loss at -0.8% (was 1.5%)
+        self.take_profit = 2.0  # Take profit at +2% (was 3%)
         
         # Smart exit (MICRO PROFIT mode)
         self.breakeven_trigger = 0.25  # Move SL to entry at +0.25%
@@ -723,22 +726,29 @@ class AutonomousTraderV2:
                         exit_reason = f"LOCK PROFIT (peak: {position.peak_pnl_percent:.2f}%, drop: {drop_from_peak:.3f}%)"
                         logger.info(f"LOCK PROFIT SELL: {position.symbol} | Peak was {position.peak_pnl_percent:+.2f}%, dropped {drop_from_peak:.3f}% >= {self.trail_from_peak:.3f}%")
             else:
-                # NORMAL MODE: Standard trailing stop
-                # Activate trailing when profit reaches min_profit_to_trail (e.g., 0.5%)
+                # ADAPTIVE TRAILING MODE: Let winners run MORE when profit is HIGH
+                # Activate trailing when profit reaches min_profit_to_trail (e.g., 0.3%)
                 if pnl_percent >= self.min_profit_to_trail:
                     position.trailing_active = True
                 
+                # ADAPTIVE TRAIL: Wider when in more profit
+                adaptive_trail = self.trail_from_peak
+                if pnl_percent >= 2.0:
+                    adaptive_trail = max(1.0, self.trail_from_peak * 2)  # 2x wider
+                elif pnl_percent >= 1.0:
+                    adaptive_trail = max(0.8, self.trail_from_peak * 1.5)  # 1.5x wider
+                
                 # Log trailing status when approaching trigger
-                if position.trailing_active and drop_from_peak >= self.trail_from_peak * 0.5:
-                    logger.info(f"📈 TRAILING {position.symbol}: Peak={position.peak_pnl_percent:+.3f}%, Now={pnl_percent:+.3f}%, Drop={drop_from_peak:.3f}%")
+                if position.trailing_active and drop_from_peak >= adaptive_trail * 0.5:
+                    logger.info(f"📈 TRAILING {position.symbol}: Peak={position.peak_pnl_percent:+.3f}%, Now={pnl_percent:+.3f}%, Drop={drop_from_peak:.3f}%, Trail={adaptive_trail:.2f}%")
                 
                 # Once trailing is active, sell when price drops from peak
-                if position.trailing_active and drop_from_peak >= self.trail_from_peak:
+                if position.trailing_active and drop_from_peak >= adaptive_trail:
                     # Only sell if we're still in profit (or minimal loss due to spread)
                     if pnl_percent >= -0.05:
                         should_exit = True
                         exit_reason = f"Trailing stop (peak: +{position.peak_pnl_percent:.2f}%, dropped {drop_from_peak:.2f}%)"
-                        logger.info(f"📉 TRAILING SELL {position.symbol}: Peak=+{position.peak_pnl_percent:.2f}%, Now={pnl_percent:+.2f}%")
+                        logger.info(f"📉 TRAILING SELL {position.symbol}: Peak=+{position.peak_pnl_percent:.2f}%, Now={pnl_percent:+.2f}%, Trail={adaptive_trail:.2f}%")
                     
             # 4. REGIME CHANGED TO AVOID
             if not should_exit:
@@ -1000,11 +1010,59 @@ class AutonomousTraderV2:
                 price_change = float(ticker.get('price24hPcnt', 0)) * 100  # Convert to %
                 volume = float(ticker.get('turnover24h', 0))
                 last_price = float(ticker.get('lastPrice', 0))
+                high_24h = float(ticker.get('highPrice24h', 0))
+                low_24h = float(ticker.get('lowPrice24h', 0))
+                prev_price = float(ticker.get('prevPrice24h', last_price))
                 
                 if volume < min_volume or last_price <= 0:
                     continue
                 
+                # =========================================================
+                # PRE-BREAKOUT DETECTION (Volume Surge before Price Move)
+                # =========================================================
+                # This catches coins BEFORE they pump, not after
+                # Key: Volume is high but price hasn't moved much yet
+                avg_volume = volume / 24 * 4  # Rough 4h average (approximate)
+                price_range = ((high_24h - low_24h) / last_price * 100) if last_price > 0 else 0
+                
+                # Volume surge: High volume but small price move = accumulation
+                # Price near high of range = ready to break out
+                position_in_range = ((last_price - low_24h) / (high_24h - low_24h)) if (high_24h - low_24h) > 0 else 0.5
+                
+                # Detect pre-breakout conditions:
+                # 1. Volume > $1M (good liquidity)
+                # 2. Price change small (-5% to +5%) - hasn't moved much
+                # 3. Position in range > 0.7 (near top) = bullish, < 0.3 = bearish
+                if volume > 1000000 and -5 < price_change < 5:
+                    if position_in_range > 0.75:
+                        # Near top of range with consolidation = potential bullish breakout
+                        pre_breakout_score = position_in_range * 50  # Up to 50 score
+                        opp = TradingOpportunity(
+                            symbol=symbol,
+                            direction='long',
+                            edge_score=0.6,
+                            confidence=pre_breakout_score,
+                            opportunity_score=pre_breakout_score,
+                            current_price=last_price,
+                            price_change_24h=price_change,
+                            volume_24h=volume,
+                            should_trade=True,
+                            reasons=[f"PRE-BREAKOUT: Near top of range ({position_in_range:.0%}), vol ${volume/1000000:.1f}M"],
+                            timestamp=datetime.utcnow().isoformat()
+                        )
+                        opp.size_multiplier = 0.7  # Smaller size for pre-breakout (more risk)
+                        opp.is_pre_breakout = True
+                        breakouts.append(opp)
+                        logger.info(f" PRE-BREAKOUT: {symbol} at {position_in_range:.0%} of range | Vol: ${volume/1000000:.1f}M")
+                        continue  # Skip normal breakout check
+                    elif position_in_range < 0.25:
+                        # Near bottom of range = potential bearish breakdown or bounce
+                        # Skip for now - bottoms are harder to trade
+                        pass
+                
+                # =========================================================
                 # BREAKOUT DETECTION - Only SIGNIFICANT moves (10%+)
+                # =========================================================
                 # 5-10% = normal volatility, not breakout
                 # 10%+ = real breakout worth trading
                 is_breakout = False
@@ -1140,13 +1198,31 @@ class AutonomousTraderV2:
                         # Cooldown expired, remove from dict
                         del self._failed_order_symbols[opp.symbol]
                 
-                # Breakouts skip most validation - they're already high-conviction
-                logger.info(f"BREAKOUT TRADE: {opp.symbol} | {opp.price_change_24h:+.1f}%")
-                await self._log_to_console(f"OPENING BREAKOUT: {opp.symbol} {opp.price_change_24h:+.1f}%", "TRADE", user_id)
+                # === MOMENTUM CHECK FOR BREAKOUTS ===
+                # Ensure we're trading WITH momentum, not catching falling knives
+                # For LONG: price should still be moving up (not reversing)
+                # For SHORT: price should still be moving down
+                is_pre_breakout = getattr(opp, 'is_pre_breakout', False)
+                
+                if not is_pre_breakout:  # Skip momentum check for pre-breakouts
+                    # Get recent price action (using 24h change as proxy)
+                    if opp.direction == 'long' and opp.price_change_24h < 5:
+                        # Breakout said long, but price not moving up anymore
+                        logger.info(f"BREAKOUT {opp.symbol} skipped - momentum fading ({opp.price_change_24h:+.1f}% < +5%)")
+                        continue
+                    elif opp.direction == 'short' and opp.price_change_24h > -5:
+                        # Breakout said short, but price not moving down anymore
+                        logger.info(f"BREAKOUT {opp.symbol} skipped - momentum fading ({opp.price_change_24h:+.1f}% > -5%)")
+                        continue
+                
+                # Log the trade type
+                trade_type = "PRE-BREAKOUT" if is_pre_breakout else "BREAKOUT"
+                logger.info(f"{trade_type} TRADE: {opp.symbol} | {opp.price_change_24h:+.1f}%")
+                await self._log_to_console(f"OPENING {trade_type}: {opp.symbol} {opp.price_change_24h:+.1f}%", "TRADE", user_id)
                 try:
                     await self._execute_trade(user_id, client, opp, wallet)
                     breakout_trades_opened += 1
-                    logger.info(f"BREAKOUT TRADE OPENED: {opp.symbol}")
+                    logger.info(f"{trade_type} TRADE OPENED: {opp.symbol}")
                 except Exception as e:
                     logger.error(f"BREAKOUT TRADE FAILED: {opp.symbol} - {e}")
                     await self._log_to_console(f"BREAKOUT FAILED: {opp.symbol} - {str(e)[:50]}", "ERROR", user_id)
@@ -2329,18 +2405,31 @@ class AutonomousTraderV2:
                                 # Price dropped too fast, don't sell at loss - wait for recovery
                                 logger.debug(f" {position.symbol}: Dropped but P&L negative ({pnl_percent:+.2f}%), waiting for recovery")
                 else:
-                    # === NORMAL TRAILING MODE ===
-                    # Activate trailing when profit reaches min_profit_to_trail (e.g., 0.5%)
+                    # === ADAPTIVE TRAILING MODE ===
+                    # Key insight: Let winners run MORE when profit is HIGH
+                    # Tighter trailing when profit is small (protect gains)
+                    
+                    # Activate trailing when profit reaches min_profit_to_trail (e.g., 0.3%)
                     if pnl_percent >= self.min_profit_to_trail:
                         position.trailing_active = True
                     
+                    # ADAPTIVE TRAIL: Wider when in more profit
+                    # +0.3% profit = use base trail (0.5%)
+                    # +1.0% profit = use 0.8% trail (let it run more)
+                    # +2.0% profit = use 1.0% trail (really let it run)
+                    adaptive_trail = self.trail_from_peak
+                    if pnl_percent >= 2.0:
+                        adaptive_trail = max(1.0, self.trail_from_peak * 2)  # 2x wider
+                    elif pnl_percent >= 1.0:
+                        adaptive_trail = max(0.8, self.trail_from_peak * 1.5)  # 1.5x wider
+                    
                     # Once trailing is active, sell when price drops from peak
-                    if position.trailing_active and drop_from_peak >= self.trail_from_peak:
+                    if position.trailing_active and drop_from_peak >= adaptive_trail:
                         # Only sell if we're still in profit (or minimal loss)
                         if pnl_percent >= -0.05:  # Allow tiny loss due to spread
                             should_exit = True
                             exit_reason = f"Trailing stop (peak: +{position.peak_pnl_percent:.2f}%, dropped {drop_from_peak:.2f}%)"
-                            logger.info(f"📉 TRAILING SELL {position.symbol}: Peak=+{position.peak_pnl_percent:.2f}%, Now={pnl_percent:+.2f}%, Drop={drop_from_peak:.2f}% >= {self.trail_from_peak}%")
+                            logger.info(f"📉 TRAILING SELL {position.symbol}: Peak=+{position.peak_pnl_percent:.2f}%, Now={pnl_percent:+.2f}%, Drop={drop_from_peak:.2f}% >= {adaptive_trail}% (adaptive)")
                         else:
                             logger.debug(f" {position.symbol}: Trailing triggered but P&L too negative ({pnl_percent:+.2f}%), holding")
                     

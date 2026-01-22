@@ -1804,10 +1804,10 @@ async def get_settings():
     # Default settings
     defaults = {
         "riskMode": "normal",
-        "takeProfitPercent": 3.0,
-        "stopLossPercent": 1.5,
-        "trailingStopPercent": 1.0,
-        "minProfitToTrail": 0.8,
+        "takeProfitPercent": 2.0,  # Take profit at +2%
+        "stopLossPercent": 0.8,  # TIGHT stop loss at -0.8% (better R:R)
+        "trailingStopPercent": 0.5,  # Let winners run - trail by 0.5%
+        "minProfitToTrail": 0.3,  # Start trailing earlier at +0.3%
         "minConfidence": 60,
         "minEdge": 0.15,
         "maxPositionPercent": 5,
