@@ -121,13 +121,13 @@ async def get_funding_rates():
 
 @router.get("/fear-greed")
 async def get_fear_greed():
-    """Get Fear & Greed index based on market data"""
+    """Get REAL Fear & Greed Index from Alternative.me API"""
     try:
         import httpx
         import redis.asyncio as redis
         from config import settings
         
-        # Try to get cached value
+        # Try to get cached value (cache for 10 min)
         try:
             r = await redis.from_url(settings.REDIS_URL)
             cached = await r.get('market:fear_greed')
@@ -137,50 +137,60 @@ async def get_fear_greed():
         except:
             pass
         
-        # Calculate from market data
         fear_greed = 50  # Default neutral
+        source = "default"
         
         async with httpx.AsyncClient(timeout=10.0) as client:
-            # Get BTC price change for sentiment
-            response = await client.get(
-                "https://api.bybit.com/v5/market/tickers",
-                params={"category": "linear", "symbol": "BTCUSDT"}
-            )
+            # TRY 1: Alternative.me API (the REAL Fear & Greed Index)
+            try:
+                response = await client.get("https://api.alternative.me/fng/")
+                if response.status_code == 200:
+                    data = response.json()
+                    if data.get('data') and len(data['data']) > 0:
+                        fear_greed = int(data['data'][0].get('value', 50))
+                        source = "alternative.me"
+            except:
+                pass
             
-            if response.status_code == 200:
-                data = response.json()
-                if data.get('retCode') == 0:
-                    tickers = data.get('result', {}).get('list', [])
-                    if tickers:
-                        btc_change = float(tickers[0].get('price24hPcnt', 0)) * 100
-                        
-                        # Simple fear/greed based on BTC movement
-                        # -5% or worse = Extreme Fear (10-20)
-                        # -2% to -5% = Fear (20-40)
-                        # -2% to +2% = Neutral (40-60)
-                        # +2% to +5% = Greed (60-80)
-                        # +5% or better = Extreme Greed (80-90)
-                        
-                        if btc_change <= -5:
-                            fear_greed = 15
-                        elif btc_change <= -2:
-                            fear_greed = 30
-                        elif btc_change <= 2:
-                            fear_greed = 50
-                        elif btc_change <= 5:
-                            fear_greed = 70
-                        else:
-                            fear_greed = 85
+            # TRY 2: Calculate from BTC if Alternative.me fails
+            if source == "default":
+                try:
+                    response = await client.get(
+                        "https://api.bybit.com/v5/market/tickers",
+                        params={"category": "linear", "symbol": "BTCUSDT"}
+                    )
+                    
+                    if response.status_code == 200:
+                        data = response.json()
+                        if data.get('retCode') == 0:
+                            tickers = data.get('result', {}).get('list', [])
+                            if tickers:
+                                btc_change = float(tickers[0].get('price24hPcnt', 0)) * 100
+                                
+                                # Calculate F/G from BTC movement
+                                if btc_change <= -5:
+                                    fear_greed = 15
+                                elif btc_change <= -2:
+                                    fear_greed = 30
+                                elif btc_change <= 2:
+                                    fear_greed = 50
+                                elif btc_change <= 5:
+                                    fear_greed = 70
+                                else:
+                                    fear_greed = 85
+                                source = "btc_calculated"
+                except:
+                    pass
         
-        # Cache the value
+        # Cache the value for 10 minutes
         try:
             r = await redis.from_url(settings.REDIS_URL)
-            await r.setex('market:fear_greed', 300, str(fear_greed))  # Cache for 5 min
+            await r.setex('market:fear_greed', 600, str(fear_greed))
             await r.aclose()
         except:
             pass
         
-        return {"success": True, "value": fear_greed, "source": "calculated"}
+        return {"success": True, "value": fear_greed, "source": source}
         
     except Exception as e:
         return {"success": True, "value": 50, "error": str(e)}

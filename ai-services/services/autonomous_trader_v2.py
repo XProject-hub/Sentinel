@@ -805,6 +805,7 @@ class AutonomousTraderV2:
                 if won:
                     user_stats['winning_trades'] += 1
                 user_stats['total_pnl'] += pnl_value  # NET P&L
+                user_stats['daily_pnl'] = user_stats.get('daily_pnl', 0) + pnl_value  # Daily P&L tracking
                 
                 # Also update GLOBAL stats for AI learning
                 self.stats['total_trades'] += 1
@@ -917,6 +918,7 @@ class AutonomousTraderV2:
                 if pnl_percent > 0:
                     user_stats['winning_trades'] += 0.5
                 user_stats['total_pnl'] += pnl_value
+                user_stats['daily_pnl'] = user_stats.get('daily_pnl', 0) + pnl_value  # Daily P&L tracking
                 
                 # Also update GLOBAL stats for AI learning
                 self.stats['total_trades'] += 0.5
