@@ -199,6 +199,12 @@ class RegimeDetector:
             'volatility': 1.5,
             'trend_strength': 0.0
         }
+    
+    async def shutdown(self):
+        """Cleanup resources"""
+        self._cache.clear()
+        self._last_update.clear()
+        logger.info("Regime Detector shutdown complete")
 
 
 # Singleton instance
