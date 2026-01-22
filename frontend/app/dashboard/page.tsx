@@ -706,7 +706,7 @@ export default function DashboardPage() {
                     <tr className="border-b border-white/5">
                       <th className="text-left text-[10px] font-medium text-gray-500 px-3 py-2">PAIR</th>
                       <th className="text-left text-[10px] font-medium text-gray-500 px-3 py-2">SIDE</th>
-                      <th className="text-right text-[10px] font-medium text-gray-500 px-3 py-2">VALUE</th>
+                      <th className="text-right text-[10px] font-medium text-gray-500 px-3 py-2">SIZE / MARGIN</th>
                       <th className="text-right text-[10px] font-medium text-gray-500 px-3 py-2">ENTRY</th>
                       <th className="text-right text-[10px] font-medium text-gray-500 px-3 py-2">MARK</th>
                       <th className="text-right text-[10px] font-medium text-gray-500 px-3 py-2">P&L</th>
@@ -770,7 +770,10 @@ export default function DashboardPage() {
                             </span>
                           </td>
                           <td className="px-3 py-2 text-right">
-                            <span className="text-white font-medium text-sm">€{posValueEUR.toFixed(2)}</span>
+                            {/* Position SIZE = margin × leverage (actual market exposure) */}
+                            <div className="text-white font-medium text-sm">€{(posValueEUR * leverage).toFixed(0)}</div>
+                            {/* MARGIN = collateral/deposit for this trade */}
+                            <div className="text-gray-500 text-[9px]">margin: €{posValueEUR.toFixed(2)}</div>
                           </td>
                           <td className="px-3 py-2 text-right text-gray-400 text-sm">
                             €{entryPrice.toFixed(4)}
