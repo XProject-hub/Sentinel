@@ -38,6 +38,7 @@ class EdgeData:
     warnings: List[str]
     win_probability: float = 0.5  # Default 50%
     risk_reward_ratio: float = 1.0  # Default 1:1
+    symbol: str = ""  # Symbol being analyzed
 
 
 class EdgeEstimator:
@@ -220,7 +221,8 @@ class EdgeEstimator:
             reasons=[f"Win prob: {edge_score.win_probability:.1%}", f"Sample: {edge_score.sample_size}"],
             warnings=[] if edge_score.edge > 0 else ["Negative edge"],
             win_probability=edge_score.win_probability,
-            risk_reward_ratio=rr_ratio
+            risk_reward_ratio=rr_ratio,
+            symbol=symbol
         )
 
     async def shutdown(self):
