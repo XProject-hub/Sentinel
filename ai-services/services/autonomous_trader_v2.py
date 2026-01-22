@@ -1000,14 +1000,16 @@ class AutonomousTraderV2:
                 if volume < min_volume or last_price <= 0:
                     continue
                 
-                # BREAKOUT DETECTION - Now handles ALL big moves
+                # BREAKOUT DETECTION - Only SIGNIFICANT moves (10%+)
+                # 5-10% = normal volatility, not breakout
+                # 10%+ = real breakout worth trading
                 is_breakout = False
                 direction = None
                 breakout_strength = 0
                 size_multiplier = 1.0  # Reduce size for extreme moves
                 
-                # Bullish breakout (+5% and up)
-                if price_change >= 5:
+                # Bullish breakout (+10% and up) - raised threshold for real breakouts
+                if price_change >= 10:
                     is_breakout = True
                     direction = 'long'
                     
@@ -1026,8 +1028,8 @@ class AutonomousTraderV2:
                         breakout_strength = min(100, price_change * 10)
                         size_multiplier = 1.0
                     
-                # Bearish breakout (-5% and down)
-                elif price_change <= -5:
+                # Bearish breakout (-10% and down) - raised threshold for real breakouts
+                elif price_change <= -10:
                     is_breakout = True
                     direction = 'short'
                     
