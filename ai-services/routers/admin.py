@@ -899,3 +899,109 @@ async def get_public_stats():
             "timestamp": datetime.now().isoformat()
         }
 
+
+# ============================================
+# MAINTENANCE NOTIFICATIONS
+# ============================================
+
+@router.get("/maintenance")
+async def get_maintenance_notification():
+    """Get current maintenance notification (if any)"""
+    try:
+        r = await redis.from_url(settings.REDIS_URL)
+        
+        data = await r.hgetall('system:maintenance')
+        await r.aclose()
+        
+        if not data:
+            return {
+                "active": False,
+                "message": "",
+                "type": "info",
+                "scheduled_at": None,
+                "created_at": None
+            }
+        
+        parsed = {
+            k.decode() if isinstance(k, bytes) else k: 
+            v.decode() if isinstance(v, bytes) else v 
+            for k, v in data.items()
+        }
+        
+        return {
+            "active": parsed.get('active', 'false') == 'true',
+            "message": parsed.get('message', ''),
+            "type": parsed.get('type', 'info'),  # info, warning, danger
+            "scheduled_at": parsed.get('scheduled_at', ''),
+            "created_at": parsed.get('created_at', ''),
+            "created_by": parsed.get('created_by', 'admin')
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to get maintenance notification: {e}")
+        return {"active": False, "message": "", "type": "info"}
+
+
+@router.post("/maintenance")
+async def set_maintenance_notification(
+    message: str = "",
+    notification_type: str = "info",
+    scheduled_at: str = "",
+    active: bool = True
+):
+    """
+    Set maintenance notification that all users will see
+    
+    Args:
+        message: The notification message
+        notification_type: 'info', 'warning', or 'danger'
+        scheduled_at: When maintenance is scheduled (optional)
+        active: Whether the notification is active
+    """
+    try:
+        r = await redis.from_url(settings.REDIS_URL)
+        
+        notification_data = {
+            'active': 'true' if active else 'false',
+            'message': message,
+            'type': notification_type,
+            'scheduled_at': scheduled_at,
+            'created_at': datetime.utcnow().isoformat(),
+            'created_by': 'admin'
+        }
+        
+        await r.hset('system:maintenance', mapping=notification_data)
+        await r.aclose()
+        
+        logger.info(f"Maintenance notification set: {message[:50]}...")
+        
+        return {
+            "success": True,
+            "message": "Maintenance notification set successfully",
+            "data": notification_data
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to set maintenance notification: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/maintenance")
+async def clear_maintenance_notification():
+    """Clear/disable maintenance notification"""
+    try:
+        r = await redis.from_url(settings.REDIS_URL)
+        await r.delete('system:maintenance')
+        await r.aclose()
+        
+        logger.info("Maintenance notification cleared")
+        
+        return {
+            "success": True,
+            "message": "Maintenance notification cleared"
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to clear maintenance notification: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+

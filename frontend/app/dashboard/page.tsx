@@ -34,6 +34,7 @@ import {
 } from 'lucide-react'
 import Logo from '@/components/Logo'
 import ConnectExchangePrompt from '@/components/ConnectExchangePrompt'
+import MaintenanceNotification from '@/components/MaintenanceNotification'
 import { XAxis, YAxis, Tooltip, ResponsiveContainer, Area, AreaChart } from 'recharts'
 
 interface Position {
@@ -570,6 +571,9 @@ export default function DashboardPage() {
       </nav>
 
       <main className="p-3 sm:p-6 relative">
+        {/* Maintenance Notification */}
+        <MaintenanceNotification />
+        
         {/* Top Stats - Responsive grid */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 sm:gap-4 mb-4 sm:mb-6">
           {/* Balance */}

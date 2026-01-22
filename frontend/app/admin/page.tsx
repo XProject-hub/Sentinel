@@ -22,7 +22,12 @@ import {
   BarChart3,
   Clock,
   Shield,
-  LogOut
+  LogOut,
+  Bell,
+  Send,
+  Trash2,
+  Info,
+  XCircle
 } from 'lucide-react'
 
 interface User {
@@ -58,12 +63,25 @@ interface SystemStats {
   services: { name: string; status: string; healthy: boolean }[]
 }
 
+interface MaintenanceNotification {
+  active: boolean
+  message: string
+  type: 'info' | 'warning' | 'danger'
+  scheduled_at: string
+  created_at: string
+}
+
 export default function AdminPage() {
-  const [activeTab, setActiveTab] = useState<'users' | 'ai' | 'system'>('users')
+  const [activeTab, setActiveTab] = useState<'users' | 'ai' | 'system' | 'maintenance'>('users')
   const [isLoading, setIsLoading] = useState(true)
   const [users, setUsers] = useState<User[]>([])
   const [aiModels, setAiModels] = useState<AIModel[]>([])
   const [systemStats, setSystemStats] = useState<SystemStats | null>(null)
+  const [maintenance, setMaintenance] = useState<MaintenanceNotification | null>(null)
+  const [newMessage, setNewMessage] = useState('')
+  const [newType, setNewType] = useState<'info' | 'warning' | 'danger'>('info')
+  const [newScheduledAt, setNewScheduledAt] = useState('')
+  const [isSending, setIsSending] = useState(false)
 
   useEffect(() => {
     loadData()
@@ -93,11 +111,74 @@ export default function AdminPage() {
           const data = await response.json()
           setSystemStats(data)
         }
+      } else if (activeTab === 'maintenance') {
+        const response = await fetch('/ai/admin/maintenance')
+        if (response.ok) {
+          const data = await response.json()
+          setMaintenance(data)
+          if (data.message) {
+            setNewMessage(data.message)
+            setNewType(data.type || 'info')
+            setNewScheduledAt(data.scheduled_at || '')
+          }
+        }
       }
     } catch (error) {
       console.error('Failed to load data:', error)
     } finally {
       setIsLoading(false)
+    }
+  }
+
+  const sendNotification = async () => {
+    if (!newMessage.trim()) return
+    
+    setIsSending(true)
+    try {
+      const params = new URLSearchParams({
+        message: newMessage,
+        notification_type: newType,
+        scheduled_at: newScheduledAt,
+        active: 'true'
+      })
+      
+      const response = await fetch(`/ai/admin/maintenance?${params}`, {
+        method: 'POST'
+      })
+      
+      if (response.ok) {
+        alert('Notification sent successfully!')
+        loadData()
+      } else {
+        alert('Failed to send notification')
+      }
+    } catch (error) {
+      console.error('Failed to send notification:', error)
+      alert('Failed to send notification')
+    } finally {
+      setIsSending(false)
+    }
+  }
+
+  const clearNotification = async () => {
+    if (!confirm('Are you sure you want to clear the notification?')) return
+    
+    setIsSending(true)
+    try {
+      const response = await fetch('/ai/admin/maintenance', {
+        method: 'DELETE'
+      })
+      
+      if (response.ok) {
+        setMaintenance(null)
+        setNewMessage('')
+        setNewScheduledAt('')
+        alert('Notification cleared!')
+      }
+    } catch (error) {
+      console.error('Failed to clear notification:', error)
+    } finally {
+      setIsSending(false)
     }
   }
 
@@ -110,7 +191,8 @@ export default function AdminPage() {
   const tabs = [
     { id: 'users', label: 'Users', icon: Users },
     { id: 'ai', label: 'AI Learning', icon: Brain },
-    { id: 'system', label: 'System', icon: Server }
+    { id: 'system', label: 'System', icon: Server },
+    { id: 'maintenance', label: 'Notifications', icon: Bell }
   ]
 
   const getStatusColor = (status: string) => {
@@ -533,6 +615,213 @@ export default function AdminPage() {
                   ))}
                 </div>
               )}
+            </div>
+          </motion.div>
+        )}
+
+        {/* Maintenance Tab */}
+        {activeTab === 'maintenance' && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="space-y-6"
+          >
+            {/* Current Notification */}
+            <div className="bg-white/[0.02] rounded-2xl border border-white/5 p-6">
+              <div className="flex items-center gap-2 mb-4">
+                <Bell className="w-5 h-5 text-cyan-400" />
+                <h2 className="font-semibold text-white">Current Notification</h2>
+              </div>
+              
+              {maintenance?.active ? (
+                <div className={`p-4 rounded-xl border ${
+                  maintenance.type === 'danger' ? 'bg-red-500/10 border-red-500/30' :
+                  maintenance.type === 'warning' ? 'bg-amber-500/10 border-amber-500/30' :
+                  'bg-blue-500/10 border-blue-500/30'
+                }`}>
+                  <div className="flex items-start justify-between">
+                    <div className="flex items-start gap-3">
+                      {maintenance.type === 'danger' ? (
+                        <XCircle className="w-5 h-5 text-red-400 mt-0.5" />
+                      ) : maintenance.type === 'warning' ? (
+                        <AlertTriangle className="w-5 h-5 text-amber-400 mt-0.5" />
+                      ) : (
+                        <Info className="w-5 h-5 text-blue-400 mt-0.5" />
+                      )}
+                      <div>
+                        <p className={`font-medium ${
+                          maintenance.type === 'danger' ? 'text-red-400' :
+                          maintenance.type === 'warning' ? 'text-amber-400' :
+                          'text-blue-400'
+                        }`}>
+                          {maintenance.type === 'danger' ? 'Important Notice' :
+                           maintenance.type === 'warning' ? 'Maintenance Notice' :
+                           'System Notice'}
+                        </p>
+                        <p className="text-gray-300 mt-1">{maintenance.message}</p>
+                        {maintenance.scheduled_at && (
+                          <p className="text-xs text-gray-500 mt-2">
+                            Scheduled: {maintenance.scheduled_at}
+                          </p>
+                        )}
+                        <p className="text-xs text-gray-600 mt-1">
+                          Created: {new Date(maintenance.created_at).toLocaleString()}
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={clearNotification}
+                      disabled={isSending}
+                      className="p-2 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 transition-colors"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="p-4 bg-white/[0.02] rounded-xl border border-white/5 text-center">
+                  <Bell className="w-8 h-8 text-gray-600 mx-auto mb-2" />
+                  <p className="text-gray-500">No active notification</p>
+                </div>
+              )}
+            </div>
+
+            {/* Send New Notification */}
+            <div className="bg-white/[0.02] rounded-2xl border border-white/5 p-6">
+              <div className="flex items-center gap-2 mb-4">
+                <Send className="w-5 h-5 text-cyan-400" />
+                <h2 className="font-semibold text-white">Send Notification to All Users</h2>
+              </div>
+
+              <div className="space-y-4">
+                {/* Message */}
+                <div>
+                  <label className="block text-sm text-gray-400 mb-2">Message</label>
+                  <textarea
+                    value={newMessage}
+                    onChange={(e) => setNewMessage(e.target.value)}
+                    placeholder="Enter notification message..."
+                    className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:border-cyan-500/50 resize-none"
+                    rows={3}
+                  />
+                </div>
+
+                {/* Type */}
+                <div>
+                  <label className="block text-sm text-gray-400 mb-2">Type</label>
+                  <div className="flex gap-3">
+                    {[
+                      { id: 'info', label: 'Info', color: 'blue', icon: Info },
+                      { id: 'warning', label: 'Warning', color: 'amber', icon: AlertTriangle },
+                      { id: 'danger', label: 'Critical', color: 'red', icon: XCircle }
+                    ].map((type) => (
+                      <button
+                        key={type.id}
+                        onClick={() => setNewType(type.id as any)}
+                        className={`flex items-center gap-2 px-4 py-2 rounded-lg border transition-all ${
+                          newType === type.id
+                            ? `bg-${type.color}-500/20 border-${type.color}-500/50 text-${type.color}-400`
+                            : 'bg-white/5 border-white/10 text-gray-400 hover:border-white/20'
+                        }`}
+                      >
+                        <type.icon className="w-4 h-4" />
+                        {type.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Scheduled At */}
+                <div>
+                  <label className="block text-sm text-gray-400 mb-2">Scheduled Time (optional)</label>
+                  <input
+                    type="text"
+                    value={newScheduledAt}
+                    onChange={(e) => setNewScheduledAt(e.target.value)}
+                    placeholder="e.g., Jan 25, 2026 at 10:00 UTC"
+                    className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:border-cyan-500/50"
+                  />
+                </div>
+
+                {/* Preview */}
+                {newMessage && (
+                  <div>
+                    <label className="block text-sm text-gray-400 mb-2">Preview</label>
+                    <div className={`p-4 rounded-xl border ${
+                      newType === 'danger' ? 'bg-red-500/10 border-red-500/30' :
+                      newType === 'warning' ? 'bg-amber-500/10 border-amber-500/30' :
+                      'bg-blue-500/10 border-blue-500/30'
+                    }`}>
+                      <div className="flex items-start gap-3">
+                        {newType === 'danger' ? (
+                          <XCircle className="w-5 h-5 text-red-400 mt-0.5" />
+                        ) : newType === 'warning' ? (
+                          <AlertTriangle className="w-5 h-5 text-amber-400 mt-0.5" />
+                        ) : (
+                          <Info className="w-5 h-5 text-blue-400 mt-0.5" />
+                        )}
+                        <div>
+                          <p className={`font-medium ${
+                            newType === 'danger' ? 'text-red-400' :
+                            newType === 'warning' ? 'text-amber-400' :
+                            'text-blue-400'
+                          }`}>
+                            {newType === 'danger' ? '⚠️ Important Notice' :
+                             newType === 'warning' ? '📢 Maintenance Notice' :
+                             'ℹ️ System Notice'}
+                          </p>
+                          <p className="text-gray-300 mt-1">{newMessage}</p>
+                          {newScheduledAt && (
+                            <p className="text-xs text-gray-500 mt-2">
+                              Scheduled: {newScheduledAt}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Send Button */}
+                <button
+                  onClick={sendNotification}
+                  disabled={!newMessage.trim() || isSending}
+                  className="w-full py-3 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-500 text-white font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:opacity-90 transition-opacity flex items-center justify-center gap-2"
+                >
+                  {isSending ? (
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                  ) : (
+                    <>
+                      <Send className="w-5 h-5" />
+                      Send Notification
+                    </>
+                  )}
+                </button>
+
+                {/* Clear Button */}
+                {maintenance?.active && (
+                  <button
+                    onClick={clearNotification}
+                    disabled={isSending}
+                    className="w-full py-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 font-medium hover:bg-red-500/20 transition-colors flex items-center justify-center gap-2"
+                  >
+                    <Trash2 className="w-5 h-5" />
+                    Clear Current Notification
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Help */}
+            <div className="bg-cyan-500/5 border border-cyan-500/20 rounded-xl p-4">
+              <h3 className="font-medium text-cyan-400 mb-2">📝 How it works</h3>
+              <ul className="text-sm text-gray-400 space-y-1">
+                <li>• <strong className="text-white">Info</strong> - General announcements (blue banner)</li>
+                <li>• <strong className="text-white">Warning</strong> - Scheduled maintenance (amber banner)</li>
+                <li>• <strong className="text-white">Critical</strong> - Urgent issues (red banner)</li>
+                <li>• Users can dismiss the notification, but it will reappear if you send a new one</li>
+                <li>• Notifications appear at the top of the dashboard</li>
+              </ul>
             </div>
           </motion.div>
         )}
