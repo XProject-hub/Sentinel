@@ -628,9 +628,29 @@ async def get_ai_signals(user_id: str = "default", limit: int = 5):
         
         try:
             r = await get_redis()
-            settings_raw = await r.get(f"bot:settings:{user_id}")
-            if settings_raw:
-                settings = json.loads(settings_raw)
+            # Check key type FIRST to avoid WRONGTYPE errors
+            settings_key = f"bot:settings:{user_id}"
+            key_type = await r.type(settings_key)
+            key_type_str = key_type.decode() if isinstance(key_type, bytes) else str(key_type)
+            
+            settings = {}
+            if key_type_str == 'hash':
+                data = await r.hgetall(settings_key)
+                if data:
+                    settings = {
+                        k.decode() if isinstance(k, bytes) else k: 
+                        v.decode() if isinstance(v, bytes) else v 
+                        for k, v in data.items()
+                    }
+            elif key_type_str == 'string':
+                settings_raw = await r.get(settings_key)
+                if settings_raw:
+                    try:
+                        settings = json.loads(settings_raw)
+                    except:
+                        pass
+            
+            if settings:
                 take_profit = float(settings.get("takeProfitPercent", take_profit))
                 stop_loss = float(settings.get("stopLossPercent", stop_loss))
                 min_edge = float(settings.get("minEdge", min_edge))
@@ -745,11 +765,33 @@ async def get_ai_intelligence(user_id: str = "default"):
     try:
         r = await get_redis()
         # Get USER-SPECIFIC settings for strategy mode
-        settings_raw = await r.get(f"bot:settings:{user_id}")
-        if settings_raw:
-            settings = json.loads(settings_raw)
+        # Check key type FIRST to avoid WRONGTYPE errors
+        settings_key = f"bot:settings:{user_id}"
+        key_type = await r.type(settings_key)
+        key_type_str = key_type.decode() if isinstance(key_type, bytes) else str(key_type)
+        
+        settings = {}
+        if key_type_str == 'hash':
+            # Key is a HASH - use HGETALL
+            data = await r.hgetall(settings_key)
+            if data:
+                settings = {
+                    k.decode() if isinstance(k, bytes) else k: 
+                    v.decode() if isinstance(v, bytes) else v 
+                    for k, v in data.items()
+                }
+        elif key_type_str == 'string':
+            # Key is a STRING - use GET and parse JSON
+            settings_raw = await r.get(settings_key)
+            if settings_raw:
+                try:
+                    settings = json.loads(settings_raw)
+                except:
+                    pass
+        
+        if settings:
             # Check if AI Full Auto mode
-            if settings.get("aiFullAuto"):
+            if str(settings.get("aiFullAuto", "false")).lower() == "true":
                 intelligence["strategy_mode"] = "AI AUTO"
             else:
                 # Use strategyPreset if set, otherwise riskMode

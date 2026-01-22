@@ -3791,19 +3791,15 @@ class AutonomousTraderV2:
         This ensures COMPLETE ISOLATION between users!
         """
         try:
-            # Try to get settings as JSON string first (new format)
             settings_key = f'bot:settings:{user_id}'
-            data_raw = await self.redis_client.get(settings_key)
-            
             parsed = {}
-            if data_raw:
-                try:
-                    parsed = json.loads(data_raw)
-                except:
-                    pass
             
-            # Fallback to hash format if JSON not found
-            if not parsed:
+            # Check key type FIRST to avoid WRONGTYPE errors
+            key_type = await self.redis_client.type(settings_key)
+            key_type_str = key_type.decode() if isinstance(key_type, bytes) else str(key_type)
+            
+            if key_type_str == 'hash':
+                # Key is a HASH - use HGETALL
                 data = await self.redis_client.hgetall(settings_key)
                 if data:
                     parsed = {
@@ -3811,6 +3807,15 @@ class AutonomousTraderV2:
                         v.decode() if isinstance(v, bytes) else v 
                         for k, v in data.items()
                     }
+            elif key_type_str == 'string':
+                # Key is a STRING - use GET and parse JSON
+                data_raw = await self.redis_client.get(settings_key)
+                if data_raw:
+                    try:
+                        parsed = json.loads(data_raw)
+                    except:
+                        pass
+            # If key_type is 'none', the key doesn't exist - parsed stays empty
             
             # Initialize user settings dict if not exists
             if user_id not in self.user_settings:
