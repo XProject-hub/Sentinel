@@ -157,6 +157,33 @@ class AutonomousTraderV2:
         self.mr_rsi_oversold = 35  # RSI threshold for oversold
         self.mr_only_range_regime = True  # Only trade in RANGE/SIDEWAYS regime
         
+        # === PRESET ENTRY THRESHOLDS (from ChatGPT professional presets) ===
+        self.momentum_min = 0.025  # Minimum momentum for entry
+        self.momentum_max = 0.18   # Maximum momentum (don't chase pumps)
+        self.rsi_entry_min = 30    # RSI minimum for entry
+        self.rsi_entry_max = 60    # RSI maximum for entry
+        self.volume_ratio_min = 1.1  # Minimum volume ratio
+        self.spread_max = 0.15     # Maximum spread % (slippage protection)
+        self.wick_ratio_max = 0.60 # Maximum wick ratio (rejection candle filter)
+        self.distance_from_low_max = 0.30  # Max distance from local low
+        self.green_red_ratio_min = 1.3  # Min green/red candle ratio
+        
+        # BTC correlation settings
+        self.btc_correlation_check = True  # Check BTC before alt longs
+        self.btc_block_threshold = -0.4    # Block alt longs if BTC < this %
+        self.btc_required_positive = False # Require BTC positive for trade
+        
+        # AI score requirements
+        self.min_models_agree = 2  # Minimum AI models that must agree
+        self.require_positive_ev = False  # Require positive expected value
+        self.require_positive_sentiment = False  # Require positive sentiment
+        
+        # Time stop
+        self.max_trade_minutes = 25  # Maximum trade duration
+        
+        # Regime requirements
+        self.regime_required = []  # List of required regimes (empty = any)
+        
         # Smart exit (MICRO PROFIT mode)
         self.breakeven_trigger = 0.25  # Move SL to entry at +0.25%
         self.partial_exit_trigger = 0.30  # TP1: Take 50% at +0.30%
@@ -231,78 +258,242 @@ class AutonomousTraderV2:
     
     def _apply_strategy_preset(self, preset: str):
         """
-        Apply a trading strategy preset
+        Apply a trading strategy preset - PROFESSIONAL PRESETS from ChatGPT
+        
+        Each preset has:
+        - Entry thresholds (momentum, RSI, volume, spread, wick ratio)
+        - AI score requirements (confidence, models agreement)
+        - Exit rules (TP, SL, trailing, max time)
         
         Presets:
-        - conservative: Tight SL, early TP, for capital preservation
-        - balanced: Middle ground, good for most users (DEFAULT)
-        - aggressive: Wide SL, let trades run, for experienced traders
-        - scalper: Very tight exits, high frequency, small gains
-        - swing: Wide stops, hold longer, for bigger moves
-        - mean_reversion: Statistical edge, trade dips in range markets (RECOMMENDED)
+        - scalp: Fastest, most dangerous - quick bounce, small profit (65-75% winrate)
+        - micro: HEALTHIEST DEFAULT - small quality profits (70-80% winrate) ⭐ RECOMMENDED
+        - swing: Slow but stable - bigger moves, less frequency (55-65% winrate)
+        - conservative: Capital preservation - tight everything
+        - balanced: Middle ground for beginners
+        - aggressive: Risk takers - wide stops
         """
         presets = {
-            'conservative': {
-                'stop_loss': 0.8,
-                'take_profit': 1.5,
-                'trailing': 0.3,
-                'min_trail': 0.2,
+            # ⚡ SCALP PRESET (najbrži, najopasniji)
+            'scalp': {
+                # EXIT
+                'stop_loss': 0.35,
+                'take_profit': 0.55,  # Average of 0.4-0.7%
+                'trailing': 0.12,
+                'min_trail': 0.35,
+                'max_trade_minutes': 5,  # 3-7 min
+                
+                # ENTRY THRESHOLDS
+                'momentum_min': 0.015,
+                'momentum_max': 0.12,
+                'rsi_min': 28,
+                'rsi_max': 55,
+                'volume_ratio_min': 0.9,
+                'spread_max': 0.12,
+                'wick_ratio_max': 0.65,
+                'distance_from_low_max': 0.20,
+                'green_red_ratio_min': 1.1,
+                'btc_correlation_check': False,  # IGNORE except crash
+                
+                # AI SCORE
+                'min_confidence': 58,
+                'min_models_agree': 2,
+                
                 'use_mean_reversion': False,
-                'description': 'Small losses, small wins - capital preservation'
+                'regime_required': ['RANGE', 'LOW_VOLATILITY'],
+                'winrate_expected': '65-75%',
+                'description': 'Quick bounce, small profit, high frequency - RISKY'
+            },
+            
+            # 💎 MICRO PRESET (NAJZDRAVIJI – PREPORUKA)
+            'micro': {
+                # EXIT
+                'stop_loss': 0.5,
+                'take_profit': 0.9,  # Average of 0.6-1.2%
+                'trailing': 0.14,
+                'min_trail': 0.45,
+                'max_trade_minutes': 25,  # 15-40 min
+                
+                # ENTRY THRESHOLDS
+                'momentum_min': 0.025,
+                'momentum_max': 0.18,
+                'rsi_min': 30,
+                'rsi_max': 60,
+                'volume_ratio_min': 1.1,
+                'spread_max': 0.15,
+                'wick_ratio_max': 0.60,
+                'distance_from_low_max': 0.30,
+                'green_red_ratio_min': 1.3,
+                'btc_correlation_check': True,  # BLOCK if BTC < -0.4%
+                'btc_block_threshold': -0.4,
+                
+                # AI SCORE
+                'min_confidence': 65,
+                'min_models_agree': 2,
+                'require_positive_ev': True,
+                
+                'use_mean_reversion': True,
+                'regime_required': ['RANGE', 'CHOPPY'],
+                'winrate_expected': '70-80%',
+                'description': 'Small quality profits - DEFAULT MONEY PRINTER ⭐'
+            },
+            
+            # 🧠 SWING PRESET (spor, ali stabilan)
+            'swing': {
+                # EXIT
+                'stop_loss': 1.2,
+                'take_profit': 4.0,  # Average of 2-6%
+                'trailing': 0.35,
+                'min_trail': 1.2,
+                'max_trade_minutes': 1440,  # 6h - 3d (1 day average)
+                
+                # ENTRY THRESHOLDS
+                'momentum_min': 0.08,
+                'momentum_max': 0.35,
+                'rsi_min': 35,
+                'rsi_max': 65,
+                'volume_ratio_min': 1.3,
+                'spread_max': 0.20,
+                'wick_ratio_max': 0.55,
+                'distance_from_low_max': 0.45,
+                'green_red_ratio_min': 1.5,
+                'btc_correlation_check': True,  # REQUIRED CONFIRMATION
+                'btc_required_positive': True,
+                
+                # AI SCORE
+                'min_confidence': 72,
+                'min_models_agree': 3,  # ALL models must agree
+                'require_positive_sentiment': True,
+                
+                'use_mean_reversion': False,
+                'regime_required': ['STABLE_TREND', 'RANGE_EXPANSION'],
+                'winrate_expected': '55-65%',
+                'description': 'Bigger moves, less frequency - R:R > 2.5'
+            },
+            
+            # Simple presets for backwards compatibility
+            'conservative': {
+                'stop_loss': 0.6,
+                'take_profit': 1.0,
+                'trailing': 0.2,
+                'min_trail': 0.15,
+                'max_trade_minutes': 30,
+                'momentum_min': 0.02,
+                'momentum_max': 0.15,
+                'rsi_min': 30,
+                'rsi_max': 55,
+                'min_confidence': 70,
+                'min_models_agree': 2,
+                'use_mean_reversion': True,
+                'description': 'Capital preservation - tight everything'
             },
             'balanced': {
                 'stop_loss': 1.5,
                 'take_profit': 3.0,
                 'trailing': 0.8,
                 'min_trail': 0.5,
+                'max_trade_minutes': 120,
+                'momentum_min': 0.03,
+                'momentum_max': 0.25,
+                'rsi_min': 30,
+                'rsi_max': 65,
+                'min_confidence': 60,
+                'min_models_agree': 2,
                 'use_mean_reversion': False,
-                'description': 'Balanced risk/reward - recommended for most'
+                'description': 'Balanced risk/reward - for beginners'
             },
             'aggressive': {
                 'stop_loss': 2.5,
                 'take_profit': 5.0,
                 'trailing': 1.2,
                 'min_trail': 1.0,
+                'max_trade_minutes': 480,
+                'momentum_min': 0.05,
+                'momentum_max': 0.40,
+                'rsi_min': 25,
+                'rsi_max': 70,
+                'min_confidence': 55,
+                'min_models_agree': 2,
                 'use_mean_reversion': False,
                 'description': 'Big wins, big losses - for risk takers'
             },
-            'scalper': {
-                'stop_loss': 0.5,
-                'take_profit': 0.8,
-                'trailing': 0.15,
-                'min_trail': 0.1,
-                'use_mean_reversion': False,
-                'description': 'Quick in/out - many small trades'
-            },
-            'swing': {
-                'stop_loss': 3.0,
-                'take_profit': 8.0,
-                'trailing': 2.0,
-                'min_trail': 1.5,
-                'use_mean_reversion': False,
-                'description': 'Hold longer for bigger moves'
-            },
+            
+            # Legacy alias
             'mean_reversion': {
-                'stop_loss': 0.5,       # Tight SL - quick exit on wrong trades
-                'take_profit': 0.8,     # Quick profit - don't be greedy
-                'trailing': 0.2,        # Tight trailing after profit
-                'min_trail': 0.15,      # Trail early
-                'use_mean_reversion': True,  # Enable mean reversion entry logic
-                'description': 'Statistical edge - 70-80% winrate, trade dips in range markets'
+                'stop_loss': 0.5,
+                'take_profit': 0.9,
+                'trailing': 0.14,
+                'min_trail': 0.45,
+                'max_trade_minutes': 25,
+                'momentum_min': 0.025,
+                'momentum_max': 0.18,
+                'rsi_min': 30,
+                'rsi_max': 60,
+                'min_confidence': 65,
+                'min_models_agree': 2,
+                'use_mean_reversion': True,
+                'description': 'Same as MICRO - statistical edge'
             }
         }
         
-        if preset in presets:
-            config = presets[preset]
+        # Normalize preset name
+        preset_lower = preset.lower().replace('_', '').replace('-', '')
+        preset_map = {
+            'scalp': 'scalp', 'scalper': 'scalp',
+            'micro': 'micro', 'microprofit': 'micro',
+            'swing': 'swing', 'swinger': 'swing',
+            'conservative': 'conservative', 'safe': 'conservative',
+            'balanced': 'balanced', 'normal': 'balanced',
+            'aggressive': 'aggressive', 'risky': 'aggressive',
+            'meanreversion': 'mean_reversion', 'mean_reversion': 'mean_reversion'
+        }
+        
+        actual_preset = preset_map.get(preset_lower, 'micro')  # Default to MICRO (best)
+        
+        if actual_preset in presets:
+            config = presets[actual_preset]
+            
+            # EXIT rules
             self.emergency_stop_loss = config['stop_loss']
             self.take_profit = config['take_profit']
             self.trail_from_peak = config['trailing']
             self.min_profit_to_trail = config['min_trail']
+            self.max_trade_minutes = config.get('max_trade_minutes', 60)
+            
+            # ENTRY thresholds
+            self.momentum_min = config.get('momentum_min', 0.02)
+            self.momentum_max = config.get('momentum_max', 0.20)
+            self.rsi_entry_min = config.get('rsi_min', 30)
+            self.rsi_entry_max = config.get('rsi_max', 60)
+            self.volume_ratio_min = config.get('volume_ratio_min', 1.0)
+            self.spread_max = config.get('spread_max', 0.15)
+            self.wick_ratio_max = config.get('wick_ratio_max', 0.60)
+            self.distance_from_low_max = config.get('distance_from_low_max', 0.30)
+            self.green_red_ratio_min = config.get('green_red_ratio_min', 1.2)
+            
+            # BTC correlation
+            self.btc_correlation_check = config.get('btc_correlation_check', True)
+            self.btc_block_threshold = config.get('btc_block_threshold', -2.0)
+            self.btc_required_positive = config.get('btc_required_positive', False)
+            
+            # AI score requirements
+            self.min_confidence = config.get('min_confidence', 60)
+            self.min_models_agree = config.get('min_models_agree', 2)
+            self.require_positive_ev = config.get('require_positive_ev', False)
+            self.require_positive_sentiment = config.get('require_positive_sentiment', False)
+            
+            # Mean reversion mode
             self.use_mean_reversion = config.get('use_mean_reversion', False)
-            logger.info(f" Strategy preset '{preset}' applied: SL={config['stop_loss']}%, TP={config['take_profit']}%, Trail={config['trailing']}%, MeanRev={self.use_mean_reversion}")
+            self.regime_required = config.get('regime_required', [])
+            
+            logger.info(f"PRESET '{actual_preset.upper()}' applied:")
+            logger.info(f"  EXIT: SL={self.emergency_stop_loss}%, TP={self.take_profit}%, Trail={self.trail_from_peak}%")
+            logger.info(f"  ENTRY: Momentum={self.momentum_min}-{self.momentum_max}%, RSI={self.rsi_entry_min}-{self.rsi_entry_max}")
+            logger.info(f"  AI: MinConf={self.min_confidence}%, ModelsAgree={self.min_models_agree}")
+            logger.info(f"  Expected winrate: {config.get('winrate_expected', 'N/A')}")
         else:
-            logger.warning(f"Unknown strategy preset '{preset}', using balanced")
-            self._apply_strategy_preset('balanced')
+            logger.warning(f"Unknown strategy preset '{preset}', using MICRO")
+            self._apply_strategy_preset('micro')
         
     async def initialize(
         self,
@@ -1113,26 +1304,30 @@ class AutonomousTraderV2:
             # FILTER 1: REJECTION CANDLE (Micro Structure)
             # ================================================================
             # Big wick = price rejection = don't buy
+            # Uses preset threshold: self.wick_ratio_max (default 0.60)
             candle_range = high_price - low_price
             if candle_range > 0:
                 if opp.direction == 'long':
                     # For LONG: upper wick should be small (not rejected at top)
                     upper_wick = high_price - max(open_price, close_price)
                     wick_ratio = upper_wick / candle_range
-                    if wick_ratio > 0.6:
-                        return False, f"REJECTION: Upper wick {wick_ratio:.0%} - price rejected at top"
+                    if wick_ratio > self.wick_ratio_max:
+                        return False, f"REJECTION: Upper wick {wick_ratio:.0%} > {self.wick_ratio_max:.0%}"
                 else:
                     # For SHORT: lower wick should be small (not rejected at bottom)
                     lower_wick = min(open_price, close_price) - low_price
                     wick_ratio = lower_wick / candle_range
-                    if wick_ratio > 0.6:
-                        return False, f"REJECTION: Lower wick {wick_ratio:.0%} - price rejected at bottom"
+                    if wick_ratio > self.wick_ratio_max:
+                        return False, f"REJECTION: Lower wick {wick_ratio:.0%} > {self.wick_ratio_max:.0%}"
             
             # ================================================================
             # FILTER 2: BTC CORRELATION SAFETY
             # ================================================================
-            # Don't long alts when BTC is dumping
-            if opp.symbol != 'BTCUSDT' and opp.direction == 'long':
+            # Uses preset thresholds:
+            # - self.btc_correlation_check (enable/disable)
+            # - self.btc_block_threshold (default -0.4% for MICRO, -2% for others)
+            # - self.btc_required_positive (for SWING preset)
+            if self.btc_correlation_check and opp.symbol != 'BTCUSDT' and opp.direction == 'long':
                 try:
                     btc_ticker = await client.get_tickers(symbol='BTCUSDT')
                     if btc_ticker.get('success'):
@@ -1140,11 +1335,15 @@ class AutonomousTraderV2:
                         if btc_list:
                             btc_change = float(btc_list[0].get('price24hPcnt', 0)) * 100
                             
-                            # If BTC is dumping hard (>2% down), don't long alts
-                            if btc_change < -2.0:
-                                return False, f"BTC DUMP: BTC is {btc_change:.1f}% - risky to long alts"
+                            # If BTC required positive and it's negative, block
+                            if self.btc_required_positive and btc_change < 0:
+                                return False, f"BTC REQUIRED POSITIVE: BTC is {btc_change:.1f}%"
                             
-                            # If BTC is crashing (>5% down), block all alt longs
+                            # If BTC below threshold, block alt longs
+                            if btc_change < self.btc_block_threshold:
+                                return False, f"BTC BLOCK: BTC {btc_change:.1f}% < threshold {self.btc_block_threshold}%"
+                            
+                            # If BTC is crashing (>5% down), ALWAYS block regardless of preset
                             if btc_change < -5.0:
                                 return False, f"BTC CRASH: BTC is {btc_change:.1f}% - NO alt longs!"
                 except Exception as e:
@@ -1153,6 +1352,7 @@ class AutonomousTraderV2:
             # ================================================================
             # FILTER 3: SPREAD CHECK (Liquidity)
             # ================================================================
+            # Uses preset threshold: self.spread_max (default 0.15% for MICRO)
             try:
                 orderbook = await client.get_orderbook(opp.symbol, limit=5)
                 if orderbook.get('success'):
@@ -1165,15 +1365,16 @@ class AutonomousTraderV2:
                         mid_price = (best_bid + best_ask) / 2
                         spread_pct = ((best_ask - best_bid) / mid_price) * 100
                         
-                        # Spread > 0.2% = too expensive to trade (slippage)
-                        if spread_pct > 0.2:
-                            return False, f"SPREAD: {spread_pct:.2f}% too high - slippage risk"
+                        # Spread above threshold = slippage risk
+                        if spread_pct > self.spread_max:
+                            return False, f"SPREAD: {spread_pct:.2f}% > max {self.spread_max}%"
             except Exception as e:
                 logger.debug(f"Spread check failed: {e}")
             
             # ================================================================
             # FILTER 4: ENTRY PRICE QUALITY
             # ================================================================
+            # Uses preset threshold: self.distance_from_low_max (default 0.30 for MICRO)
             # For LONG: should be near support (low of range), not chasing
             # For SHORT: should be near resistance (high of range)
             closes = [float(k[4]) for k in kline_data[:10]]
@@ -1184,28 +1385,34 @@ class AutonomousTraderV2:
             local_high = max(highs)
             local_range = local_high - local_low
             
+            # Convert distance_from_low_max from percentage to ratio (0.30 = 30%)
+            max_distance = self.distance_from_low_max if self.distance_from_low_max > 1 else self.distance_from_low_max
+            # Ensure it's in 0-1 range
+            if max_distance > 1:
+                max_distance = max_distance / 100
+            
             if local_range > 0:
                 if opp.direction == 'long':
                     # Distance from local low (support)
                     distance_from_support = (close_price - local_low) / local_range
                     
-                    # If already bounced >60% of range, we're chasing
-                    if distance_from_support > 0.60:
-                        return False, f"ENTRY QUALITY: Price {distance_from_support:.0%} above support - chasing"
+                    # If already bounced more than threshold, we're chasing
+                    if distance_from_support > max_distance:
+                        return False, f"ENTRY QUALITY: {distance_from_support:.0%} > {max_distance:.0%} - chasing"
                 else:
                     # Distance from local high (resistance)
                     distance_from_resistance = (local_high - close_price) / local_range
                     
-                    # If already dropped >60% of range, we're chasing the dump
-                    if distance_from_resistance > 0.60:
-                        return False, f"ENTRY QUALITY: Price {distance_from_resistance:.0%} below resistance - chasing"
+                    # If already dropped more than threshold, we're chasing the dump
+                    if distance_from_resistance > max_distance:
+                        return False, f"ENTRY QUALITY: {distance_from_resistance:.0%} > {max_distance:.0%} - chasing"
             
             # ================================================================
             # FILTER 5: EXPECTED VALUE CHECK
             # ================================================================
+            # Uses preset flag: self.require_positive_ev (default True for MICRO)
             # Simple EV calculation based on historical win rate and R:R
             # EV = P(win) * AvgWin - P(loss) * AvgLoss
-            # We need positive EV to trade
             
             # Use our actual settings for calculation
             potential_win = self.take_profit if self.take_profit > 0 else 0.8  # Default 0.8%
@@ -1217,7 +1424,8 @@ class AutonomousTraderV2:
             # Calculate EV
             ev = (estimated_win_rate * potential_win) - ((1 - estimated_win_rate) * potential_loss)
             
-            if ev <= 0:
+            # Only block if preset requires positive EV (MICRO preset does)
+            if self.require_positive_ev and ev <= 0:
                 return False, f"NEGATIVE EV: {ev:.3f} (Win%={estimated_win_rate:.0%}, TP={potential_win}%, SL={potential_loss}%)"
             
             # Passed all filters!

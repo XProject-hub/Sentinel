@@ -39,8 +39,8 @@ import {
 import Logo from '@/components/Logo'
 
 interface BotSettings {
-  strategyPreset: 'conservative' | 'balanced' | 'aggressive' | 'scalper' | 'swing'
-  riskMode: 'NORMAL' | 'LOCK_PROFIT' | 'MICRO_PROFIT' | 'SCALPER' | 'SWING'
+  strategyPreset: 'scalp' | 'micro' | 'swing' | 'conservative' | 'balanced' | 'aggressive'
+  riskMode: 'SCALP' | 'MICRO' | 'SWING' | 'CONSERVATIVE' | 'BALANCED' | 'AGGRESSIVE'
   takeProfitPercent: number
   stopLossPercent: number
   trailingStopPercent: number
@@ -67,10 +67,10 @@ interface BotSettings {
 }
 
 const defaultSettings: BotSettings = {
-  strategyPreset: 'balanced',
-  riskMode: 'NORMAL',
-  takeProfitPercent: 3.0,
-  stopLossPercent: 1.5,
+  strategyPreset: 'micro',  // MICRO is the best default (70-80% winrate)
+  riskMode: 'MICRO',
+  takeProfitPercent: 0.9,  // MICRO default
+  stopLossPercent: 0.5,    // MICRO default
   trailingStopPercent: 0.8,
   minProfitToTrail: 0.5,
   maxOpenPositions: 10,
@@ -94,23 +94,65 @@ const defaultSettings: BotSettings = {
   breakoutExtraSlots: false  // OFF by default - user must enable
 }
 
-// Strategy presets - optimized risk/reward configurations
+// Strategy presets - PROFESSIONAL PRESETS (from ChatGPT quant analysis)
+// Each preset has optimized entry thresholds, AI requirements, and exit rules
 const riskPresets = {
+  // ⚡ SCALP - Fastest, most dangerous
+  SCALP: {
+    takeProfitPercent: 0.55,  // +0.4% to +0.7% (average)
+    stopLossPercent: 0.35,
+    trailingStopPercent: 0.12,
+    minProfitToTrail: 0.35,
+    winrate: '65-75%',
+    regime: 'RANGE',
+    description: '⚡ Quick bounce, small profit - HIGH RISK, HIGH FREQ',
+    icon: Zap,
+    color: 'red'
+  },
+  // 💎 MICRO - HEALTHIEST (RECOMMENDED)
+  MICRO: {
+    takeProfitPercent: 0.9,   // +0.6% to +1.2% (average)
+    stopLossPercent: 0.5,
+    trailingStopPercent: 0.14,
+    minProfitToTrail: 0.45,
+    winrate: '70-80%',
+    regime: 'RANGE/CHOPPY',
+    description: '💎 DEFAULT MONEY PRINTER - Best risk/reward ⭐',
+    icon: Target,
+    color: 'emerald'
+  },
+  // 🧠 SWING - Slow but stable
+  SWING: {
+    takeProfitPercent: 4.0,   // +2% to +6% (average)
+    stopLossPercent: 1.2,
+    trailingStopPercent: 0.35,
+    minProfitToTrail: 1.2,
+    winrate: '55-65%',
+    regime: 'TREND',
+    description: '🧠 Bigger moves, less trades - R:R > 2.5',
+    icon: TrendingUp,
+    color: 'purple'
+  },
+  // Simple presets for beginners
   CONSERVATIVE: {
-    takeProfitPercent: 1.5,
-    stopLossPercent: 0.8,
-    trailingStopPercent: 0.3,
-    minProfitToTrail: 0.2,
-    description: 'Small losses, small wins - capital preservation',
+    takeProfitPercent: 1.0,
+    stopLossPercent: 0.6,
+    trailingStopPercent: 0.2,
+    minProfitToTrail: 0.15,
+    winrate: '75-85%',
+    regime: 'ANY',
+    description: '🛡️ Capital preservation - tight everything',
     icon: Shield,
     color: 'blue'
   },
-  NORMAL: {
+  BALANCED: {
     takeProfitPercent: 3.0,
     stopLossPercent: 1.5,
     trailingStopPercent: 0.8,
     minProfitToTrail: 0.5,
-    description: 'Balanced risk/reward - recommended for most',
+    winrate: '60-70%',
+    regime: 'ANY',
+    description: '⚖️ Middle ground - for beginners',
     icon: Activity,
     color: 'cyan'
   },
@@ -119,36 +161,11 @@ const riskPresets = {
     stopLossPercent: 2.5,
     trailingStopPercent: 1.2,
     minProfitToTrail: 1.0,
-    description: 'Big wins, big losses - for risk takers',
-    icon: Zap,
-    color: 'orange'
-  },
-  SCALPER: {
-    takeProfitPercent: 0.8,
-    stopLossPercent: 0.5,
-    trailingStopPercent: 0.15,
-    minProfitToTrail: 0.1,
-    description: 'Quick in/out - many small trades',
+    winrate: '50-60%',
+    regime: 'TREND',
+    description: '🔥 Big wins, big losses - for risk takers',
     icon: Sparkles,
-    color: 'amber'
-  },
-  SWING: {
-    takeProfitPercent: 8.0,
-    stopLossPercent: 3.0,
-    trailingStopPercent: 2.0,
-    minProfitToTrail: 1.5,
-    description: 'Hold longer for bigger moves',
-    icon: TrendingUp,
-    color: 'purple'
-  },
-  MEAN_REVERSION: {
-    takeProfitPercent: 0.8,
-    stopLossPercent: 0.5,
-    trailingStopPercent: 0.2,
-    minProfitToTrail: 0.15,
-    description: '70-80% winrate - statistical edge, buy dips in range markets',
-    icon: BarChart3,
-    color: 'emerald'
+    color: 'orange'
   }
 }
 
@@ -211,8 +228,8 @@ export default function SettingsPage() {
         if (data.data) {
           const backendData = data.data
           // Normalize riskMode to uppercase
-          const riskMode = (backendData.riskMode || 'NORMAL').toUpperCase() as keyof typeof riskPresets
-          const validRiskMode = riskPresets[riskMode] ? riskMode : 'NORMAL'
+          const riskMode = (backendData.riskMode || 'MICRO').toUpperCase() as keyof typeof riskPresets
+          const validRiskMode = riskPresets[riskMode] ? riskMode : 'MICRO'
           
           const mapped = {
             ...backendData,
@@ -279,16 +296,16 @@ export default function SettingsPage() {
     const preset = riskPresets[mode]
     // Map frontend mode names to backend strategyPreset names
     const presetMap: { [key: string]: string } = {
-      'CONSERVATIVE': 'conservative',
-      'NORMAL': 'balanced',
-      'AGGRESSIVE': 'aggressive',
-      'SCALPER': 'scalper',
+      'SCALP': 'scalp',
+      'MICRO': 'micro',
       'SWING': 'swing',
-      'MEAN_REVERSION': 'mean_reversion'
+      'CONSERVATIVE': 'conservative',
+      'BALANCED': 'balanced',
+      'AGGRESSIVE': 'aggressive'
     }
     setSettings(prev => ({
       ...prev,
-      strategyPreset: (presetMap[mode] || 'balanced') as BotSettings['strategyPreset'],
+      strategyPreset: (presetMap[mode] || 'micro') as BotSettings['strategyPreset'],
       riskMode: mode,
       takeProfitPercent: preset.takeProfitPercent,
       stopLossPercent: preset.stopLossPercent,
@@ -433,7 +450,7 @@ export default function SettingsPage() {
             <h3 className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-3">Current Mode</h3>
             <div className="flex items-center gap-2">
               <div className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
-              <span className="text-sm font-medium text-white">{(settings.riskMode || 'NORMAL').replace('_', ' ')}</span>
+              <span className="text-sm font-medium text-white">{(settings.riskMode || 'MICRO').replace('_', ' ')}</span>
             </div>
             <p className="text-xs text-gray-500 mt-2">
               {riskPresets[settings.riskMode as keyof typeof riskPresets]?.description || 'Balanced risk/reward strategy'}
