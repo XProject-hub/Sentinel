@@ -2945,10 +2945,26 @@ class AutonomousTraderV2:
         if total_equity < 10:
             return False, "Insufficient equity"
         
-        # Breakouts that pass ALL filters can proceed
+        # Breakouts ALSO need minimum quality thresholds (not just safety!)
         if is_breakout:
-            logger.info(f" Breakout {opp.symbol} - all safety checks passed, proceeding")
-            return True, "Breakout confirmed and safety approved"
+            # Breakouts need at least 50% confidence (lower than normal trades)
+            breakout_min_confidence = max(50, self.min_confidence * 0.7)  # 70% of user setting, min 50%
+            
+            if opp.confidence < breakout_min_confidence:
+                self.stats['trades_rejected_low_edge'] += 1
+                logger.info(f"BREAKOUT BLOCKED: {opp.symbol} - Confidence {opp.confidence:.0f}% < {breakout_min_confidence:.0f}%")
+                return False, f"Breakout confidence too low ({opp.confidence:.0f}% < {breakout_min_confidence:.0f}%)"
+            
+            # Breakouts need minimum edge of 0.3 (medium quality)
+            breakout_min_edge = max(0.3, self.min_edge * 0.8)
+            
+            if opp.edge_score < breakout_min_edge:
+                self.stats['trades_rejected_low_edge'] += 1
+                logger.info(f"BREAKOUT BLOCKED: {opp.symbol} - Edge {opp.edge_score:.2f} < {breakout_min_edge:.2f}")
+                return False, f"Breakout edge too low ({opp.edge_score:.2f} < {breakout_min_edge:.2f})"
+            
+            logger.info(f"✅ Breakout {opp.symbol} APPROVED - Conf: {opp.confidence:.0f}%, Edge: {opp.edge_score:.2f}")
+            return True, "Breakout confirmed with quality checks"
         
         # Use adjusted thresholds if provided (based on recent performance)
         min_edge = adjusted_min_edge if adjusted_min_edge is not None else self.min_edge
