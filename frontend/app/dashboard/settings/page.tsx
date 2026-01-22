@@ -580,7 +580,7 @@ export default function SettingsPage() {
                   <p className="text-sm text-gray-400 mb-4">Select your trading strategy:</p>
                 )}
                 
-                <div className={`grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 ${settings.aiFullAuto ? 'opacity-50 pointer-events-none' : ''}`}
+                <div className={`grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 ${settings.aiFullAuto ? 'opacity-50 pointer-events-none' : ''}`}>
                   {(Object.keys(riskPresets) as Array<keyof typeof riskPresets>).map((mode) => {
                     const preset = riskPresets[mode]
                     const Icon = preset.icon
