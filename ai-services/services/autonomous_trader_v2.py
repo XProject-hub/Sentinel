@@ -139,8 +139,8 @@ class AutonomousTraderV2:
         
         # === CONFIGURATION ===
         
-        # Trading frequency - FAST for responsive exits
-        self.scan_interval = 30  # Seconds between full scans
+        # Trading frequency - FASTER for active trading
+        self.scan_interval = 15  # Seconds between full scans (was 30)
         self.position_check_interval = 1  # Check positions EVERY SECOND for fast exits
         
         # Entry filters (defaults, will be overridden by settings)
@@ -234,7 +234,7 @@ class AutonomousTraderV2:
         
         # COOLDOWN: Prevent reopening same symbol immediately after close
         self._cooldown_symbols: Dict[str, datetime] = {}
-        self.cooldown_seconds = 60  # Wait 60 seconds before reopening same symbol
+        self.cooldown_seconds = 20  # Wait 20 seconds before reopening same symbol (was 60)
         
         # FAILED ORDER COOLDOWN: Prevent retrying failed orders immediately
         self._failed_order_symbols: Dict[str, datetime] = {}
@@ -2785,17 +2785,16 @@ class AutonomousTraderV2:
                     adjusted_min_confidence = max(70, self.min_confidence + 10)
                     adjusted_min_edge = max(0.25, self.min_edge + 0.10)
             
-            # Rate limiting: Only open 1 NORMAL trade per cycle (30 seconds)
-            # This prevents rushing to fill positions
+            # Rate limiting: Allow up to 3 trades per cycle for more active trading
             normal_trades_this_cycle = 0
-            max_normal_trades_per_cycle = 1  # BE PATIENT - only 1 trade every 30 seconds
+            max_normal_trades_per_cycle = 3  # Allow 3 trades per cycle (was 1)
             
             # Check if we just opened a trade recently (global cooldown)
             last_trade_time = getattr(self, '_last_trade_time', None)
             if last_trade_time:
                 seconds_since_trade = (datetime.utcnow() - last_trade_time).total_seconds()
-                if seconds_since_trade < 60:  # Wait at least 60 seconds between trades
-                    logger.debug(f"Global cooldown: {60 - seconds_since_trade:.0f}s until next trade allowed")
+                if seconds_since_trade < 10:  # Wait 10 seconds between trades (was 60)
+                    logger.debug(f"Global cooldown: {10 - seconds_since_trade:.0f}s until next trade allowed")
                     return
             
             # === NORMAL OPPORTUNITY SCAN ===
@@ -2810,9 +2809,9 @@ class AutonomousTraderV2:
             # Log opportunity search status and reset reject counter
             self._reject_count = 0
             
-            # Only log to console every 30 seconds (15 cycles) to reduce spam
+            # Only log to console every 30 seconds (now 2 cycles at 15s interval) to reduce spam
             scan_log_interval = getattr(self, '_scan_log_counter', 0)
-            should_log_scan = scan_log_interval % 15 == 0
+            should_log_scan = scan_log_interval % 2 == 0  # Log every 2nd cycle (30s)
             self._scan_log_counter = scan_log_interval + 1
             
             if opportunities:

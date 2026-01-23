@@ -113,7 +113,7 @@ class MarketScanner:
         self.symbol_performance: Dict[str, Dict] = {}
         
         # Scan settings
-        self.scan_interval = 30  # seconds
+        self.scan_interval = 15  # seconds (was 30 - faster scanning)
         self.max_parallel_scans = 50  # Concurrent API calls
         self.min_volume_24h = 10000  # $10k minimum volume (lowered to include more pairs)
         self.min_liquidity = 30  # Minimum liquidity score (lowered)

@@ -87,7 +87,7 @@ class AutonomousTrader:
         # ============================================
         
         # Analysis settings
-        self.analysis_interval_seconds = 30  # Analyze every 30 seconds
+        self.analysis_interval_seconds = 15  # Analyze every 15 seconds (was 30)
         self.min_confidence = 65.0  # Only trade when 65%+ confident
         
         # Position sizing - DYNAMIC based on confidence
