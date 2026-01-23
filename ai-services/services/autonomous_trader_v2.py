@@ -1570,7 +1570,7 @@ class AutonomousTraderV2:
         return rsi
     
     async def _advanced_safety_filters(self, opp: TradingOpportunity, client: BybitV5Client, 
-                                       kline_data: Dict = None) -> Tuple[bool, str]:
+                                       kline_data: Dict = None, is_breakout: bool = False) -> Tuple[bool, str]:
         """
         ADVANCED SAFETY FILTERS - Professional hedge fund level checks
         
@@ -1580,7 +1580,7 @@ class AutonomousTraderV2:
         1. REJECTION CANDLE - Don't buy candles with big wicks (rejection)
         2. BTC CORRELATION - Don't long alts when BTC is dumping
         3. SPREAD CHECK - Don't trade if spread too high (slippage)
-        4. ENTRY QUALITY - Must be near support, not chasing
+        4. ENTRY QUALITY - Must be near support, not chasing (relaxed for breakouts!)
         5. EXPECTED VALUE - Only trade if EV is positive
         """
         try:
@@ -1678,6 +1678,7 @@ class AutonomousTraderV2:
             # Uses preset threshold: self.distance_from_low_max (default 0.30 for MICRO)
             # For LONG: should be near support (low of range), not chasing
             # For SHORT: should be near resistance (high of range)
+            # BREAKOUTS: Use much higher threshold (85%) since breakouts BY DEFINITION have moved!
             closes = [float(k[4]) for k in kline_data[:10]]
             lows = [float(k[3]) for k in kline_data[:10]]
             highs = [float(k[2]) for k in kline_data[:10]]
@@ -1692,6 +1693,11 @@ class AutonomousTraderV2:
             if max_distance > 1:
                 max_distance = max_distance / 100
             
+            # BREAKOUTS: Use much higher threshold since they've already moved significantly
+            # Breakouts can be up to 85% from support (normal trades: 30%)
+            if is_breakout:
+                max_distance = 0.85  # Allow breakouts to be 85% up from local low
+            
             if local_range > 0:
                 if opp.direction == 'long':
                     # Distance from local low (support)
@@ -1699,14 +1705,16 @@ class AutonomousTraderV2:
                     
                     # If already bounced more than threshold, we're chasing
                     if distance_from_support > max_distance:
-                        return False, f"ENTRY QUALITY: {distance_from_support:.0%} > {max_distance:.0%} - chasing"
+                        filter_type = "BREAKOUT" if is_breakout else "ENTRY QUALITY"
+                        return False, f"{filter_type}: {distance_from_support:.0%} > {max_distance:.0%} - too extended"
                 else:
                     # Distance from local high (resistance)
                     distance_from_resistance = (local_high - close_price) / local_range
                     
                     # If already dropped more than threshold, we're chasing the dump
                     if distance_from_resistance > max_distance:
-                        return False, f"ENTRY QUALITY: {distance_from_resistance:.0%} > {max_distance:.0%} - chasing"
+                        filter_type = "BREAKOUT" if is_breakout else "ENTRY QUALITY"
+                        return False, f"{filter_type}: {distance_from_resistance:.0%} > {max_distance:.0%} - too extended"
             
             # ================================================================
             # FILTER 5: EXPECTED VALUE CHECK
@@ -2956,10 +2964,10 @@ class AutonomousTraderV2:
         # - Rejection candles (big wicks)
         # - BTC correlation (don't long alts when BTC dumps)
         # - Spread check (avoid slippage)
-        # - Entry quality (near support, not chasing)
+        # - Entry quality (near support, not chasing) - RELAXED for breakouts!
         # - Expected value (must be positive)
         if client:
-            safe, safety_reason = await self._advanced_safety_filters(opp, client)
+            safe, safety_reason = await self._advanced_safety_filters(opp, client, is_breakout=is_breakout)
             if not safe:
                 self.stats['trades_rejected_low_edge'] += 1
                 logger.info(f"SAFETY FILTER BLOCKED: {opp.symbol} - {safety_reason}")
