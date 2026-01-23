@@ -86,21 +86,21 @@ class PositionSizer:
     def __init__(self):
         self.redis_client = None
         
-        # Track daily P&L
+        # === PER-USER TRACKING ===
+        # Each user has their own positions, P&L, and streaks
+        self.user_data: Dict[str, Dict] = {}  # user_id -> {positions, daily_pnl, weekly_pnl, streaks, etc}
+        
+        # Legacy global tracking (for backwards compatibility)
         self.daily_pnl: float = 0.0
         self.daily_start_equity: float = 0.0
         self.last_reset_date: date = None
-        
-        # Track weekly P&L
         self.weekly_pnl: float = 0.0
-        
-        # Open positions tracker
         self.open_positions: Dict[str, float] = {}
         
         # Leverage mode: '1x', '2x', '3x', '5x', '10x', 'auto'
         self.leverage_mode: str = 'auto'
         
-        # === DYNAMIC KELLY SETTINGS ===
+        # === DYNAMIC KELLY SETTINGS (legacy global) ===
         self.kelly_multiplier: float = 0.5  # User's Kelly multiplier (0.1 - 1.0)
         self.losing_streak: int = 0  # Consecutive losses
         self.winning_streak: int = 0  # Consecutive wins
@@ -120,13 +120,27 @@ class PositionSizer:
         
         self.redis_client = await redis.from_url(settings.REDIS_URL)
         
-        # Load state
+        # Load state (legacy global + per-user)
         await self._load_state()
         
         # Load user settings
         await self._load_settings()
         
         logger.info("Position Sizer initialized - Risk management active")
+    
+    def _get_user_data(self, user_id: str) -> Dict:
+        """Get or create per-user tracking data"""
+        if user_id not in self.user_data:
+            self.user_data[user_id] = {
+                'open_positions': {},  # symbol -> value_usdt
+                'daily_pnl': 0.0,
+                'weekly_pnl': 0.0,
+                'daily_start_equity': 0.0,
+                'last_reset_date': None,
+                'losing_streak': 0,
+                'winning_streak': 0,
+            }
+        return self.user_data[user_id]
         
     async def _load_settings(self, user_id: str = "default"):
         """Load user risk settings from Redis - PER USER!"""
@@ -195,10 +209,11 @@ class PositionSizer:
         regime_action: str,
         current_price: float,
         wallet_balance: float,
-        force_fixed: bool = False
+        force_fixed: bool = False,
+        user_id: str = "default"
     ) -> PositionSize:
         """
-        Calculate optimal position size
+        Calculate optimal position size - PER USER
         
         Args:
             symbol: Trading pair
@@ -211,56 +226,63 @@ class PositionSizer:
             current_price: Current asset price
             wallet_balance: Total wallet in USDT
             force_fixed: If True, ignore Kelly and use fixed maxPositionPercent
+            user_id: User ID for per-user tracking
             
         Returns:
             PositionSize with all details
         """
         adjustments = []
         
+        # Get per-user data
+        user_data = self._get_user_data(user_id)
+        user_positions = user_data.get('open_positions', {})
+        user_losing_streak = user_data.get('losing_streak', 0)
+        user_winning_streak = user_data.get('winning_streak', 0)
+        
         # === Check Daily Reset ===
-        await self._check_daily_reset(wallet_balance)
+        await self._check_daily_reset(wallet_balance, user_id)
         
         # === Check if Trading is Allowed ===
         
         # 1. Check daily drawdown (0 = disabled)
-        daily_dd = await self._get_daily_drawdown(wallet_balance)
+        daily_dd = await self._get_daily_drawdown(wallet_balance, user_id)
         if self.MAX_DAILY_DRAWDOWN > 0 and daily_dd >= self.MAX_DAILY_DRAWDOWN:
             return self._blocked_position(
                 symbol, "Daily drawdown limit reached", wallet_balance
             )
             
         # 2. Check weekly drawdown (0 = disabled)
-        weekly_dd = await self._get_weekly_drawdown()
+        weekly_dd = await self._get_weekly_drawdown(user_id)
         if self.MAX_WEEKLY_DRAWDOWN > 0 and weekly_dd >= self.MAX_WEEKLY_DRAWDOWN:
             return self._blocked_position(
                 symbol, "Weekly drawdown limit reached", wallet_balance
             )
             
-        # 3. Check total exposure
-        current_exposure = await self._get_current_exposure()
+        # 3. Check total exposure (PER USER)
+        current_exposure = await self._get_current_exposure(user_id)
         max_allowed = self.MAX_TOTAL_EXPOSURE * wallet_balance
         if current_exposure >= max_allowed:
-            logger.warning(f"Exposure check failed for {symbol}: current=${current_exposure:.2f} >= max=${max_allowed:.2f} (wallet=${wallet_balance:.2f}, limit={self.MAX_TOTAL_EXPOSURE*100:.0f}%)")
-            logger.warning(f"   Open positions ({len(self.open_positions)}): {list(self.open_positions.keys())[:10]}...")
+            logger.warning(f"[{user_id}] Exposure check failed for {symbol}: current=${current_exposure:.2f} >= max=${max_allowed:.2f}")
+            logger.warning(f"[{user_id}]    Open positions ({len(user_positions)}): {list(user_positions.keys())[:10]}...")
             return self._blocked_position(
                 symbol, f"Maximum total exposure reached (${current_exposure:.0f}/${max_allowed:.0f})", wallet_balance
             )
         
-        # 3.5 Check max open positions (0 = unlimited)
-        num_positions = len(self.open_positions)
+        # 3.5 Check max open positions (0 = unlimited) - PER USER
+        num_positions = len(user_positions)
         
         # DEBUG: Always log position count to track the 20 limit bug
-        logger.debug(f"Position sizer: {num_positions} tracked, MAX={'unlimited' if self.MAX_OPEN_POSITIONS == 0 else self.MAX_OPEN_POSITIONS}, exposure=${current_exposure:.2f}/${max_allowed:.2f}")
+        logger.debug(f"[{user_id}] Position sizer: {num_positions} tracked, MAX={'unlimited' if self.MAX_OPEN_POSITIONS == 0 else self.MAX_OPEN_POSITIONS}, exposure=${current_exposure:.2f}/${max_allowed:.2f}")
         
         if self.MAX_OPEN_POSITIONS > 0 and num_positions >= self.MAX_OPEN_POSITIONS:
-            logger.warning(f"Max positions check failed: {num_positions} >= {self.MAX_OPEN_POSITIONS}")
-            logger.warning(f"   Tracked positions: {list(self.open_positions.keys())[:10]}...")
+            logger.warning(f"[{user_id}] Max positions check failed: {num_positions} >= {self.MAX_OPEN_POSITIONS}")
+            logger.warning(f"[{user_id}]    Tracked positions: {list(user_positions.keys())[:10]}...")
             return self._blocked_position(
                 symbol, f"Maximum {self.MAX_OPEN_POSITIONS} positions reached", wallet_balance
             )
             
-        # 4. Check if symbol already has position
-        if symbol in self.open_positions:
+        # 4. Check if symbol already has position (PER USER)
+        if symbol in user_positions:
             return self._blocked_position(
                 symbol, "Already have position in this symbol", wallet_balance
             )
@@ -303,16 +325,16 @@ class PositionSizer:
                 adjusted_kelly *= 1.4
                 adjustments.append(f"High confidence ({confidence_pct:.0f}%): Kelly×1.4")
             
-            # === LOSING STREAK ADJUSTMENT ===
+            # === LOSING STREAK ADJUSTMENT (PER USER) ===
             # After 3+ consecutive losses, reduce size significantly
-            if self.losing_streak >= 3:
-                streak_multiplier = max(0.3, 1 - (self.losing_streak - 2) * 0.15)
+            if user_losing_streak >= 3:
+                streak_multiplier = max(0.3, 1 - (user_losing_streak - 2) * 0.15)
                 adjusted_kelly *= streak_multiplier
-                adjustments.append(f"Losing streak ({self.losing_streak}): Kelly×{streak_multiplier:.2f}")
-            elif self.winning_streak >= 3:
+                adjustments.append(f"Losing streak ({user_losing_streak}): Kelly×{streak_multiplier:.2f}")
+            elif user_winning_streak >= 3:
                 # Small bonus for winning streak (but don't get overconfident)
-                adjusted_kelly *= min(1.2, 1 + self.winning_streak * 0.05)
-                adjustments.append(f"Winning streak ({self.winning_streak}): Kelly×{1 + self.winning_streak * 0.05:.2f}")
+                adjusted_kelly *= min(1.2, 1 + user_winning_streak * 0.05)
+                adjustments.append(f"Winning streak ({user_winning_streak}): Kelly×{1 + user_winning_streak * 0.05:.2f}")
             
             base_fraction = min(adjusted_kelly, self.MAX_RISK_PER_TRADE)
             sizing_method = 'kelly'
@@ -483,43 +505,72 @@ class PositionSizer:
             limit_reason=reason
         )
         
-    async def _check_daily_reset(self, current_equity: float):
-        """Reset daily tracking if new day"""
+    async def _check_daily_reset(self, current_equity: float, user_id: str = "default"):
+        """Reset daily tracking if new day - PER USER"""
         today = date.today()
+        user_data = self._get_user_data(user_id)
         
-        if self.last_reset_date != today:
+        last_reset = user_data.get('last_reset_date')
+        if last_reset:
+            try:
+                last_reset = date.fromisoformat(last_reset) if isinstance(last_reset, str) else last_reset
+            except:
+                last_reset = None
+        
+        if last_reset != today:
             # Save yesterday's P&L
-            if self.last_reset_date:
-                await self._record_daily_pnl(self.daily_pnl)
+            if last_reset:
+                await self._record_daily_pnl(user_data.get('daily_pnl', 0))
                 
-            # Reset daily
-            self.daily_pnl = 0.0
-            self.daily_start_equity = current_equity
-            self.last_reset_date = today
+            # Reset daily for this user
+            user_data['daily_pnl'] = 0.0
+            user_data['daily_start_equity'] = current_equity
+            user_data['last_reset_date'] = today.isoformat()
             
             # Check for weekly reset (Sunday)
             if today.weekday() == 6:  # Sunday
+                await self._record_weekly_pnl(user_data.get('weekly_pnl', 0))
+                user_data['weekly_pnl'] = 0.0
+                
+            await self._save_state(user_id)
+            logger.info(f"[{user_id}] Daily reset complete. Starting equity: ${current_equity:.2f}")
+        
+        # Also maintain legacy global (backwards compat)
+        if self.last_reset_date != today:
+            if self.last_reset_date:
+                await self._record_daily_pnl(self.daily_pnl)
+            self.daily_pnl = 0.0
+            self.daily_start_equity = current_equity
+            self.last_reset_date = today
+            if today.weekday() == 6:
                 await self._record_weekly_pnl(self.weekly_pnl)
                 self.weekly_pnl = 0.0
-                
             await self._save_state()
-            logger.info(f"Daily reset complete. Starting equity: ${current_equity:.2f}")
             
-    async def _get_daily_drawdown(self, current_equity: float) -> float:
-        """Get current daily drawdown as fraction"""
-        if self.daily_start_equity <= 0:
+    async def _get_daily_drawdown(self, current_equity: float, user_id: str = "default") -> float:
+        """Get current daily drawdown as fraction - PER USER"""
+        user_data = self._get_user_data(user_id)
+        daily_start = user_data.get('daily_start_equity', 0)
+        
+        if daily_start <= 0:
+            # Use legacy global as fallback
+            daily_start = self.daily_start_equity
+            
+        if daily_start <= 0:
             return 0.0
             
-        if current_equity >= self.daily_start_equity:
+        if current_equity >= daily_start:
             return 0.0
             
-        drawdown = (self.daily_start_equity - current_equity) / self.daily_start_equity
+        drawdown = (daily_start - current_equity) / daily_start
         return drawdown
         
-    async def _get_weekly_drawdown(self) -> float:
-        """Get current weekly drawdown as fraction"""
+    async def _get_weekly_drawdown(self, user_id: str = "default") -> float:
+        """Get current weekly drawdown as fraction - PER USER"""
         try:
-            data = await self.redis_client.get('sizer:weekly_start')
+            data = await self.redis_client.get(f'sizer:weekly_start:{user_id}')
+            if not data:
+                data = await self.redis_client.get('sizer:weekly_start')  # Legacy fallback
             if data:
                 weekly_start = float(data)
                 current = await self._get_current_equity()
@@ -537,9 +588,11 @@ class PositionSizer:
         except:
             return 0.0
             
-    async def _get_current_exposure(self) -> float:
-        """Get current total exposure in USDT"""
-        total = sum(self.open_positions.values())
+    async def _get_current_exposure(self, user_id: str = "default") -> float:
+        """Get current total exposure in USDT - PER USER"""
+        user_data = self._get_user_data(user_id)
+        user_positions = user_data.get('open_positions', {})
+        total = sum(user_positions.values())
         return total
         
     async def _get_correlation_exposure(self, symbol: str) -> float:
@@ -563,69 +616,91 @@ class PositionSizer:
         
         return exposure
         
-    async def register_position(self, symbol: str, size_usdt: float):
-        """Register a new open position"""
-        self.open_positions[symbol] = size_usdt
-        await self._save_state()
+    async def register_position(self, symbol: str, size_usdt: float, user_id: str = "default"):
+        """Register a new open position FOR A SPECIFIC USER"""
+        user_data = self._get_user_data(user_id)
+        user_data['open_positions'][symbol] = size_usdt
         
-    async def close_position(self, symbol: str, pnl: float):
-        """Close a position and record P&L, track streaks for Dynamic Kelly"""
+        # Also update legacy global for backwards compatibility
+        self.open_positions[symbol] = size_usdt
+        
+        await self._save_state(user_id)
+        
+    async def close_position(self, symbol: str, pnl: float, user_id: str = "default"):
+        """Close a position and record P&L, track streaks for Dynamic Kelly - PER USER"""
+        user_data = self._get_user_data(user_id)
+        
+        # Remove from user's positions
+        if symbol in user_data['open_positions']:
+            del user_data['open_positions'][symbol]
+        
+        # Also remove from legacy global
         if symbol in self.open_positions:
             del self.open_positions[symbol]
             
-        # Update daily P&L
+        # Update user's daily P&L
+        user_data['daily_pnl'] = user_data.get('daily_pnl', 0) + pnl
+        user_data['weekly_pnl'] = user_data.get('weekly_pnl', 0) + pnl
+        
+        # Also update legacy global
         self.daily_pnl += pnl
         self.weekly_pnl += pnl
         
-        # === TRACK WINNING/LOSING STREAKS FOR DYNAMIC KELLY ===
+        # === TRACK WINNING/LOSING STREAKS FOR DYNAMIC KELLY (PER USER) ===
         if pnl > 0:
             # Win
+            user_data['winning_streak'] = user_data.get('winning_streak', 0) + 1
+            user_data['losing_streak'] = 0
             self.winning_streak += 1
             self.losing_streak = 0
-            if self.winning_streak >= 3:
-                logger.info(f"Winning streak: {self.winning_streak} - Kelly boost active")
+            if user_data['winning_streak'] >= 3:
+                logger.info(f"[{user_id}] Winning streak: {user_data['winning_streak']} - Kelly boost active")
         else:
             # Loss
+            user_data['losing_streak'] = user_data.get('losing_streak', 0) + 1
+            user_data['winning_streak'] = 0
             self.losing_streak += 1
             self.winning_streak = 0
-            if self.losing_streak >= 3:
-                logger.warning(f"Losing streak: {self.losing_streak} - Kelly reduced by {min(70, (self.losing_streak - 2) * 15)}%")
+            if user_data['losing_streak'] >= 3:
+                logger.warning(f"[{user_id}] Losing streak: {user_data['losing_streak']} - Kelly reduced")
         
-        await self._save_state()
+        await self._save_state(user_id)
     
-    async def sync_with_exchange(self, exchange_symbols: set, positions_data: dict):
+    async def sync_with_exchange(self, exchange_symbols: set, positions_data: dict, user_id: str = "default"):
         """
-        Sync position sizer with actual exchange positions.
-        AGGRESSIVELY replaces entire open_positions dict with exchange reality.
+        Sync position sizer with actual exchange positions FOR A SPECIFIC USER.
+        Only updates THAT USER's positions, not affecting other users.
         
         Args:
-            exchange_symbols: Set of symbols currently on exchange
-            positions_data: Dict of symbol -> position_value_usdt
+            exchange_symbols: Set of symbols currently on THIS USER's exchange
+            positions_data: Dict of symbol -> position_value_usdt for THIS USER
+            user_id: User whose positions are being synced
         """
-        old_count = len(self.open_positions)
-        old_symbols = set(self.open_positions.keys())
+        user_data = self._get_user_data(user_id)
         
-        # AGGRESSIVE SYNC: Completely replace open_positions with exchange data
-        # This fixes the "stuck at 20 positions" bug from stale Redis data
-        self.open_positions = {}
+        old_positions = user_data.get('open_positions', {})
+        old_count = len(old_positions)
+        old_symbols = set(old_positions.keys())
+        
+        # Replace THIS USER's positions with their exchange reality
+        user_data['open_positions'] = {}
         
         # Only add positions that are ACTUALLY on the exchange
         for symbol, value in positions_data.items():
             if symbol in exchange_symbols and value > 0:
-                self.open_positions[symbol] = value
+                user_data['open_positions'][symbol] = value
         
-        new_count = len(self.open_positions)
-        new_exposure = sum(self.open_positions.values())
+        new_count = len(user_data['open_positions'])
+        new_exposure = sum(user_data['open_positions'].values())
         
         removed_symbols = old_symbols - exchange_symbols
-        added_symbols = exchange_symbols - old_symbols
         
         if removed_symbols or old_count != new_count:
-            logger.info(f"Position sizer SYNCED: {old_count} -> {new_count} positions, exposure=${new_exposure:.2f}")
+            logger.info(f"[{user_id}] Position sizer SYNCED: {old_count} -> {new_count} positions, exposure=${new_exposure:.2f}")
             if removed_symbols:
-                logger.info(f"   Removed stale: {list(removed_symbols)[:5]}{'...' if len(removed_symbols) > 5 else ''}")
+                logger.info(f"[{user_id}]    Removed stale: {list(removed_symbols)[:5]}{'...' if len(removed_symbols) > 5 else ''}")
         
-        await self._save_state()
+        await self._save_state(user_id)
         
     async def _record_daily_pnl(self, pnl: float):
         """Record daily P&L to history"""
@@ -669,8 +744,9 @@ class PositionSizer:
             pass
             
     async def _load_state(self):
-        """Load state from Redis"""
+        """Load state from Redis - both legacy global and per-user"""
         try:
+            # Load legacy global state
             state = await self.redis_client.get('sizer:state')
             if state:
                 data = json.loads(state)
@@ -686,8 +762,22 @@ class PositionSizer:
                 last_date = data.get('last_reset_date')
                 if last_date:
                     self.last_reset_date = date.fromisoformat(last_date)
+            
+            # Load per-user states
+            keys = await self.redis_client.keys('sizer:user:*')
+            for key in keys:
+                try:
+                    key_str = key.decode() if isinstance(key, bytes) else key
+                    user_id = key_str.replace('sizer:user:', '')
+                    user_state = await self.redis_client.get(key)
+                    if user_state:
+                        self.user_data[user_id] = json.loads(user_state)
+                except:
+                    continue
                     
-            logger.info(f"Loaded position sizer state: {len(self.open_positions)} positions, exposure=${sum(self.open_positions.values()):.2f}, streak=W{self.winning_streak}/L{self.losing_streak}")
+            total_user_positions = sum(len(ud.get('open_positions', {})) for ud in self.user_data.values())
+            logger.info(f"Loaded position sizer state: {len(self.user_data)} users, {total_user_positions} total positions")
+            
         except Exception as e:
             logger.debug(f"Load state error: {e}")
             # Reset to empty state if error
@@ -696,11 +786,13 @@ class PositionSizer:
             self.weekly_pnl = 0
             self.losing_streak = 0
             self.winning_streak = 0
+            self.user_data = {}
             logger.info("Position sizer state reset to empty")
             
-    async def _save_state(self):
-        """Save state to Redis"""
+    async def _save_state(self, user_id: str = None):
+        """Save state to Redis - both global and per-user"""
         try:
+            # Save legacy global state
             state = {
                 'daily_pnl': self.daily_pnl,
                 'weekly_pnl': self.weekly_pnl,
@@ -712,41 +804,52 @@ class PositionSizer:
                 'winning_streak': self.winning_streak
             }
             await self.redis_client.set('sizer:state', json.dumps(state))
+            
+            # Save per-user state if user_id provided
+            if user_id and user_id in self.user_data:
+                await self.redis_client.set(f'sizer:user:{user_id}', json.dumps(self.user_data[user_id]))
         except:
             pass
             
-    async def get_risk_status(self, wallet_balance: float) -> Dict:
-        """Get current risk status including Dynamic Kelly info"""
-        daily_dd = await self._get_daily_drawdown(wallet_balance)
-        weekly_dd = await self._get_weekly_drawdown()
-        exposure = await self._get_current_exposure()
+    async def get_risk_status(self, wallet_balance: float, user_id: str = "default") -> Dict:
+        """Get current risk status including Dynamic Kelly info - PER USER"""
+        user_data = self._get_user_data(user_id)
         
-        # Calculate current Kelly modifier based on streaks
+        daily_dd = await self._get_daily_drawdown(wallet_balance, user_id)
+        weekly_dd = await self._get_weekly_drawdown(user_id)
+        exposure = await self._get_current_exposure(user_id)
+        
+        user_positions = user_data.get('open_positions', {})
+        user_daily_pnl = user_data.get('daily_pnl', 0)
+        user_losing_streak = user_data.get('losing_streak', 0)
+        user_winning_streak = user_data.get('winning_streak', 0)
+        
+        # Calculate current Kelly modifier based on user's streaks
         kelly_modifier = 1.0
         streak_info = "Neutral"
-        if self.losing_streak >= 3:
-            kelly_modifier = max(0.3, 1 - (self.losing_streak - 2) * 0.15)
-            streak_info = f"Losing streak: {self.losing_streak} (Kelly x{kelly_modifier:.0%})"
-        elif self.winning_streak >= 3:
-            kelly_modifier = min(1.2, 1 + self.winning_streak * 0.05)
-            streak_info = f"Winning streak: {self.winning_streak} (Kelly x{kelly_modifier:.0%})"
+        if user_losing_streak >= 3:
+            kelly_modifier = max(0.3, 1 - (user_losing_streak - 2) * 0.15)
+            streak_info = f"Losing streak: {user_losing_streak} (Kelly x{kelly_modifier:.0%})"
+        elif user_winning_streak >= 3:
+            kelly_modifier = min(1.2, 1 + user_winning_streak * 0.05)
+            streak_info = f"Winning streak: {user_winning_streak} (Kelly x{kelly_modifier:.0%})"
         
         return {
-            'daily_pnl': round(self.daily_pnl, 2),
+            'daily_pnl': round(user_daily_pnl, 2),
             'daily_drawdown_pct': round(daily_dd * 100, 2),
             'daily_dd_remaining_pct': round((self.MAX_DAILY_DRAWDOWN - daily_dd) * 100, 2),
             'weekly_drawdown_pct': round(weekly_dd * 100, 2),
             'current_exposure': round(exposure, 2),
             'max_exposure': round(self.MAX_TOTAL_EXPOSURE * wallet_balance, 2),
             'exposure_pct': round((exposure / (wallet_balance * self.MAX_TOTAL_EXPOSURE)) * 100, 1) if wallet_balance > 0 else 0,
-            'open_positions_count': len(self.open_positions),
-            'open_positions': self.open_positions,
+            'open_positions_count': len(user_positions),
+            'open_positions': user_positions,
             'can_trade': (self.MAX_DAILY_DRAWDOWN == 0 or daily_dd < self.MAX_DAILY_DRAWDOWN) and (self.MAX_WEEKLY_DRAWDOWN == 0 or weekly_dd < self.MAX_WEEKLY_DRAWDOWN),
             # Dynamic Kelly info
             'kelly_multiplier': self.kelly_multiplier,
             'kelly_modifier': kelly_modifier,
-            'losing_streak': self.losing_streak,
-            'winning_streak': self.winning_streak,
+            'losing_streak': user_losing_streak,
+            'winning_streak': user_winning_streak,
             'streak_info': streak_info
         }
 

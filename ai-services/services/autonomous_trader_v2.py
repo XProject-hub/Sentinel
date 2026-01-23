@@ -1165,8 +1165,8 @@ class AutonomousTraderV2:
                         trailing_active=current_pnl >= self.min_profit_to_trail,  # Already in profit?
                         position_value=position_value
                     )
-                    # Also register in position_sizer so it knows about this position
-                    await self.position_sizer.register_position(symbol, position_value)
+                    # Also register in position_sizer so it knows about this position (PER USER!)
+                    await self.position_sizer.register_position(symbol, position_value, user_id)
                     logger.info(f"Synced position: {symbol} | Entry: ${entry_price:.4f} | Mark: ${mark_price:.4f} | P&L: {current_pnl:.2f}%")
                 else:
                     # Update size if changed
@@ -1202,8 +1202,8 @@ class AutonomousTraderV2:
                     # Delete from active positions
                     del self.active_positions[user_id][symbol]
                     
-                    # Remove from position_sizer
-                    await self.position_sizer.close_position(symbol, pnl_value)
+                    # Remove from position_sizer (PER USER!)
+                    await self.position_sizer.close_position(symbol, pnl_value, user_id)
                     
                     # LOG TO CONSOLE so user sees it on dashboard!
                     await self._log_to_console(
@@ -1228,13 +1228,13 @@ class AutonomousTraderV2:
                     logger.info(f"Position {symbol} closed EXTERNALLY | Est P&L: {estimated_pnl:+.2f}% (${pnl_value:+.2f}) | {close_reason}")
         
         # IMPORTANT: Sync position sizer with exchange to remove any stale positions
-        # This ensures position_sizer.open_positions matches actual exchange state
+        # This ensures position_sizer tracks THIS USER's positions correctly (PER USER!)
         positions_data = {}
         if user_id in self.active_positions:
             for symbol, pos in self.active_positions[user_id].items():
                 positions_data[symbol] = pos.position_value
         
-        await self.position_sizer.sync_with_exchange(exchange_positions, positions_data)
+        await self.position_sizer.sync_with_exchange(exchange_positions, positions_data, user_id)
                     
     async def _check_position_exit(self, user_id: str, client: BybitV5Client,
                                     position: ActivePosition, wallet: Dict):
@@ -1424,8 +1424,8 @@ class AutonomousTraderV2:
                 # Save user stats to Redis immediately
                 await self._save_user_stats(user_id)
                 
-                # Record in position sizer (NET P&L)
-                await self.position_sizer.close_position(position.symbol, pnl_value)
+                # Record in position sizer (NET P&L) - PER USER!
+                await self.position_sizer.close_position(position.symbol, pnl_value, user_id)
                 
                 # Record in edge estimator for calibration
                 await self.edge_estimator.record_outcome(position.symbol, position.entry_edge, won)
@@ -2540,7 +2540,8 @@ class AutonomousTraderV2:
                 should_trade, reject_reason = await self._validate_opportunity(
                     opp, wallet, client,
                     adjusted_min_confidence=max(50, self.min_confidence * 0.7),  # Slightly lower confidence for breakouts
-                    adjusted_min_edge=max(0.1, self.min_edge * 0.8)  # Slightly lower edge for breakouts
+                    adjusted_min_edge=max(0.1, self.min_edge * 0.8),  # Slightly lower edge for breakouts
+                    user_id=user_id
                 )
                 
                 if not should_trade:
@@ -2666,11 +2667,12 @@ class AutonomousTraderV2:
                     else:
                         del self._failed_order_symbols[opp.symbol]
                     
-                # Validate the opportunity with ADJUSTED thresholds
+                # Validate the opportunity with ADJUSTED thresholds (PER USER!)
                 should_trade, reason = await self._validate_opportunity(
                     opp, wallet, client,
                     adjusted_min_confidence=adjusted_min_confidence,
-                    adjusted_min_edge=adjusted_min_edge
+                    adjusted_min_edge=adjusted_min_edge,
+                    user_id=user_id
                 )
                 
                 if should_trade:
@@ -3037,7 +3039,8 @@ class AutonomousTraderV2:
             return None
     
     async def _validate_opportunity(self, opp: TradingOpportunity, wallet: Dict, client: BybitV5Client = None,
-                                    adjusted_min_confidence: float = None, adjusted_min_edge: float = None) -> Tuple[bool, str]:
+                                    adjusted_min_confidence: float = None, adjusted_min_edge: float = None,
+                                    user_id: str = "default") -> Tuple[bool, str]:
         """
         SUPERIOR validation using ALL AI models + GLOBAL CONFIRMATION CHECKS
         
@@ -3360,7 +3363,7 @@ class AutonomousTraderV2:
         if not opp.edge_data:
             return False, "No edge data"
         
-        # Calculate position size (dynamic or fixed)
+        # Calculate position size (dynamic or fixed) - PER USER!
         if self.use_dynamic_sizing:
             # Dynamic sizing using Kelly Criterion
             position_size = await self.position_sizer.calculate_position_size(
@@ -3372,7 +3375,8 @@ class AutonomousTraderV2:
                 kelly_fraction=opp.edge_data.kelly_fraction,
                 regime_action=opp.regime_action,
                 current_price=opp.current_price,
-                wallet_balance=wallet['total_equity']
+                wallet_balance=wallet['total_equity'],
+                user_id=user_id
             )
         else:
             # Fixed sizing - use maxPositionPercent of wallet
@@ -3386,7 +3390,8 @@ class AutonomousTraderV2:
                 regime_action='normal',
                 current_price=opp.current_price,
                 wallet_balance=wallet['total_equity'],
-                force_fixed=True  # Force fixed percentage sizing
+                force_fixed=True,  # Force fixed percentage sizing
+                user_id=user_id
             )
         
         if not position_size.is_within_limits:
@@ -3633,8 +3638,8 @@ class AutonomousTraderV2:
                     is_breakout=is_breakout  # Track if this was a breakout trade
                 )
                 
-                # Register in position sizer
-                await self.position_sizer.register_position(opp.symbol, position_value)
+                # Register in position sizer (PER USER!)
+                await self.position_sizer.register_position(opp.symbol, position_value, user_id)
                 
                 # Store breakout flag in Redis for dashboard display
                 if is_breakout and self.redis_client:
