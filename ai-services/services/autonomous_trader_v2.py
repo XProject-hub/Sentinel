@@ -1693,11 +1693,11 @@ class AutonomousTraderV2:
             if max_distance > 1:
                 max_distance = max_distance / 100
             
-            # BREAKOUTS: Use much higher threshold since they've already moved significantly
-            # Breakouts by definition have already moved - allow up to 97% of range
-            # The scoring system already validates candle quality
+            # BREAKOUTS: Use higher threshold since they've already moved significantly
+            # ChatGPT: DON'T touch this - Chasing filter is protecting you from FOMO!
+            # 85% means: if price already moved 85% of its range, don't chase
             if is_breakout:
-                max_distance = 0.97  # Allow breakouts near top/bottom of range
+                max_distance = 0.85  # Allow breakouts up to 85% of range
             
             if local_range > 0:
                 if opp.direction == 'long':
@@ -1835,17 +1835,16 @@ class AutonomousTraderV2:
             else:
                 score_breakdown.append("LastCandle=0")
             
-            # ===== RULE #3: Body Strength >= 60% (0-15 points) =====
+            # ===== RULE #3: Body Strength (0-15 points) =====
+            # ChatGPT FIX: Breakout confirmation != impulse candle
+            # Confirmation candles are often wicky or small body + continuation
             body_size = abs(last_close - last_open)
             body_ratio = body_size / candle_range if candle_range > 0 else 0
-            if body_ratio >= 0.7:
-                score += 15
+            if body_ratio >= 0.55:
+                score += 15  # Full points for >= 55%
                 score_breakdown.append(f"Body:{body_ratio:.0%}=15")
-            elif body_ratio >= 0.6:
-                score += 12
-                score_breakdown.append(f"Body:{body_ratio:.0%}=12")
-            elif body_ratio >= 0.5:
-                score += 8
+            elif body_ratio >= 0.45:
+                score += 8   # Half points for 45-55%
                 score_breakdown.append(f"Body:{body_ratio:.0%}=8")
             else:
                 score_breakdown.append(f"Body:{body_ratio:.0%}=0")
@@ -1869,23 +1868,22 @@ class AutonomousTraderV2:
                 score_breakdown.append(f"CloseLoc:{close_location:.0%}=0")
             
             # ===== RULE #5: Volume Spike (0-25 points) =====
-            # Adjusted for real market conditions - even 0.8x with good candles can work
+            # ChatGPT FIX: Use max(volume[-3:]) because spike might be 1-2 candles ago
+            # You're entering on confirmation candle, not the spike candle!
             avg_volume_20 = sum(volumes[-20:]) / 20 if len(volumes) >= 20 else sum(volumes) / len(volumes)
-            volume_ratio = last_volume / avg_volume_20 if avg_volume_20 > 0 else 1
+            recent_max_volume = max(volumes[-3:]) if len(volumes) >= 3 else last_volume
+            volume_ratio = recent_max_volume / avg_volume_20 if avg_volume_20 > 0 else 1
             
-            if volume_ratio >= 2.0:
+            if volume_ratio >= 1.5:
                 score += 25
                 score_breakdown.append(f"VolSpike:{volume_ratio:.1f}x=25")
-            elif volume_ratio >= 1.5:
-                score += 20
-                score_breakdown.append(f"VolSpike:{volume_ratio:.1f}x=20")
             elif volume_ratio >= 1.2:
-                score += 15
-                score_breakdown.append(f"VolSpike:{volume_ratio:.1f}x=15")
-            elif volume_ratio >= 0.9:
+                score += 18
+                score_breakdown.append(f"VolSpike:{volume_ratio:.1f}x=18")
+            elif volume_ratio >= 1.0:
                 score += 10
                 score_breakdown.append(f"VolSpike:{volume_ratio:.1f}x=10")
-            elif volume_ratio >= 0.7:
+            elif volume_ratio >= 0.8:
                 score += 5
                 score_breakdown.append(f"VolSpike:{volume_ratio:.1f}x=5")
             else:
@@ -1968,10 +1966,10 @@ class AutonomousTraderV2:
             # =====================================================
             # FINAL DECISION based on score
             # =====================================================
-            # STRICT: >= 70 for normal trades
-            # AGGRESSIVE (breakouts): >= 55 (they already passed breakout detection)
+            # ChatGPT FIX: Breakouts need 52, normal trades need 65
+            # Breakouts already passed detection + chasing/wick/spread filters protect us
             
-            min_score = 55 if is_breakout else 65
+            min_score = 52 if is_breakout else 65
             
             score_str = " | ".join(score_breakdown[:5])  # Limit for readability
             
