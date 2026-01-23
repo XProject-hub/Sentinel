@@ -2245,9 +2245,12 @@ class AutonomousTraderV2:
             # Sort by opportunity score (balances size and strength)
             breakouts.sort(key=lambda x: x.opportunity_score, reverse=True)
             
-            # Log if we found breakouts
+            # Log if we found breakouts with ranking
             if breakouts:
-                await self._log_to_console(f"{len(breakouts)} BREAKOUTS detected! Best: {breakouts[0].symbol} {breakouts[0].price_change_24h:+.1f}%", "SIGNAL")
+                top3 = breakouts[:3]
+                rank_str = ", ".join([f"#{i+1} {b.symbol}({b.price_change_24h:+.1f}%)" for i, b in enumerate(top3)])
+                await self._log_to_console(f"🚀 {len(breakouts)} BREAKOUTS | Best: {rank_str}", "SIGNAL")
+                logger.info(f"🏆 TOP BREAKOUT: {breakouts[0].symbol} | Score: {breakouts[0].opportunity_score:.0f} | Move: {breakouts[0].price_change_24h:+.1f}%")
             
         except Exception as e:
             logger.error(f"Breakout detection error: {e}")
@@ -2389,9 +2392,9 @@ class AutonomousTraderV2:
                     continue
                 
                 # Passed ALL filters - proceed with trade
-                logger.info(f"✅ {trade_type} APPROVED: {opp.symbol} | Conf: {opp.confidence:.0f}% | Edge: {opp.edge_score:.2f} | RSI/Candles/Spread/BTC/EV OK")
-                logger.info(f"{trade_type} TRADE: {opp.symbol} | {opp.price_change_24h:+.1f}%")
-                await self._log_to_console(f"✅ {trade_type}: {opp.symbol} | Filters: RSI/Candles/Spread/BTC/Edge OK", "TRADE", user_id)
+                logger.info(f"✅ {trade_type} APPROVED: {opp.symbol} | Score: {opp.opportunity_score:.0f} | Conf: {opp.confidence:.0f}% | Edge: {opp.edge_score:.2f} | All filters OK")
+                logger.info(f"{trade_type} TRADE: {opp.symbol} | {opp.price_change_24h:+.1f}% | Direction: {opp.direction}")
+                await self._log_to_console(f"✅ {trade_type} {opp.direction.upper()} {opp.symbol} | Score:{opp.opportunity_score:.0f} | All filters OK", "TRADE", user_id)
                 try:
                     await self._execute_trade(user_id, client, opp, wallet)
                     breakout_trades_opened += 1
@@ -2458,8 +2461,12 @@ class AutonomousTraderV2:
                 # Console log only every 30 seconds
                 if should_log_scan:
                     top_opps = opportunities[:3]
-                    opp_str = ", ".join([f"{o.symbol}({o.edge_score:.2f})" for o in top_opps])
-                    await self._log_to_console(f"{len(opportunities)} opportunities | Best: {opp_str}", "SIGNAL")
+                    # Show ranking with score, edge, confidence
+                    opp_str = ", ".join([f"#{i+1} {o.symbol} (Score:{o.opportunity_score:.0f})" for i, o in enumerate(top_opps)])
+                    best = top_opps[0]
+                    await self._log_to_console(f"🔍 Scanned {len(opportunities)} | Top: {opp_str}", "SIGNAL")
+                    # Log the BEST opportunity details
+                    logger.info(f"🏆 BEST OPPORTUNITY: {best.symbol} | Score: {best.opportunity_score:.0f} | Edge: {best.edge_score:.2f} | Conf: {best.confidence:.0f}% | {best.direction.upper()}")
             else:
                 logger.debug("No opportunities found in this scan")
                 if should_log_scan:
@@ -2515,8 +2522,8 @@ class AutonomousTraderV2:
                         await self._log_to_console(f"SKIPPED {opp.symbol}: Q-Learning negative ({q_value:.2f})", "WARNING", user_id)
                         continue
                     
-                    logger.info(f"✅ OPENING TRADE: {opp.symbol} | Edge={opp.edge_score:.2f} | Conf={opp.confidence:.0f}% | All filters passed")
-                    await self._log_to_console(f"✅ TRADE: {opp.symbol} | Filters: RSI/Candles/Spread/BTC/Edge OK", "TRADE", user_id)
+                    logger.info(f"✅ OPENING TRADE: {opp.symbol} | Score: {opp.opportunity_score:.0f} | Edge={opp.edge_score:.2f} | Conf={opp.confidence:.0f}% | All filters passed")
+                    await self._log_to_console(f"✅ {opp.direction.upper()} {opp.symbol} | Score:{opp.opportunity_score:.0f} | All filters OK", "TRADE", user_id)
                     await self._execute_trade(user_id, client, opp, wallet)
                     
                     # Track trade timing for rate limiting
