@@ -368,6 +368,15 @@ async def get_users():
                 for k, v in creds.items()
             }
             
+            # Also try to get user info from bot:settings (may have email)
+            bot_settings_raw = await r.get(f'bot:settings:{user_id}')
+            bot_settings = {}
+            if bot_settings_raw:
+                try:
+                    bot_settings = json.loads(bot_settings_raw)
+                except:
+                    pass
+            
             # Get stats for this user
             stats = {}
             user_stats = await r.get(f'trader:stats:{user_id}')
@@ -391,13 +400,29 @@ async def get_users():
             winning_trades = stats.get('winning_trades', 0)
             is_paused = await r.exists(f'trading:paused:{user_id}')
             
-            email = creds_dict.get('email', f'{user_id}@sentinel.ai' if user_id != 'default' else 'admin@sentinel.ai')
+            # Try to get real email from multiple sources
+            email = (
+                creds_dict.get('email') or 
+                bot_settings.get('email') or 
+                bot_settings.get('user_email') or
+                (f'admin@sentinel.ai' if user_id == 'default' else f'{user_id[:8]}...@sentinel.ai')
+            )
             is_admin = user_id == 'default'
+            
+            # Get display name: prefer stored name, then email username, then shortened user_id
+            display_name = creds_dict.get('name') or bot_settings.get('name', '')
+            if not display_name or display_name == user_id:
+                # Use email username as display name (part before @)
+                if '@' in email and not email.startswith(user_id[:8]):
+                    display_name = email.split('@')[0]
+                else:
+                    # Shorten UUID for display
+                    display_name = f"User-{user_id[:8]}"
             
             users.append({
                 'id': user_id,
                 'email': email,
-                'name': 'Admin' if is_admin else creds_dict.get('name', user_id),
+                'name': 'Admin' if is_admin else display_name,
                 'exchange': 'Bybit',
                 'exchangeConnected': bool(creds_dict.get('api_key')),
                 'isActive': bool(creds_dict.get('api_key')) and not is_paused,
