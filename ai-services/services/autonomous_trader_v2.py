@@ -1176,6 +1176,16 @@ class AutonomousTraderV2:
         if user_id in self.active_positions:
             for symbol in list(self.active_positions[user_id].keys()):
                 if symbol not in exchange_positions:
+                    # SKIP if this symbol is on cooldown (means bot already closed it!)
+                    if symbol in self._cooldown_symbols:
+                        cooldown_time = self._cooldown_symbols[symbol]
+                        elapsed = (datetime.utcnow() - cooldown_time).total_seconds()
+                        if elapsed < self.cooldown_seconds:
+                            # Bot closed this position - just remove from tracking, don't log as external
+                            del self.active_positions[user_id][symbol]
+                            logger.debug(f"{symbol} removed from tracking (bot closed {elapsed:.0f}s ago)")
+                            continue
+                    
                     # Get position info before deleting
                     closed_pos = self.active_positions[user_id][symbol]
                     
