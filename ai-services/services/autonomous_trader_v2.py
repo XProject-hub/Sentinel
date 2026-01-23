@@ -3406,26 +3406,34 @@ class AutonomousTraderV2:
                 
                 # Get USER's settings (not class defaults!)
                 user_settings = self.user_settings.get(user_id, {})
-                max_pos_pct = float(user_settings.get('max_position_percent', 10))  # Default 10%
+                max_pos_pct = float(user_settings.get('max_position_percent', 100))  # Default 100% (no limit)
                 max_positions = int(user_settings.get('max_open_positions', 10))  # maxOpenPositions from UI
-                kelly_mult = float(user_settings.get('kelly_multiplier', 0.5))
+                kelly_mult = float(user_settings.get('kelly_multiplier', 1.0))  # Default 1.0 = FULL SIZE
                 
-                # Calculate: equity / max_positions = base position
-                # Then apply Kelly multiplier for risk adjustment
-                base_position_value = (total_equity / max_positions) * kelly_mult
+                # SIMPLE FORMULA: equity / max_positions
+                # Kelly 1.0 = full size, Kelly 0.5 = half, Kelly 0.1 = 10%
+                base_per_position = total_equity / max_positions
+                
+                # Apply Kelly multiplier (1.0 = no reduction)
+                if kelly_mult >= 1.0:
+                    # Kelly 1.0 or higher = use full calculated size
+                    position_value = base_per_position
+                else:
+                    # Kelly < 1.0 = reduce position
+                    position_value = base_per_position * kelly_mult
+                
+                # Apply size multiplier for extreme breakouts (some breakouts use 30-50%)
+                size_multiplier = getattr(opp, 'size_multiplier', 1.0)
+                position_value = position_value * size_multiplier
                 
                 # Cap at user's max_position_percent
                 max_allowed = total_equity * (max_pos_pct / 100)
-                base_position_value = min(base_position_value, max_allowed)
+                position_value = min(position_value, max_allowed)
                 
-                # Apply size multiplier for extreme breakouts
-                size_multiplier = getattr(opp, 'size_multiplier', 1.0)
-                position_value = base_position_value * size_multiplier
-                
-                # Minimum $10 position, max based on user settings (not hardcoded 20%!)
+                # Minimum $10 position
                 position_value = max(10, position_value)
                 
-                logger.info(f"SIZING: equity=${total_equity:.0f} | max_pos={max_positions} | kelly={kelly_mult}x | pos=${position_value:.0f}")
+                logger.info(f"SIZING [{user_id[:8]}]: ${total_equity:.0f} / {max_positions} pos = ${base_per_position:.0f}/pos | Kelly {kelly_mult}x -> ${position_value:.0f}")
                 
                 # Determine leverage based on settings
                 leverage_mode = getattr(self, 'leverage_mode', 'auto')
@@ -4127,8 +4135,8 @@ class AutonomousTraderV2:
             user_set['use_regime_detection'] = str(parsed.get('useRegimeDetection', 'true')).lower() == 'true'
             user_set['use_edge_estimation'] = str(parsed.get('useEdgeEstimation', 'true')).lower() == 'true'
             
-            # Kelly multiplier (0.1 to 1.0, default 0.5)
-            user_set['kelly_multiplier'] = float(parsed.get('kellyMultiplier', 0.5))
+            # Kelly multiplier (0.1 to 1.0, default 1.0 = FULL SIZE)
+            user_set['kelly_multiplier'] = float(parsed.get('kellyMultiplier', 1.0))
             
             # Max position percent (5-100%)
             user_set['max_position_percent'] = float(parsed.get('maxPositionPercent', 15))
@@ -4157,8 +4165,8 @@ class AutonomousTraderV2:
                     'leverage_mode': 'auto',
                     'max_trade_minutes': 30,   # MICRO default
                     'use_max_trade_time': True,
-                    'kelly_multiplier': 0.5,   # Conservative Kelly default
-                    'max_position_percent': 15,  # Max 15% per trade
+                    'kelly_multiplier': 1.0,   # Full size by default (1.0 = no reduction)
+                    'max_position_percent': 100,  # No limit by default
                 }
                 logger.warning(f"Using HARDCODED defaults for user {user_id} (Redis load failed)")
     
