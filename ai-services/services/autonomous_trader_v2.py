@@ -2108,7 +2108,8 @@ class AutonomousTraderV2:
             
             # Validate top candidates through safety filters
             for opp in candidates[:20]:  # Check top 20
-                is_valid, reason = await self._validate_opportunity(user_id, client, opp, is_breakout=False)
+                # Correct parameter order: (opp, wallet, client, ..., user_id)
+                is_valid, reason = await self._validate_opportunity(opp, wallet, client, user_id=user_id)
                 
                 if is_valid:
                     opportunities.append(opp)
