@@ -268,74 +268,105 @@ async def _get_docker_memory() -> tuple:
 async def get_users():
     """Get ALL registered users from Laravel backend + Redis trading data"""
     import httpx
+    import asyncpg
     
     try:
         r = await redis.from_url(settings.REDIS_URL)
         users = []
         seen_user_ids = set()  # Track which users we've already added
+        backend_users = []
         
-        # STEP 1: Try to get users from Laravel backend (PostgreSQL)
+        # STEP 1: Try to get users DIRECTLY from PostgreSQL (most reliable)
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                response = await client.get("http://backend:9000/api/internal/users")
-                if response.status_code == 200:
-                    data = response.json()
-                    backend_users = data.get('users', [])
-                    
-                    for user in backend_users:
-                        user_id = str(user['id'])
-                        is_admin = user['email'] == 'admin@sentinel.ai'
-                        
-                        # Determine Redis key for this user
-                        # Admin uses 'default' as their user_id in Redis
-                        redis_user_id = 'default' if is_admin else user_id
-                        
-                        # Get trading stats from Redis (same source as Dashboard)
-                        stats = {}
-                        user_stats = await r.get(f'trader:stats:{redis_user_id}')
-                        if user_stats:
-                            try:
-                                stats = json.loads(user_stats)
-                            except:
-                                pass
-                        completed_count = await r.llen(f'trades:completed:{redis_user_id}')
-                        
-                        total_trades = stats.get('total_trades', completed_count) or completed_count
-                        winning_trades = stats.get('winning_trades', 0)
-                        
-                        # Check if trading is paused (use redis_user_id)
-                        is_paused = await r.exists(f'trading:paused:{redis_user_id}')
-                        
-                        # Check if exchange connected (use redis_user_id)
-                        exchange_connected = user.get('exchange_connected', False)
-                        if is_admin:
-                            has_creds = await r.exists(f'user:{redis_user_id}:exchange:bybit') or await r.exists('exchange:credentials:default')
-                            exchange_connected = bool(has_creds)
-                        else:
-                            has_creds = await r.exists(f'user:{redis_user_id}:exchange:bybit')
-                            exchange_connected = exchange_connected or bool(has_creds)
-                        
-                        users.append({
-                            'id': user_id,
-                            'email': user['email'],
-                            'name': user['name'] or user['email'].split('@')[0],
-                            'exchange': 'Bybit' if exchange_connected else None,
-                            'exchangeConnected': exchange_connected,
-                            'isActive': exchange_connected and not is_paused,
-                            'isPaused': bool(is_paused),
-                            'isAdmin': is_admin,
-                            'createdAt': user['created_at'],
-                            'totalTrades': int(total_trades) if total_trades else 0,
-                            'totalPnl': float(stats.get('total_pnl', 0)),
-                            'winningTrades': int(winning_trades),
-                            'winRate': round((winning_trades / total_trades * 100), 1) if total_trades > 0 else 0,
+            # Parse DATABASE_URL for asyncpg
+            db_url = settings.DATABASE_URL
+            if db_url:
+                # Convert postgresql:// to asyncpg format if needed
+                db_url = db_url.replace('postgresql://', 'postgresql://')
+                conn = await asyncpg.connect(db_url)
+                try:
+                    rows = await conn.fetch("""
+                        SELECT id, name, email, created_at, is_active 
+                        FROM users 
+                        ORDER BY created_at DESC
+                    """)
+                    for row in rows:
+                        backend_users.append({
+                            'id': str(row['id']),
+                            'name': row['name'],
+                            'email': row['email'],
+                            'created_at': row['created_at'].isoformat() if row['created_at'] else None,
+                            'is_active': row['is_active'],
+                            'exchange_connected': False  # Will check Redis below
                         })
-                        seen_user_ids.add(redis_user_id)
-                        seen_user_ids.add(user_id)
-                    
-                    logger.info(f"Loaded {len(users)} users from Laravel backend")
-        except Exception as e:
-            logger.warning(f"Could not fetch users from Laravel: {e}")
+                    logger.info(f"Loaded {len(backend_users)} users directly from PostgreSQL")
+                finally:
+                    await conn.close()
+        except Exception as db_error:
+            logger.warning(f"Could not fetch users from PostgreSQL: {db_error}")
+            
+            # FALLBACK: Try Laravel endpoint
+            try:
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    response = await client.get("http://backend:9000/api/internal/users")
+                    if response.status_code == 200 and response.text.strip():
+                        data = response.json()
+                        backend_users = data.get('users', [])
+                        logger.info(f"Loaded {len(backend_users)} users from Laravel backend")
+            except Exception as laravel_error:
+                logger.warning(f"Could not fetch users from Laravel: {laravel_error}")
+        
+        # Process backend users
+        for user in backend_users:
+            user_id = str(user['id'])
+            is_admin = user['email'] == 'admin@sentinel.ai'
+            
+            # Determine Redis key for this user
+            # Admin uses 'default' as their user_id in Redis
+            redis_user_id = 'default' if is_admin else user_id
+            
+            # Get trading stats from Redis (same source as Dashboard)
+            stats = {}
+            user_stats = await r.get(f'trader:stats:{redis_user_id}')
+            if user_stats:
+                try:
+                    stats = json.loads(user_stats)
+                except:
+                    pass
+            completed_count = await r.llen(f'trades:completed:{redis_user_id}')
+            
+            total_trades = stats.get('total_trades', completed_count) or completed_count
+            winning_trades = stats.get('winning_trades', 0)
+            
+            # Check if trading is paused (use redis_user_id)
+            is_paused = await r.exists(f'trading:paused:{redis_user_id}')
+            
+            # Check if exchange connected (use redis_user_id)
+            exchange_connected = user.get('exchange_connected', False)
+            if is_admin:
+                has_creds = await r.exists(f'user:{redis_user_id}:exchange:bybit') or await r.exists('exchange:credentials:default')
+                exchange_connected = bool(has_creds)
+            else:
+                has_creds = await r.exists(f'user:{redis_user_id}:exchange:bybit')
+                exchange_connected = exchange_connected or bool(has_creds)
+            
+            users.append({
+                'id': user_id,
+                'email': user['email'],
+                'name': user['name'] or user['email'].split('@')[0],
+                'exchange': 'Bybit' if exchange_connected else None,
+                'exchangeConnected': exchange_connected,
+                'isActive': exchange_connected and not is_paused,
+                'isPaused': bool(is_paused),
+                'isAdmin': is_admin,
+                'createdAt': user.get('created_at'),
+                'totalTrades': int(total_trades) if total_trades else 0,
+                'totalPnl': float(stats.get('total_pnl', 0)),
+                'winningTrades': int(winning_trades),
+                'winRate': round((winning_trades / total_trades * 100), 1) if total_trades > 0 else 0,
+            })
+            seen_user_ids.add(redis_user_id)
+            seen_user_ids.add(user_id)
         
         # STEP 2: ALSO check Redis for any users not in Laravel database
         # This catches users who have API keys in Redis but weren't registered via Laravel
