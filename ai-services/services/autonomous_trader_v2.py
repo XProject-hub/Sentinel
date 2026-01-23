@@ -4145,15 +4145,22 @@ class AutonomousTraderV2:
             await self.redis_client.ltrim('trading:events:all', 0, 999)  # Keep last 1000 for learning
             
             # Store completed trades per user for activity panel (NET P&L)
+            # This is CRITICAL - wrap in its own try/except so it never fails silently
             if action == 'closed':
-                await self.redis_client.lpush(f'trades:completed:{user_id}', json.dumps({
-                    'symbol': symbol,
-                    'pnl': round(pnl_value, 2),  # NET value
-                    'pnl_percent': round(pnl, 2),  # NET %
-                    'close_reason': reason,
-                    'closed_time': timestamp
-                }))
-                await self.redis_client.ltrim(f'trades:completed:{user_id}', 0, 49)  # Keep last 50
+                try:
+                    trade_data = {
+                        'symbol': symbol,
+                        'pnl': round(pnl_value, 2),  # NET value
+                        'pnl_percent': round(pnl, 2),  # NET %
+                        'close_reason': reason,
+                        'closed_time': timestamp
+                    }
+                    await self.redis_client.lpush(f'trades:completed:{user_id}', json.dumps(trade_data))
+                    await self.redis_client.ltrim(f'trades:completed:{user_id}', 0, 49)  # Keep last 50
+                    logger.info(f"Trade stored: {symbol} {pnl:+.2f}% (${pnl_value:+.2f}) -> trades:completed:{user_id}")
+                except Exception as store_error:
+                    logger.error(f"CRITICAL: Failed to store completed trade {symbol}: {store_error}")
+                    logger.error(f"Lost trade data: {trade_data}")
             
             # V3: Record to data collector for ML training
             if position:
@@ -4228,7 +4235,23 @@ class AutonomousTraderV2:
                 logger.debug(f"Trade recorded for ML training: {symbol} {action} {pnl:.2f}%")
             
         except Exception as e:
-            logger.debug(f"Trade event store error: {e}")
+            # CRITICAL: Don't silently lose trades! This MUST be visible!
+            logger.error(f"CRITICAL: Failed to store trade event for {symbol}: {e}")
+            logger.error(f"Trade data that was lost: action={action}, pnl={pnl:.2f}%, user={user_id}")
+            
+            # Try a simple fallback - at minimum log to console so user sees it
+            try:
+                if self.redis_client:
+                    await self.redis_client.lpush(f'trading:events:{user_id}', json.dumps({
+                        'symbol': symbol,
+                        'action': action,
+                        'pnl_percent': round(pnl, 2),
+                        'reason': f"RECOVERY: {reason}",
+                        'timestamp': datetime.utcnow().isoformat(),
+                        'error': str(e)
+                    }))
+            except:
+                logger.error(f"Even fallback trade storage failed for {symbol}!")
             
     async def _load_settings(self, user_id: str = "default"):
         """
