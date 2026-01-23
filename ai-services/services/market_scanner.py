@@ -264,6 +264,42 @@ class MarketScanner:
                 else:
                     direction = 'short'
                     edge_data = short_edge
+                
+                # === 24H RANGE POSITION CHECK ===
+                # Prevent opening SHORT near 24h low (price likely to bounce)
+                # Prevent opening LONG near 24h high (price likely to pull back)
+                last_price = float(ticker.get('lastPrice', 0))
+                high_24h = float(ticker.get('highPrice24h', 0))
+                low_24h = float(ticker.get('lowPrice24h', 0))
+                range_24h = high_24h - low_24h
+                
+                if range_24h > 0 and last_price > 0:
+                    # Calculate position in range: 0 = at low, 1 = at high
+                    position_in_range = (last_price - low_24h) / range_24h
+                    
+                    # NEAR 24H LOW (bottom 25%) - FORCE LONG or skip SHORT
+                    if position_in_range < 0.25:
+                        if direction == 'short':
+                            # Don't short near the bottom! Switch to long if edge exists
+                            if long_edge.edge > 0.05:
+                                direction = 'long'
+                                edge_data = long_edge
+                                logger.info(f"{symbol}: Near 24h LOW ({position_in_range:.0%}) - switched SHORT to LONG")
+                            else:
+                                logger.debug(f"{symbol}: Near 24h LOW, skipping SHORT (no long edge)")
+                                continue
+                    
+                    # NEAR 24H HIGH (top 25%) - FORCE SHORT or skip LONG
+                    elif position_in_range > 0.75:
+                        if direction == 'long':
+                            # Don't long near the top! Switch to short if edge exists
+                            if short_edge.edge > 0.05:
+                                direction = 'short'
+                                edge_data = short_edge
+                                logger.info(f"{symbol}: Near 24h HIGH ({position_in_range:.0%}) - switched LONG to SHORT")
+                            else:
+                                logger.debug(f"{symbol}: Near 24h HIGH, skipping LONG (no short edge)")
+                                continue
                     
                 # Skip if no edge
                 if edge_data.edge <= 0:

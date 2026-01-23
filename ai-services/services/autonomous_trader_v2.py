@@ -2500,6 +2500,15 @@ class AutonomousTraderV2:
                 
                 # Bullish breakout (+10% and up) - raised threshold for real breakouts
                 if price_change >= 10:
+                    # CRITICAL CHECK: Don't long if already near 24h HIGH!
+                    # If price pumped +15% and is at the top, the pump is OVER
+                    # Longing here = chasing a finished move
+                    if position_in_range > 0.85:
+                        # Price is near 24h high - pump might be exhausted
+                        # Still allow but with reduced size
+                        logger.info(f"{symbol}: Near 24h HIGH ({position_in_range:.0%}) - reducing size")
+                        size_multiplier = 0.3  # Very small size near top
+                    
                     is_breakout = True
                     direction = 'long'
                     
@@ -2507,19 +2516,28 @@ class AutonomousTraderV2:
                     if price_change >= 50:
                         # EXTREME breakout (+50%+) - very risky, small size
                         breakout_strength = 60
-                        size_multiplier = 0.3  # Only 30% of normal size
+                        size_multiplier = min(size_multiplier, 0.3)  # Only 30% of normal size
                         logger.warning(f" EXTREME breakout {symbol} +{price_change:.1f}% - using 30% size")
                     elif price_change >= 25:
                         # BIG breakout (+25-50%) - risky, reduced size
                         breakout_strength = 75
-                        size_multiplier = 0.5  # 50% of normal size
+                        size_multiplier = min(size_multiplier, 0.5)  # 50% of normal size
                     else:
                         # NORMAL breakout (+5-25%) - ideal
                         breakout_strength = min(100, price_change * 10)
-                        size_multiplier = 1.0
+                        # Keep size_multiplier from above if near high
                     
                 # Bearish breakout (-10% and down) - raised threshold for real breakouts
                 elif price_change <= -10:
+                    # CRITICAL CHECK: Don't short if already near 24h LOW!
+                    # If price dumped -15% but is now at the bottom, the dump is OVER
+                    # Shorting here = chasing a finished move
+                    if position_in_range < 0.30:
+                        # Price is near 24h low - dump is exhausted, likely to bounce
+                        # SKIP SHORT or consider LONG for bounce
+                        logger.info(f"{symbol}: SKIP SHORT - already at 24h LOW ({position_in_range:.0%}), dump exhausted")
+                        continue
+                    
                     is_breakout = True
                     direction = 'short'
                     
