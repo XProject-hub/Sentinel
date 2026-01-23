@@ -264,6 +264,8 @@ class AutonomousTraderV2:
     
     def _get_user_stats(self, user_id: str) -> Dict:
         """Get or create stats for a specific user"""
+        today = datetime.utcnow().date().isoformat()
+        
         if user_id not in self.user_stats:
             self.user_stats[user_id] = {
                 'total_trades': 0,
@@ -271,8 +273,18 @@ class AutonomousTraderV2:
                 'total_pnl': 0.0,
                 'max_drawdown': 0.0,
                 'daily_pnl': 0.0,
+                'daily_pnl_date': today,
                 'opportunities_scanned': 0
             }
+        else:
+            # Reset daily P&L if it's a new day
+            stats = self.user_stats[user_id]
+            last_date = stats.get('daily_pnl_date', '')
+            if last_date != today:
+                logger.info(f"Resetting daily P&L for {user_id}: was ${stats.get('daily_pnl', 0):.2f} from {last_date}")
+                stats['daily_pnl'] = 0.0
+                stats['daily_pnl_date'] = today
+                
         return self.user_stats[user_id]
     
     def _get_user_settings(self, user_id: str) -> Dict:
