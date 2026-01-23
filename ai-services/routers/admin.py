@@ -272,8 +272,9 @@ async def get_users():
     try:
         r = await redis.from_url(settings.REDIS_URL)
         users = []
+        seen_user_ids = set()  # Track which users we've already added
         
-        # Try to get users from Laravel backend (PostgreSQL)
+        # STEP 1: Try to get users from Laravel backend (PostgreSQL)
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
                 response = await client.get("http://backend:9000/api/internal/users")
@@ -329,61 +330,91 @@ async def get_users():
                             'winningTrades': int(winning_trades),
                             'winRate': round((winning_trades / total_trades * 100), 1) if total_trades > 0 else 0,
                         })
+                        seen_user_ids.add(redis_user_id)
+                        seen_user_ids.add(user_id)
                     
                     logger.info(f"Loaded {len(users)} users from Laravel backend")
         except Exception as e:
             logger.warning(f"Could not fetch users from Laravel: {e}")
         
-        # If no users from backend, fallback to Redis-only data
-        if not users:
-            keys = await r.keys('exchange:credentials:*')
+        # STEP 2: ALSO check Redis for any users not in Laravel database
+        # This catches users who have API keys in Redis but weren't registered via Laravel
+        redis_keys = await r.keys('exchange:credentials:*')
+        redis_keys2 = await r.keys('user:*:exchange:bybit')
+        
+        all_redis_keys = list(redis_keys) + list(redis_keys2)
+        
+        for key in all_redis_keys:
+            key_str = key.decode() if isinstance(key, bytes) else key
             
-            for key in keys:
-                key_str = key.decode() if isinstance(key, bytes) else key
+            # Extract user_id from key
+            if 'exchange:credentials:' in key_str:
                 user_id = key_str.replace('exchange:credentials:', '')
-                
-                creds = await r.hgetall(key)
-                creds_dict = {
-                    k.decode() if isinstance(k, bytes) else k:
-                    v.decode() if isinstance(v, bytes) else v
-                    for k, v in creds.items()
-                }
-                
-                stats = {}
-                if user_id == 'default':
-                    global_stats = await r.get('trader:stats')
-                    if global_stats:
-                        try:
-                            stats = json.loads(global_stats)
-                        except:
-                            pass
-                
-                completed_count = await r.llen(f'trades:completed:{user_id}')
-                if completed_count == 0 and user_id == 'default':
-                    completed_count = await r.llen('trades:completed:default')
-                
-                total_trades = stats.get('total_trades', completed_count) or completed_count
-                is_paused = await r.exists(f'trading:paused:{user_id}')
-                
-                email = creds_dict.get('email', f'{user_id}@sentinel.ai' if user_id != 'default' else 'admin@sentinel.ai')
-                
-                users.append({
-                    'id': user_id,
-                    'email': email,
-                    'name': 'Admin' if user_id == 'default' else user_id,
-                    'exchange': 'Bybit',
-                    'exchangeConnected': bool(creds_dict.get('api_key')),
-                    'isActive': bool(creds_dict.get('api_key')) and not is_paused,
-                    'isPaused': bool(is_paused),
-                    'isAdmin': user_id == 'default',
-                    'createdAt': creds_dict.get('created_at', datetime.now().isoformat()),
-                    'totalTrades': int(total_trades) if total_trades else 0,
-                    'totalPnl': float(stats.get('total_pnl', 0)),
-                    'winningTrades': int(stats.get('winning_trades', 0)),
-                    'winRate': round((stats.get('winning_trades', 0) / total_trades * 100), 1) if total_trades else 0,
-                })
+            elif ':exchange:bybit' in key_str:
+                # Format: user:{user_id}:exchange:bybit
+                parts = key_str.split(':')
+                user_id = parts[1] if len(parts) >= 2 else None
+            else:
+                continue
+            
+            if not user_id or user_id in seen_user_ids:
+                continue
+            
+            # This is a Redis-only user (not in Laravel database)
+            creds = await r.hgetall(key)
+            creds_dict = {
+                k.decode() if isinstance(k, bytes) else k:
+                v.decode() if isinstance(v, bytes) else v
+                for k, v in creds.items()
+            }
+            
+            # Get stats for this user
+            stats = {}
+            user_stats = await r.get(f'trader:stats:{user_id}')
+            if user_stats:
+                try:
+                    stats = json.loads(user_stats)
+                except:
+                    pass
+            
+            # Also try global stats for 'default' user
+            if user_id == 'default':
+                global_stats = await r.get('trader:stats')
+                if global_stats:
+                    try:
+                        stats = json.loads(global_stats) if not stats else stats
+                    except:
+                        pass
+            
+            completed_count = await r.llen(f'trades:completed:{user_id}')
+            total_trades = stats.get('total_trades', completed_count) or completed_count
+            winning_trades = stats.get('winning_trades', 0)
+            is_paused = await r.exists(f'trading:paused:{user_id}')
+            
+            email = creds_dict.get('email', f'{user_id}@sentinel.ai' if user_id != 'default' else 'admin@sentinel.ai')
+            is_admin = user_id == 'default'
+            
+            users.append({
+                'id': user_id,
+                'email': email,
+                'name': 'Admin' if is_admin else creds_dict.get('name', user_id),
+                'exchange': 'Bybit',
+                'exchangeConnected': bool(creds_dict.get('api_key')),
+                'isActive': bool(creds_dict.get('api_key')) and not is_paused,
+                'isPaused': bool(is_paused),
+                'isAdmin': is_admin,
+                'createdAt': creds_dict.get('created_at', datetime.now().isoformat()),
+                'totalTrades': int(total_trades) if total_trades else 0,
+                'totalPnl': float(stats.get('total_pnl', 0)),
+                'winningTrades': int(winning_trades),
+                'winRate': round((winning_trades / total_trades * 100), 1) if total_trades > 0 else 0,
+            })
+            seen_user_ids.add(user_id)
+            logger.debug(f"Added Redis-only user: {user_id}")
         
         await r.close()
+        
+        logger.info(f"Total users found: {len(users)} (Laravel + Redis)")
         
         return {
             "success": True,
