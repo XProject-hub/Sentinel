@@ -178,7 +178,7 @@ class AutonomousTraderV2:
         
         # BTC correlation settings
         self.btc_correlation_check = True  # Check BTC before alt longs
-        self.btc_block_threshold = -0.4    # Block alt longs if BTC < this %
+        self.btc_block_threshold = -2.0    # Block alt longs if BTC < this % (balanced)
         self.btc_required_positive = False # Require BTC positive for trade
         
         # AI score requirements
@@ -392,8 +392,8 @@ class AutonomousTraderV2:
                 'wick_ratio_max': 0.60,
                 'distance_from_low_max': 0.30,
                 'green_red_ratio_min': 1.3,
-                'btc_correlation_check': True,  # BLOCK if BTC < -0.4%
-                'btc_block_threshold': -0.4,
+                'btc_correlation_check': True,  # BLOCK if BTC < threshold
+                'btc_block_threshold': -2.0,  # Allow trades when BTC slightly down (was -0.4)
                 
                 # AI SCORE
                 'min_confidence': 65,
@@ -1648,7 +1648,7 @@ class AutonomousTraderV2:
             # ================================================================
             # Uses preset thresholds:
             # - self.btc_correlation_check (enable/disable)
-            # - self.btc_block_threshold (default -0.4% for MICRO, -2% for others)
+            # - self.btc_block_threshold (default -2.0% - balanced setting)
             # - self.btc_required_positive (for SWING preset)
             if self.btc_correlation_check and opp.symbol != 'BTCUSDT' and opp.direction == 'long':
                 try:
@@ -1991,7 +1991,8 @@ class AutonomousTraderV2:
             # ChatGPT FIX: Breakouts need 52, normal trades need 65
             # Breakouts already passed detection + chasing/wick/spread filters protect us
             
-            min_score = 52 if is_breakout else 65
+            # BALANCED: Breakout=52, Regular=55 (was 65 - too strict, caused 0 trades)
+            min_score = 52 if is_breakout else 55
             
             score_str = " | ".join(score_breakdown[:5])  # Limit for readability
             
