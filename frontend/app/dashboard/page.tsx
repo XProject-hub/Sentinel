@@ -744,25 +744,33 @@ export default function DashboardPage() {
                       const size = parseFloat(pos.size || '0')
                       const leverage = parseFloat(pos.leverage || '1')
                       
-                      // Calculate position value: use API value or calculate from size * markPrice
-                      let posValueUSDT = parseFloat(pos.positionValue || '0')
-                      if (posValueUSDT === 0 && markPrice > 0 && size > 0) {
-                        posValueUSDT = size * markPrice
+                      // Calculate position value: positionValue from Bybit IS the notional value (size * price)
+                      // So we should NOT multiply by leverage again!
+                      let notionalUSDT = parseFloat(pos.positionValue || '0')
+                      if (notionalUSDT === 0 && markPrice > 0 && size > 0) {
+                        notionalUSDT = size * markPrice  // This IS the notional (full exposure)
                       }
-                      const posValueEUR = posValueUSDT * USDT_TO_EUR
+                      const notionalEUR = notionalUSDT * USDT_TO_EUR
+                      const marginUSDT = notionalUSDT / leverage  // Margin = notional / leverage
+                      const marginEUR = notionalEUR / leverage
+                      // For P&L calculations, use notional (full position)
+                      const posValueUSDT = notionalUSDT
+                      const posValueEUR = notionalEUR
                       
-                      // Calculate P&L percentage
+                      // Calculate P&L percentage (on notional value, NO leverage multiplier!)
+                      // Notional already includes leverage, so P&L = notional * price_change
                       let pnlPercent = 0
                       if (entryPrice > 0 && markPrice > 0) {
                         if (pos.side === 'Buy') {
-                          pnlPercent = ((markPrice - entryPrice) / entryPrice) * 100 * leverage
+                          pnlPercent = ((markPrice - entryPrice) / entryPrice) * 100
                         } else {
-                          pnlPercent = ((entryPrice - markPrice) / entryPrice) * 100 * leverage
+                          pnlPercent = ((entryPrice - markPrice) / entryPrice) * 100
                         }
                       }
                       
-                      // Calculate P&L in EUR
-                      const pnlEUR = posValueEUR * (pnlPercent / 100)
+                      // Calculate P&L in EUR: notional * price_change
+                      // This automatically includes leverage because notional = margin * leverage
+                      const pnlEUR = notionalEUR * (pnlPercent / 100)
                       
                       // Use NET P&L (after fees) if available, otherwise gross
                       const netPnl = parseFloat(pos.estimatedNetPnl || '0')
@@ -771,7 +779,8 @@ export default function DashboardPage() {
                       // Prefer NET P&L (more accurate), fallback to gross
                       const apiPnl = netPnl !== 0 ? netPnl : grossPnl
                       const finalPnlEUR = apiPnl !== 0 ? apiPnl * USDT_TO_EUR : pnlEUR
-                      const finalPnlPercent = apiPnl !== 0 && posValueUSDT > 0 ? (apiPnl / posValueUSDT) * 100 : pnlPercent
+                      // Show percentage as return on MARGIN (leveraged return), not on notional
+                      const finalPnlPercent = apiPnl !== 0 && marginUSDT > 0 ? (apiPnl / marginUSDT) * 100 : pnlPercent * leverage
                       
                       return (
                         <tr key={i} className="border-b border-white/5 hover:bg-white/[0.02]">
@@ -794,10 +803,10 @@ export default function DashboardPage() {
                             </span>
                           </td>
                           <td className="px-3 py-2 text-right">
-                            {/* Position SIZE = margin × leverage (actual market exposure) */}
-                            <div className="text-white font-medium text-sm">€{(posValueEUR * leverage).toFixed(0)}</div>
+                            {/* Position SIZE = notional value (actual market exposure) */}
+                            <div className="text-white font-medium text-sm">€{notionalEUR.toFixed(0)}</div>
                             {/* MARGIN = collateral/deposit for this trade */}
-                            <div className="text-gray-500 text-[9px]">margin: €{posValueEUR.toFixed(2)}</div>
+                            <div className="text-gray-500 text-[9px]">margin: €{marginEUR.toFixed(2)}</div>
                           </td>
                           <td className="px-3 py-2 text-right text-gray-400 text-sm">
                             €{entryPrice.toFixed(4)}
