@@ -170,7 +170,7 @@ class Backtester:
             if end_time is None:
                 end_time = datetime.utcnow()
             
-            logger.info(f"📊 Backtest: Fetching {symbol} from {start_time} to {end_time}")
+            logger.info(f"Backtest: Fetching {symbol} from {start_time} to {end_time}")
             
             all_candles = []
             current_start = start_time
@@ -187,7 +187,7 @@ class Backtester:
                     "limit": min(limit, 1000)
                 }
                 
-                logger.debug(f"📊 Batch {batch_count}: Requesting {symbol} from {current_start}")
+                logger.debug(f"Batch {batch_count}: Requesting {symbol} from {current_start}")
                 
                 http_client = self._get_http_client()
                 response = await http_client.get(
@@ -195,24 +195,24 @@ class Backtester:
                     params=params
                 )
                 
-                logger.debug(f"📊 Response status: {response.status_code}")
+                logger.debug(f"Response status: {response.status_code}")
                 
                 if response.status_code != 200:
                     logger.error(f"Failed to fetch candles: {response.text}")
                     break
                 
                 data = response.json()
-                logger.debug(f"📊 API retCode: {data.get('retCode')}, retMsg: {data.get('retMsg')}")
+                logger.debug(f"API retCode: {data.get('retCode')}, retMsg: {data.get('retMsg')}")
                 
                 if data.get('retCode') != 0:
                     logger.error(f"Bybit API error: {data.get('retMsg')}")
                     break
                 
                 candles = data.get('result', {}).get('list', [])
-                logger.info(f"📊 Batch {batch_count}: Got {len(candles)} candles")
+                logger.info(f"Batch {batch_count}: Got {len(candles)} candles")
                 
                 if not candles:
-                    logger.warning(f"📊 No candles returned for {symbol}")
+                    logger.warning(f"No candles returned for {symbol}")
                     break
                 
                 # Bybit returns newest first, we want oldest first
@@ -232,19 +232,19 @@ class Backtester:
                 
                 # Move to next batch - break if we got less than requested
                 if len(candles) < min(limit, 1000):
-                    logger.info(f"📊 Got all available data ({len(candles)} < {min(limit, 1000)})")
+                    logger.info(f"Got all available data ({len(candles)} < {min(limit, 1000)})")
                     break
                     
                 # Get the newest candle's timestamp (after reverse, it's the last one)
                 last_time = datetime.fromtimestamp(int(candles[-1][0]) / 1000)
                 current_start = last_time + timedelta(minutes=int(interval))
-                logger.debug(f"📊 Next batch starts at: {current_start}")
+                logger.debug(f"Next batch starts at: {current_start}")
                 
                 await asyncio.sleep(0.1)  # Rate limiting
                 
                 # Safety limit - max 10 batches (10000 candles)
                 if batch_count >= 10:
-                    logger.info(f"📊 Reached max batch limit")
+                    logger.info(f"Reached max batch limit")
                     break
             
             # Remove duplicates and sort
@@ -459,7 +459,7 @@ class Backtester:
             # Default: now
             end_date = datetime.utcnow()
         
-        logger.info(f"📊 Backtest date range: {start_date} to {end_date} (config: start='{config.start_date}', end='{config.end_date}')")
+        logger.info(f"Backtest date range: {start_date} to {end_date} (config: start='{config.start_date}', end='{config.end_date}')")
         
         # Fetch historical data
         candles = await self.fetch_historical_data(

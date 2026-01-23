@@ -84,7 +84,7 @@ class HFSafetyModels:
                     model="ProsusAI/finbert",
                     device=-1  # CPU
                 )
-                logger.info("✓ FinBERT sentiment analyzer loaded")
+                logger.info("FinBERT sentiment analyzer loaded")
             except Exception as e:
                 logger.warning(f"FinBERT failed to load: {e}")
                 # Fallback to lighter model
@@ -94,7 +94,7 @@ class HFSafetyModels:
                         model="distilbert-base-uncased-finetuned-sst-2-english",
                         device=-1
                     )
-                    logger.info("✓ Fallback sentiment analyzer loaded")
+                    logger.info("Fallback sentiment analyzer loaded")
                 except:
                     pass
             
@@ -106,7 +106,7 @@ class HFSafetyModels:
                     model="facebook/bart-large-mnli",
                     device=-1
                 )
-                logger.info("✓ Zero-shot topic classifier loaded")
+                logger.info("Zero-shot topic classifier loaded")
             except Exception as e:
                 logger.warning(f"Topic classifier failed to load: {e}")
                 # Fallback to lighter model
@@ -116,7 +116,7 @@ class HFSafetyModels:
                         model="valhalla/distilbart-mnli-12-3",
                         device=-1
                     )
-                    logger.info("✓ Fallback topic classifier loaded")
+                    logger.info("Fallback topic classifier loaded")
                 except:
                     pass
             
@@ -128,7 +128,7 @@ class HFSafetyModels:
                     model="j-hartmann/emotion-english-distilroberta-base",
                     device=-1
                 )
-                logger.info("✓ Emotion analyzer loaded")
+                logger.info("Emotion analyzer loaded")
             except Exception as e:
                 logger.warning(f"Emotion analyzer failed to load: {e}")
             

@@ -276,7 +276,7 @@ class WhaleTracker:
             })
             await self.redis_client.expire(f"whale:latest:{alert.symbol}", 300)  # 5 min TTL
             
-            logger.info(f"🐋 WHALE ALERT [{alert.symbol}]: {alert.description}")
+            logger.info(f"WHALE ALERT [{alert.symbol}]: {alert.description}")
             
         except Exception as e:
             logger.error(f"Failed to store whale alert: {e}")

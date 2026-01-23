@@ -240,7 +240,7 @@ class PositionSizer:
         current_exposure = await self._get_current_exposure()
         max_allowed = self.MAX_TOTAL_EXPOSURE * wallet_balance
         if current_exposure >= max_allowed:
-            logger.warning(f"🚫 Exposure check failed for {symbol}: current=${current_exposure:.2f} >= max=${max_allowed:.2f} (wallet=${wallet_balance:.2f}, limit={self.MAX_TOTAL_EXPOSURE*100:.0f}%)")
+            logger.warning(f"Exposure check failed for {symbol}: current=${current_exposure:.2f} >= max=${max_allowed:.2f} (wallet=${wallet_balance:.2f}, limit={self.MAX_TOTAL_EXPOSURE*100:.0f}%)")
             logger.warning(f"   Open positions ({len(self.open_positions)}): {list(self.open_positions.keys())[:10]}...")
             return self._blocked_position(
                 symbol, f"Maximum total exposure reached (${current_exposure:.0f}/${max_allowed:.0f})", wallet_balance
@@ -250,10 +250,10 @@ class PositionSizer:
         num_positions = len(self.open_positions)
         
         # DEBUG: Always log position count to track the 20 limit bug
-        logger.debug(f"📊 Position sizer: {num_positions} tracked, MAX={'∞' if self.MAX_OPEN_POSITIONS == 0 else self.MAX_OPEN_POSITIONS}, exposure=${current_exposure:.2f}/${max_allowed:.2f}")
+        logger.debug(f"Position sizer: {num_positions} tracked, MAX={'unlimited' if self.MAX_OPEN_POSITIONS == 0 else self.MAX_OPEN_POSITIONS}, exposure=${current_exposure:.2f}/${max_allowed:.2f}")
         
         if self.MAX_OPEN_POSITIONS > 0 and num_positions >= self.MAX_OPEN_POSITIONS:
-            logger.warning(f"🚫 Max positions check failed: {num_positions} >= {self.MAX_OPEN_POSITIONS}")
+            logger.warning(f"Max positions check failed: {num_positions} >= {self.MAX_OPEN_POSITIONS}")
             logger.warning(f"   Tracked positions: {list(self.open_positions.keys())[:10]}...")
             return self._blocked_position(
                 symbol, f"Maximum {self.MAX_OPEN_POSITIONS} positions reached", wallet_balance
@@ -583,13 +583,13 @@ class PositionSizer:
             self.winning_streak += 1
             self.losing_streak = 0
             if self.winning_streak >= 3:
-                logger.info(f"🔥 Winning streak: {self.winning_streak} - Kelly boost active")
+                logger.info(f"Winning streak: {self.winning_streak} - Kelly boost active")
         else:
             # Loss
             self.losing_streak += 1
             self.winning_streak = 0
             if self.losing_streak >= 3:
-                logger.warning(f"⚠️ Losing streak: {self.losing_streak} - Kelly reduced by {min(70, (self.losing_streak - 2) * 15)}%")
+                logger.warning(f"Losing streak: {self.losing_streak} - Kelly reduced by {min(70, (self.losing_streak - 2) * 15)}%")
         
         await self._save_state()
     
@@ -621,7 +621,7 @@ class PositionSizer:
         added_symbols = exchange_symbols - old_symbols
         
         if removed_symbols or old_count != new_count:
-            logger.info(f"🔄 Position sizer SYNCED: {old_count} → {new_count} positions, exposure=${new_exposure:.2f}")
+            logger.info(f"Position sizer SYNCED: {old_count} -> {new_count} positions, exposure=${new_exposure:.2f}")
             if removed_symbols:
                 logger.info(f"   Removed stale: {list(removed_symbols)[:5]}{'...' if len(removed_symbols) > 5 else ''}")
         
@@ -726,10 +726,10 @@ class PositionSizer:
         streak_info = "Neutral"
         if self.losing_streak >= 3:
             kelly_modifier = max(0.3, 1 - (self.losing_streak - 2) * 0.15)
-            streak_info = f"🔴 Losing streak: {self.losing_streak} (Kelly×{kelly_modifier:.0%})"
+            streak_info = f"Losing streak: {self.losing_streak} (Kelly x{kelly_modifier:.0%})"
         elif self.winning_streak >= 3:
             kelly_modifier = min(1.2, 1 + self.winning_streak * 0.05)
-            streak_info = f"🟢 Winning streak: {self.winning_streak} (Kelly×{kelly_modifier:.0%})"
+            streak_info = f"Winning streak: {self.winning_streak} (Kelly x{kelly_modifier:.0%})"
         
         return {
             'daily_pnl': round(self.daily_pnl, 2),

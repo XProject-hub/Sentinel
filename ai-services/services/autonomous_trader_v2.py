@@ -323,14 +323,14 @@ class AutonomousTraderV2:
         
         Presets:
         - scalp: Fastest, most dangerous - quick bounce, small profit (65-75% winrate)
-        - micro: HEALTHIEST DEFAULT - small quality profits (70-80% winrate) ⭐ RECOMMENDED
+        - micro: HEALTHIEST DEFAULT - small quality profits (70-80% winrate) - RECOMMENDED
         - swing: Slow but stable - bigger moves, less frequency (55-65% winrate)
         - conservative: Capital preservation - tight everything
         - balanced: Middle ground for beginners
         - aggressive: Risk takers - wide stops
         """
         presets = {
-            # ⚡ SCALP PRESET (najbrži, najopasniji)
+            # SCALP PRESET (najbrzi, najopasniji)
             'scalp': {
                 # EXIT
                 'stop_loss': 0.35,
@@ -361,7 +361,7 @@ class AutonomousTraderV2:
                 'description': 'Quick bounce, small profit, high frequency - RISKY'
             },
             
-            # 💎 MICRO PRESET (NAJZDRAVIJI – PREPORUKA)
+            # MICRO PRESET (NAJZDRAVIJI - PREPORUKA)
             'micro': {
                 # EXIT
                 'stop_loss': 0.5,
@@ -391,10 +391,10 @@ class AutonomousTraderV2:
                 'use_mean_reversion': True,
                 'regime_required': ['RANGE', 'CHOPPY'],
                 'winrate_expected': '70-80%',
-                'description': 'Small quality profits - DEFAULT MONEY PRINTER ⭐'
+                'description': 'Small quality profits - DEFAULT MONEY PRINTER'
             },
             
-            # 🧠 SWING PRESET (spor, ali stabilan)
+            # SWING PRESET (spor, ali stabilan)
             'swing': {
                 # EXIT
                 'stop_loss': 1.2,
@@ -797,7 +797,7 @@ class AutonomousTraderV2:
         # Store in Redis for persistence
         if self.redis_client:
             await self.redis_client.set(f'trading:paused:{user_id}', '1')
-        logger.info(f"🛑 Trading PAUSED for {user_id} - no new positions will be opened")
+        logger.info(f"Trading PAUSED for {user_id} - no new positions will be opened")
     
     async def resume_trading(self, user_id: str):
         """Resume trading - allow opening new positions again"""
@@ -892,7 +892,7 @@ class AutonomousTraderV2:
                             consecutive_errors += 1
                             logger.error(f"Error processing user {user_id}: {e}")
                             if consecutive_errors >= 5:
-                                logger.error(f"🚨 {consecutive_errors} consecutive errors! Sleeping 10s...")
+                                logger.error(f"ALERT: {consecutive_errors} consecutive errors! Sleeping 10s...")
                                 await asyncio.sleep(10)
                                 consecutive_errors = 0
                         
@@ -947,7 +947,7 @@ class AutonomousTraderV2:
                 break
             except Exception as e:
                 # This should NEVER happen - but if it does, log and continue!
-                logger.error(f"🚨 CRITICAL LOOP ERROR (cycle {cycle}): {e}")
+                logger.error(f"CRITICAL LOOP ERROR (cycle {cycle}): {e}")
                 import traceback
                 logger.error(traceback.format_exc())
                 await asyncio.sleep(2)  # Brief sleep then continue
@@ -1259,7 +1259,7 @@ class AutonomousTraderV2:
             
             # Log current state for EVERY position check - CRITICAL FOR DEBUGGING
             tp_status = f"TP={self.take_profit}%" if self.take_profit > 0 else "TP=OFF"
-            logger.info(f"🔎 CHECK {position.symbol}: Side={position.side}, Price=${current_price:.6f}, Entry=${position.entry_price:.6f}, P&L={pnl_percent:+.2f}%, {tp_status}, SL=-{self.emergency_stop_loss}%")
+            logger.info(f"CHECK {position.symbol}: Side={position.side}, Price=${current_price:.6f}, Entry=${position.entry_price:.6f}, P&L={pnl_percent:+.2f}%, {tp_status}, SL=-{self.emergency_stop_loss}%")
             
             if self.take_profit > 0 and pnl_percent >= self.take_profit:
                 logger.info(f" {position.symbol}: P&L={pnl_percent:+.2f}% >= TP={self.take_profit}% - TRIGGERING TAKE PROFIT!")
@@ -1272,7 +1272,7 @@ class AutonomousTraderV2:
             if pnl_percent <= -self.emergency_stop_loss:
                 should_exit = True
                 exit_reason = f"Stop loss hit ({pnl_percent:.2f}%)"
-                logger.info(f"🛑 STOP LOSS: {position.symbol} at {pnl_percent:+.2f}%")
+                logger.info(f"STOP LOSS: {position.symbol} at {pnl_percent:+.2f}%")
                 
             # 2. TAKE PROFIT - Exit when profit reaches target (only if TP is enabled)
             elif self.take_profit > 0 and pnl_percent >= self.take_profit:
@@ -1299,7 +1299,7 @@ class AutonomousTraderV2:
                     position.trailing_active = True
                     
                     # Log EVERY check in lock profit mode
-                    logger.info(f"📈 LOCK_PROFIT {position.symbol}: Peak={position.peak_pnl_percent:+.3f}%, Now={pnl_percent:+.3f}%, Drop={drop_from_peak:.3f}%, Trigger={self.trail_from_peak:.3f}%")
+                    logger.info(f"LOCK_PROFIT {position.symbol}: Peak={position.peak_pnl_percent:+.3f}%, Now={pnl_percent:+.3f}%, Drop={drop_from_peak:.3f}%, Trigger={self.trail_from_peak:.3f}%")
                     
                     # EXIT if drop from peak exceeds threshold
                     # Even if current P&L is 0 or slightly negative!
@@ -1322,7 +1322,7 @@ class AutonomousTraderV2:
                 
                 # Log trailing status when approaching trigger
                 if position.trailing_active and drop_from_peak >= adaptive_trail * 0.5:
-                    logger.info(f"📈 TRAILING {position.symbol}: Peak={position.peak_pnl_percent:+.3f}%, Now={pnl_percent:+.3f}%, Drop={drop_from_peak:.3f}%, Trail={adaptive_trail:.2f}%")
+                    logger.info(f"TRAILING {position.symbol}: Peak={position.peak_pnl_percent:+.3f}%, Now={pnl_percent:+.3f}%, Drop={drop_from_peak:.3f}%, Trail={adaptive_trail:.2f}%")
                 
                 # Once trailing is active, sell when price drops from peak
                 if position.trailing_active and drop_from_peak >= adaptive_trail:
@@ -1330,7 +1330,7 @@ class AutonomousTraderV2:
                     if pnl_percent >= -0.05:
                         should_exit = True
                         exit_reason = f"Trailing stop (peak: +{position.peak_pnl_percent:.2f}%, dropped {drop_from_peak:.2f}%)"
-                        logger.info(f"📉 TRAILING SELL {position.symbol}: Peak=+{position.peak_pnl_percent:.2f}%, Now={pnl_percent:+.2f}%, Trail={adaptive_trail:.2f}%")
+                        logger.info(f"TRAILING SELL {position.symbol}: Peak=+{position.peak_pnl_percent:.2f}%, Now={pnl_percent:+.2f}%, Trail={adaptive_trail:.2f}%")
                     
             # 4. REGIME CHANGED TO AVOID
             if not should_exit:
@@ -1370,7 +1370,7 @@ class AutonomousTraderV2:
                 reduce_only=True
             )
             
-            logger.info(f"📤 Order result for {position.symbol}: {result}")
+            logger.info(f"Order result for {position.symbol}: {result}")
             
             if result.get('success'):
                 # Calculate GROSS P&L
@@ -1736,7 +1736,7 @@ class AutonomousTraderV2:
                 return False, f"Negative EV {ev:.2f}"
             
             # Passed all filters!
-            logger.info(f"✅ SAFETY PASSED: {opp.symbol} | Wick OK | BTC OK | Spread OK | Entry quality OK | EV={ev:.3f}")
+            logger.info(f"SAFETY PASSED: {opp.symbol} | Wick OK | BTC OK | Spread OK | Entry quality OK | EV={ev:.3f}")
             return True, f"Filters passed: Wick/BTC/Spread/Entry/EV"
             
         except Exception as e:
@@ -1746,24 +1746,24 @@ class AutonomousTraderV2:
     async def _confirm_entry(self, opp: TradingOpportunity, client: BybitV5Client, 
                             is_breakout: bool = False, is_mean_rev: bool = False) -> Tuple[bool, str]:
         """
-        GLOBAL ENTRY CONFIRMATION - All trades must pass this!
+        SCORING-BASED ENTRY CONFIRMATION
         
-        Different checks for different trade types:
-        - BREAKOUT: Momentum continuation (green candles, volume up)
-        - MEAN_REV: Already confirmed in detection (RSI recovering, green candle)
-        - NORMAL: Basic health checks (not falling, some stability)
+        Uses ChatGPT breakout rules with scoring system:
+        - Each rule contributes points (0-25)
+        - Total score out of 100
+        - STRICT mode: score >= 70
+        - AGGRESSIVE mode: score >= 60
         
-        This prevents buying into falling knives for ALL strategies.
+        This replaces individual boolean filters with a weighted scoring approach.
         """
         try:
             # Mean reversion trades are already confirmed during detection
             if is_mean_rev:
                 return True, "Mean reversion pre-confirmed"
             
-            # Get klines for analysis
-            klines = await client.get_klines(opp.symbol, interval='5', limit=20)
+            # Get klines for analysis (5min timeframe)
+            klines = await client.get_klines(opp.symbol, interval='5', limit=25)
             if not klines.get('success') or not klines.get('data', {}).get('list'):
-                # Can't get data - allow trade but log warning
                 logger.warning(f"CONFIRM: {opp.symbol} - no kline data, allowing trade")
                 return True, "No data available"
             
@@ -1771,77 +1771,213 @@ class AutonomousTraderV2:
             if len(kline_list) < 10:
                 return True, "Insufficient kline data"
             
-            # Parse klines (most recent first in Bybit)
+            # Parse klines (most recent first in Bybit, reverse to chronological)
             closes = [float(k[4]) for k in reversed(kline_list)]
             opens = [float(k[1]) for k in reversed(kline_list)]
             volumes = [float(k[5]) for k in reversed(kline_list)]
             lows = [float(k[3]) for k in reversed(kline_list)]
             highs = [float(k[2]) for k in reversed(kline_list)]
             
-            # Calculate indicators
+            # Last candle data
+            last_close = closes[-1]
+            last_open = opens[-1]
+            last_high = highs[-1]
+            last_low = lows[-1]
+            last_volume = volumes[-1]
+            candle_range = last_high - last_low if last_high > last_low else 0.0001
+            
+            # Calculate RSI
             rsi = self._calculate_rsi(closes, period=14)
-            last_candle_green = closes[-1] > opens[-1]
-            prev_candle_green = closes[-2] > opens[-2]
             
-            # Count green vs red candles in last 5
+            # =====================================================
+            # SCORING SYSTEM - ChatGPT Breakout Rules
+            # =====================================================
+            score = 0
+            score_breakdown = []
+            
+            # ===== RULE #1: Green Candle Count (0-25 points) =====
             green_count = sum(1 for i in range(-5, 0) if closes[i] > opens[i])
-            
-            # Volume trend
-            recent_vol = sum(volumes[-3:]) / 3
-            older_vol = sum(volumes[-8:-3]) / 5 if len(volumes) > 8 else recent_vol
-            volume_increasing = recent_vol > older_vol * 0.9
-            
-            # Price making new lows?
-            recent_low = min(lows[-3:])
-            older_low = min(lows[-8:-3]) if len(lows) > 8 else recent_low
-            making_new_lows = recent_low < older_low * 0.998
-            
-            # === BREAKOUT CONFIRMATION ===
-            if is_breakout:
-                # Breakouts need MOMENTUM CONTINUATION
-                # Must have: mostly green candles, volume not dying
-                
-                if green_count < 2:
-                    return False, f"Only {green_count}/5 green candles"
-                
-                if not last_candle_green:
-                    return False, f"Last candle RED"
-                
-                # RSI shouldn't be extremely overbought (>85 = exhaustion)
-                if opp.direction == 'long' and rsi > 85:
-                    return False, f"RSI={rsi:.0f} overbought"
-                
-                logger.info(f"CONFIRM BREAKOUT: {opp.symbol} | {green_count}/5 green | RSI={rsi:.0f} | Vol {'UP' if volume_increasing else 'down'}")
-                return True, f"Breakout confirmed: {green_count}/5 green, RSI={rsi:.0f}"
-            
-            # === NORMAL TRADE CONFIRMATION ===
-            # For non-breakout, non-mean-rev trades
-            
-            # DON'T buy if making new lows (falling knife)
-            if making_new_lows and opp.direction == 'long':
-                return False, f"Making new lows"
-            
-            # For LONG: Need some green candles (not all red)
             if opp.direction == 'long':
-                if green_count < 2:
-                    return False, f"Only {green_count}/5 green candles"
-                
-                # RSI check - don't buy extreme oversold without confirmation
-                if rsi < 25 and not last_candle_green:
-                    return False, f"RSI={rsi:.0f} no reversal"
-            
-            # For SHORT: Need some red candles
-            if opp.direction == 'short':
+                if green_count >= 4:
+                    score += 25
+                    score_breakdown.append(f"Candles:{green_count}/5=25")
+                elif green_count >= 3:
+                    score += 20
+                    score_breakdown.append(f"Candles:{green_count}/5=20")
+                elif green_count >= 2:
+                    score += 10
+                    score_breakdown.append(f"Candles:{green_count}/5=10")
+                else:
+                    score_breakdown.append(f"Candles:{green_count}/5=0")
+            else:  # SHORT
                 red_count = 5 - green_count
-                if red_count < 2:
-                    return False, f"Only {red_count}/5 red candles"
-                
-                # Don't short extreme overbought without confirmation
-                if rsi > 75 and last_candle_green:
-                    return False, f"RSI={rsi:.0f} still rising"
+                if red_count >= 4:
+                    score += 25
+                    score_breakdown.append(f"Candles:{red_count}/5red=25")
+                elif red_count >= 3:
+                    score += 20
+                    score_breakdown.append(f"Candles:{red_count}/5red=20")
+                elif red_count >= 2:
+                    score += 10
+                    score_breakdown.append(f"Candles:{red_count}/5red=10")
+                else:
+                    score_breakdown.append(f"Candles:{red_count}/5red=0")
             
-            logger.info(f"CONFIRM NORMAL: {opp.symbol} | {green_count}/5 green | RSI={rsi:.0f} | LastGreen={last_candle_green}")
-            return True, f"Entry confirmed: {green_count}/5 green, RSI={rsi:.0f}"
+            # ===== RULE #2: Last Candle Confirmation (0-10 points) =====
+            last_candle_green = last_close > last_open
+            if opp.direction == 'long' and last_candle_green:
+                score += 10
+                score_breakdown.append("LastGreen=10")
+            elif opp.direction == 'short' and not last_candle_green:
+                score += 10
+                score_breakdown.append("LastRed=10")
+            else:
+                score_breakdown.append("LastCandle=0")
+            
+            # ===== RULE #3: Body Strength >= 60% (0-15 points) =====
+            body_size = abs(last_close - last_open)
+            body_ratio = body_size / candle_range if candle_range > 0 else 0
+            if body_ratio >= 0.7:
+                score += 15
+                score_breakdown.append(f"Body:{body_ratio:.0%}=15")
+            elif body_ratio >= 0.6:
+                score += 12
+                score_breakdown.append(f"Body:{body_ratio:.0%}=12")
+            elif body_ratio >= 0.5:
+                score += 8
+                score_breakdown.append(f"Body:{body_ratio:.0%}=8")
+            else:
+                score_breakdown.append(f"Body:{body_ratio:.0%}=0")
+            
+            # ===== RULE #4: Close Location >= 70% (0-10 points) =====
+            if opp.direction == 'long':
+                close_location = (last_close - last_low) / candle_range if candle_range > 0 else 0.5
+            else:
+                close_location = (last_high - last_close) / candle_range if candle_range > 0 else 0.5
+            
+            if close_location >= 0.8:
+                score += 10
+                score_breakdown.append(f"CloseLoc:{close_location:.0%}=10")
+            elif close_location >= 0.7:
+                score += 8
+                score_breakdown.append(f"CloseLoc:{close_location:.0%}=8")
+            elif close_location >= 0.5:
+                score += 4
+                score_breakdown.append(f"CloseLoc:{close_location:.0%}=4")
+            else:
+                score_breakdown.append(f"CloseLoc:{close_location:.0%}=0")
+            
+            # ===== RULE #5: Volume Spike >= 1.5x (0-25 points) =====
+            avg_volume_20 = sum(volumes[-20:]) / 20 if len(volumes) >= 20 else sum(volumes) / len(volumes)
+            volume_ratio = last_volume / avg_volume_20 if avg_volume_20 > 0 else 1
+            
+            if volume_ratio >= 2.0:
+                score += 25
+                score_breakdown.append(f"VolSpike:{volume_ratio:.1f}x=25")
+            elif volume_ratio >= 1.8:
+                score += 20
+                score_breakdown.append(f"VolSpike:{volume_ratio:.1f}x=20")
+            elif volume_ratio >= 1.5:
+                score += 15
+                score_breakdown.append(f"VolSpike:{volume_ratio:.1f}x=15")
+            elif volume_ratio >= 1.2:
+                score += 8
+                score_breakdown.append(f"VolSpike:{volume_ratio:.1f}x=8")
+            else:
+                score_breakdown.append(f"VolSpike:{volume_ratio:.1f}x=0")
+            
+            # ===== RULE #6: Volume Trend (0-10 points) =====
+            vol_trend_up = volumes[-1] > volumes[-2] or volumes[-1] > (sum(volumes[-10:]) / 10)
+            if vol_trend_up:
+                score += 10
+                score_breakdown.append("VolTrend=10")
+            else:
+                score_breakdown.append("VolTrend=0")
+            
+            # ===== RULE #7: Structure Break (0-15 points) =====
+            # Close above/below local range (last 10 candles)
+            local_high = max(highs[-10:])
+            local_low = min(lows[-10:])
+            
+            if opp.direction == 'long' and last_close >= local_high * 0.998:  # Near or above high
+                score += 15
+                score_breakdown.append("StructBreak=15")
+            elif opp.direction == 'short' and last_close <= local_low * 1.002:  # Near or below low
+                score += 15
+                score_breakdown.append("StructBreak=15")
+            elif opp.direction == 'long' and last_close >= local_high * 0.99:
+                score += 8
+                score_breakdown.append("StructBreak=8")
+            elif opp.direction == 'short' and last_close <= local_low * 1.01:
+                score += 8
+                score_breakdown.append("StructBreak=8")
+            else:
+                score_breakdown.append("StructBreak=0")
+            
+            # ===== RULE #8: Wick Check <= 30% (penalty if too long) =====
+            if opp.direction == 'long':
+                upper_wick = last_high - max(last_open, last_close)
+                wick_ratio = upper_wick / candle_range if candle_range > 0 else 0
+            else:
+                lower_wick = min(last_open, last_close) - last_low
+                wick_ratio = lower_wick / candle_range if candle_range > 0 else 0
+            
+            if wick_ratio <= 0.2:
+                score += 10  # Very clean candle
+                score_breakdown.append(f"Wick:{wick_ratio:.0%}=10")
+            elif wick_ratio <= 0.3:
+                score += 5
+                score_breakdown.append(f"Wick:{wick_ratio:.0%}=5")
+            elif wick_ratio > 0.5:
+                score -= 10  # Penalty for rejection wick
+                score_breakdown.append(f"Wick:{wick_ratio:.0%}=-10")
+            else:
+                score_breakdown.append(f"Wick:{wick_ratio:.0%}=0")
+            
+            # ===== RULE #9: RSI Soft Filter (bonus/penalty) =====
+            if opp.direction == 'long':
+                if 30 <= rsi <= 60:
+                    score += 5  # Ideal zone
+                    score_breakdown.append(f"RSI:{rsi:.0f}=+5")
+                elif rsi > 80:
+                    score -= 10  # Too overbought
+                    score_breakdown.append(f"RSI:{rsi:.0f}=-10")
+                elif rsi > 70:
+                    score -= 5
+                    score_breakdown.append(f"RSI:{rsi:.0f}=-5")
+                else:
+                    score_breakdown.append(f"RSI:{rsi:.0f}=0")
+            else:  # SHORT
+                if 40 <= rsi <= 70:
+                    score += 5
+                    score_breakdown.append(f"RSI:{rsi:.0f}=+5")
+                elif rsi < 20:
+                    score -= 10  # Too oversold
+                    score_breakdown.append(f"RSI:{rsi:.0f}=-10")
+                elif rsi < 30:
+                    score -= 5
+                    score_breakdown.append(f"RSI:{rsi:.0f}=-5")
+                else:
+                    score_breakdown.append(f"RSI:{rsi:.0f}=0")
+            
+            # =====================================================
+            # FINAL DECISION based on score
+            # =====================================================
+            # STRICT: >= 70 for normal trades
+            # AGGRESSIVE (breakouts): >= 55 (they already passed breakout detection)
+            
+            min_score = 55 if is_breakout else 65
+            
+            score_str = " | ".join(score_breakdown[:5])  # Limit for readability
+            
+            if score >= min_score:
+                logger.info(f"SCORE OK {opp.symbol}: {score}/100 >= {min_score} | {score_str}")
+                return True, f"Score {score}/100 OK"
+            else:
+                # Find the weakest component
+                lowest = min(score_breakdown, key=lambda x: int(x.split('=')[-1]) if '=' in x else 0)
+                logger.info(f"SCORE LOW {opp.symbol}: {score}/100 < {min_score} | {score_str}")
+                return False, f"Score {score} < {min_score} (weak: {lowest})"
             
         except Exception as e:
             logger.warning(f"CONFIRM {opp.symbol}: Error {e} - allowing trade")
@@ -2255,8 +2391,8 @@ class AutonomousTraderV2:
             if breakouts:
                 top3 = breakouts[:3]
                 rank_str = ", ".join([f"#{i+1} {b.symbol}({b.price_change_24h:+.1f}%)" for i, b in enumerate(top3)])
-                await self._log_to_console(f"🚀 {len(breakouts)} BREAKOUTS | Best: {rank_str}", "SIGNAL")
-                logger.info(f"🏆 TOP BREAKOUT: {breakouts[0].symbol} | Score: {breakouts[0].opportunity_score:.0f} | Move: {breakouts[0].price_change_24h:+.1f}%")
+                await self._log_to_console(f"{len(breakouts)} BREAKOUTS | Best: {rank_str}", "SIGNAL")
+                logger.info(f"TOP BREAKOUT: {breakouts[0].symbol} | Score: {breakouts[0].opportunity_score:.0f} | Move: {breakouts[0].price_change_24h:+.1f}%")
             
         except Exception as e:
             logger.error(f"Breakout detection error: {e}")
@@ -2393,16 +2529,16 @@ class AutonomousTraderV2:
                 )
                 
                 if not should_trade:
-                    logger.info(f"🚫 {trade_type} BLOCKED: {opp.symbol} - {reject_reason}")
+                    logger.info(f"{trade_type} BLOCKED: {opp.symbol} - {reject_reason}")
                     # Shorten reason for console (remove symbol from reason if present)
                     short_reason = reject_reason.replace(f"Breakout {opp.symbol}: ", "").replace(f"{opp.symbol}: ", "")[:35]
-                    await self._log_to_console(f"🚫 {opp.symbol}: {short_reason}", "WARNING", user_id)
+                    await self._log_to_console(f"BLOCKED {opp.symbol}: {short_reason}", "WARNING", user_id)
                     continue
                 
                 # Passed ALL filters - proceed with trade
-                logger.info(f"✅ {trade_type} APPROVED: {opp.symbol} | Score: {opp.opportunity_score:.0f} | Conf: {opp.confidence:.0f}% | Edge: {opp.edge_score:.2f} | All filters OK")
+                logger.info(f"{trade_type} APPROVED: {opp.symbol} | Score: {opp.opportunity_score:.0f} | Conf: {opp.confidence:.0f}% | Edge: {opp.edge_score:.2f} | All filters OK")
                 logger.info(f"{trade_type} TRADE: {opp.symbol} | {opp.price_change_24h:+.1f}% | Direction: {opp.direction}")
-                await self._log_to_console(f"✅ {trade_type} {opp.direction.upper()} {opp.symbol} | Score:{opp.opportunity_score:.0f} | All filters OK", "TRADE", user_id)
+                await self._log_to_console(f"{trade_type} {opp.direction.upper()} {opp.symbol} | Score:{opp.opportunity_score:.0f} | All filters OK", "TRADE", user_id)
                 try:
                     await self._execute_trade(user_id, client, opp, wallet)
                     breakout_trades_opened += 1
@@ -2472,9 +2608,9 @@ class AutonomousTraderV2:
                     # Show ranking with score, edge, confidence
                     opp_str = ", ".join([f"#{i+1} {o.symbol} (Score:{o.opportunity_score:.0f})" for i, o in enumerate(top_opps)])
                     best = top_opps[0]
-                    await self._log_to_console(f"🔍 Scanned {len(opportunities)} | Top: {opp_str}", "SIGNAL")
+                    await self._log_to_console(f"Scanned {len(opportunities)} | Top: {opp_str}", "SIGNAL")
                     # Log the BEST opportunity details
-                    logger.info(f"🏆 BEST OPPORTUNITY: {best.symbol} | Score: {best.opportunity_score:.0f} | Edge: {best.edge_score:.2f} | Conf: {best.confidence:.0f}% | {best.direction.upper()}")
+                    logger.info(f"BEST OPPORTUNITY: {best.symbol} | Score: {best.opportunity_score:.0f} | Edge: {best.edge_score:.2f} | Conf: {best.confidence:.0f}% | {best.direction.upper()}")
             else:
                 logger.debug("No opportunities found in this scan")
                 if should_log_scan:
@@ -2530,8 +2666,8 @@ class AutonomousTraderV2:
                         await self._log_to_console(f"SKIPPED {opp.symbol}: Q-Learning negative ({q_value:.2f})", "WARNING", user_id)
                         continue
                     
-                    logger.info(f"✅ OPENING TRADE: {opp.symbol} | Score: {opp.opportunity_score:.0f} | Edge={opp.edge_score:.2f} | Conf={opp.confidence:.0f}% | All filters passed")
-                    await self._log_to_console(f"✅ {opp.direction.upper()} {opp.symbol} | Score:{opp.opportunity_score:.0f} | All filters OK", "TRADE", user_id)
+                    logger.info(f"OPENING TRADE: {opp.symbol} | Score: {opp.opportunity_score:.0f} | Edge={opp.edge_score:.2f} | Conf={opp.confidence:.0f}% | All filters passed")
+                    await self._log_to_console(f"{opp.direction.upper()} {opp.symbol} | Score:{opp.opportunity_score:.0f} | All filters OK", "TRADE", user_id)
                     await self._execute_trade(user_id, client, opp, wallet)
                     
                     # Track trade timing for rate limiting
@@ -3001,7 +3137,7 @@ class AutonomousTraderV2:
                 logger.info(f"BREAKOUT BLOCKED: {opp.symbol} - Edge {opp.edge_score:.2f} < {breakout_min_edge:.2f} (user: {self.min_edge})")
                 return False, f"Breakout edge too low ({opp.edge_score:.2f} < {breakout_min_edge:.2f})"
             
-                logger.info(f"✅ Breakout {opp.symbol} APPROVED - Conf: {opp.confidence:.0f}%, Edge: {opp.edge_score:.2f} | RSI/Candles/Spread/BTC OK!")
+                logger.info(f"Breakout {opp.symbol} APPROVED - Conf: {opp.confidence:.0f}%, Edge: {opp.edge_score:.2f} | RSI/Candles/Spread/BTC OK!")
             return True, "Breakout: ALL filters passed (RSI, candles, spread, BTC, news)"
         
         # Use adjusted thresholds if provided (based on recent performance)
@@ -3035,7 +3171,7 @@ class AutonomousTraderV2:
             # Boost confidence if news aligns with direction
             if (news_sentiment > 0.3 and opp.direction == 'long') or (news_sentiment < -0.3 and opp.direction == 'short'):
                 opp.confidence = min(100, opp.confidence + 10)
-                logger.debug(f"📰 News supports {opp.symbol} {opp.direction}: {news_reason}")
+                logger.debug(f"News supports {opp.symbol} {opp.direction}: {news_reason}")
                 
         except Exception as e:
             logger.debug(f"News sentiment check skipped: {e}")
@@ -3108,7 +3244,7 @@ class AutonomousTraderV2:
             
             # Log whale support
             if 'supports' in whale_reason.lower():
-                logger.debug(f"🐋 Whale support for {opp.symbol}: {whale_reason}")
+                logger.debug(f"Whale support for {opp.symbol}: {whale_reason}")
         except Exception as e:
             logger.debug(f"Whale check skipped for {opp.symbol}: {e}")
             
@@ -3721,7 +3857,7 @@ class AutonomousTraderV2:
                         if pnl_percent >= -0.05:  # Allow tiny loss due to spread
                             should_exit = True
                             exit_reason = f"Trailing stop (peak: +{position.peak_pnl_percent:.2f}%, dropped {drop_from_peak:.2f}%)"
-                            logger.info(f"📉 TRAILING SELL {position.symbol}: Peak=+{position.peak_pnl_percent:.2f}%, Now={pnl_percent:+.2f}%, Drop={drop_from_peak:.2f}% >= {adaptive_trail}% (adaptive)")
+                            logger.info(f"TRAILING SELL {position.symbol}: Peak=+{position.peak_pnl_percent:.2f}%, Now={pnl_percent:+.2f}%, Drop={drop_from_peak:.2f}% >= {adaptive_trail}% (adaptive)")
                         else:
                             logger.debug(f" {position.symbol}: Trailing triggered but P&L too negative ({pnl_percent:+.2f}%), holding")
                     

@@ -225,7 +225,7 @@ class MarketScanner:
         else:
             # Other modes: Scan ALL tradeable symbols (thoroughness priority)
             # No limit - scan everything for best opportunities
-            logger.info(f"📊 {self.risk_mode.upper()}: Scanning ALL {len(tradeable_symbols)} symbols")
+            logger.info(f"{self.risk_mode.upper()}: Scanning ALL {len(tradeable_symbols)} symbols")
         
         # Step 6: Calculate edge for tradeable symbols (with timeout per symbol)
         for symbol in tradeable_symbols:
@@ -365,7 +365,7 @@ class MarketScanner:
         tradeable = [o for o in opps if o.should_trade]
         
         if tradeable:
-            logger.debug(f"📊 Found {len(tradeable)} tradeable opportunities from cache")
+            logger.debug(f"Found {len(tradeable)} tradeable opportunities from cache")
         return tradeable
         
     def _calculate_opportunity_score(self, edge: EdgeScore, 
@@ -613,7 +613,7 @@ class MarketScanner:
                                     'is_tradfi': True,
                                     'category': category
                                 }
-                                logger.info(f"🏦 Found TradFi symbol: {symbol} ({asset_category}) in {category}")
+                                logger.info(f"Found TradFi symbol: {symbol} ({asset_category}) in {category}")
                                 
                 except Exception as e:
                     logger.debug(f"Error fetching {category} category for TradFi: {e}")
@@ -641,12 +641,12 @@ class MarketScanner:
                             'min_notional': 1,
                             'is_tradfi': True
                         }
-                    logger.info(f"🏦 Added known TradFi symbol: {symbol} ({category})")
+                    logger.info(f"Added known TradFi symbol: {symbol} ({category})")
             
             if self.tradfi_symbols:
-                logger.info(f"🏦 Loaded {len(self.tradfi_symbols)} TradFi symbols: {self.tradfi_symbols}")
+                logger.info(f"Loaded {len(self.tradfi_symbols)} TradFi symbols: {self.tradfi_symbols}")
             else:
-                logger.info("📊 No TradFi symbols found - using crypto pairs only")
+                logger.info("No TradFi symbols found - using crypto pairs only")
             
             # Store in Redis
             if self.tradfi_symbols:

@@ -2133,7 +2133,7 @@ async def save_settings(request: Request, user_id: str = "default"):
             trader.position_sizer.leverage_mode = leverage_mode
         
         logger.info("=" * 50)
-        logger.info(f"⚙️ SETTINGS UPDATED INSTANTLY!")
+        logger.info(f"SETTINGS UPDATED INSTANTLY!")
         logger.info(f"   Mode: {body.get('riskMode')} | Leverage: {leverage_mode}")
         logger.info(f"   TP: {body.get('takeProfitPercent')}% | SL: {body.get('stopLossPercent')}%")
         logger.info(f"   Min Edge: {body.get('minEdge')} | Min Conf: {body.get('minConfidence')}%")
