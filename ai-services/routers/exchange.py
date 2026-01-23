@@ -578,9 +578,16 @@ async def get_balance(user_id: str = "default"):
         await r.close()
         
         total_pnl = float(stats.get('total_pnl', 0))
-        daily_pnl = float(stats.get('daily_pnl', sizer.get('daily_pnl', 0)))
+        # Daily P&L: prefer stats (updated on each trade), fallback to sizer
+        daily_pnl = float(stats.get('daily_pnl', 0))
+        if daily_pnl == 0:
+            daily_pnl = float(sizer.get('daily_pnl', 0))
         weekly_pnl = float(sizer.get('weekly_pnl', 0))
-    except:
+        
+        # Log for debugging
+        logger.debug(f"Balance P&L for {user_id}: daily=${daily_pnl:.2f}, total=${total_pnl:.2f}, date={stats.get('daily_pnl_date', 'N/A')}")
+    except Exception as e:
+        logger.warning(f"Failed to load P&L stats for {user_id}: {e}")
         total_pnl = 0
         daily_pnl = 0
         weekly_pnl = 0

@@ -278,18 +278,19 @@ export default function DashboardPage() {
         setRecentTrades(trades)
         
         // Build P&L history from last 100 trades (oldest to newest)
+        // Convert to EUR for display
         if (trades.length > 0) {
           let runningPnl = 0
           const sortedTrades = [...trades].reverse()
           const history = sortedTrades.map((t: TradeHistory) => {
-            runningPnl += t.pnl
+            runningPnl += t.pnl * USDT_TO_EUR  // Convert to EUR
             return {
               time: new Date(t.closed_time).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
               pnl: runningPnl
             }
           })
           setPnlHistory(history)
-          // Set P&L sum from last 100 trades
+          // Set P&L sum from last 100 trades (in EUR)
           setLast100Pnl(runningPnl)
         }
       }
@@ -485,8 +486,12 @@ export default function DashboardPage() {
 
   const balanceUSDT = wallet?.totalEquityUSDT || wallet?.totalEquity || 0
   const balanceEUR = balanceUSDT * USDT_TO_EUR
-  const dailyPnl = wallet?.dailyPnL || 0
-  const totalPnl = traderStats?.total_pnl || 0
+  // Daily P&L comes from backend in USDT, convert to EUR for display
+  const dailyPnlUSDT = wallet?.dailyPnL || 0
+  const dailyPnl = dailyPnlUSDT * USDT_TO_EUR
+  // Total P&L also in USDT, convert to EUR
+  const totalPnlUSDT = traderStats?.total_pnl || 0
+  const totalPnl = totalPnlUSDT * USDT_TO_EUR
   const isTrading = tradingStatus?.is_autonomous_trading && !tradingStatus?.is_paused
   const winRate = traderStats?.win_rate || 0
 
@@ -994,11 +999,11 @@ export default function DashboardPage() {
               <div className="grid grid-cols-2 gap-3">
                 <div className="p-3 bg-white/[0.02] rounded-lg">
                   <div className="text-[10px] text-gray-500 uppercase mb-1">Best Trade</div>
-                  <div className="text-sm font-semibold text-emerald-400">+€{(traderStats?.best_trade || 0).toFixed(2)}</div>
+                  <div className="text-sm font-semibold text-emerald-400">+€{((traderStats?.best_trade || 0) * USDT_TO_EUR).toFixed(2)}</div>
                 </div>
                 <div className="p-3 bg-white/[0.02] rounded-lg">
                   <div className="text-[10px] text-gray-500 uppercase mb-1">Worst Trade</div>
-                  <div className="text-sm font-semibold text-red-400">€{(traderStats?.worst_trade || 0).toFixed(2)}</div>
+                  <div className="text-sm font-semibold text-red-400">€{((traderStats?.worst_trade || 0) * USDT_TO_EUR).toFixed(2)}</div>
                 </div>
                 <div className="p-3 bg-white/[0.02] rounded-lg">
                   <div className="text-[10px] text-gray-500 uppercase mb-1">Max Drawdown</div>
@@ -1036,24 +1041,27 @@ export default function DashboardPage() {
               {recentTrades.length === 0 ? (
                 <div className="p-6 text-center text-gray-600 text-sm">No recent trades</div>
               ) : (
-                recentTrades.slice(0, 10).map((trade, i) => (
-                  <div key={i} className="px-3 py-2 border-b border-white/5 hover:bg-white/[0.02] flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <div className={`w-6 h-6 rounded flex items-center justify-center ${trade.pnl >= 0 ? 'bg-emerald-500/10' : 'bg-red-500/10'}`}>
-                        {trade.pnl >= 0 ? <CheckCircle className="w-3 h-3 text-emerald-400" /> : <XCircle className="w-3 h-3 text-red-400" />}
+                recentTrades.slice(0, 10).map((trade, i) => {
+                  const pnlEur = trade.pnl * USDT_TO_EUR
+                  return (
+                    <div key={i} className="px-3 py-2 border-b border-white/5 hover:bg-white/[0.02] flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <div className={`w-6 h-6 rounded flex items-center justify-center ${trade.pnl >= 0 ? 'bg-emerald-500/10' : 'bg-red-500/10'}`}>
+                          {trade.pnl >= 0 ? <CheckCircle className="w-3 h-3 text-emerald-400" /> : <XCircle className="w-3 h-3 text-red-400" />}
+                        </div>
+                        <span className="font-medium text-white text-xs">{trade.symbol.replace('USDT', '')}</span>
                       </div>
-                      <span className="font-medium text-white text-xs">{trade.symbol.replace('USDT', '')}</span>
+                      <div className="text-right">
+                        <div className={`font-medium text-xs ${trade.pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                          {pnlEur >= 0 ? '+' : ''}€{pnlEur.toFixed(2)}
+                        </div>
+                        <div className={`text-[9px] ${trade.pnl >= 0 ? 'text-emerald-400/60' : 'text-red-400/60'}`}>
+                          {trade.pnl_percent >= 0 ? '+' : ''}{trade.pnl_percent.toFixed(2)}%
+                        </div>
+                      </div>
                     </div>
-                    <div className="text-right">
-                      <div className={`font-medium text-xs ${trade.pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                        {trade.pnl >= 0 ? '+' : ''}€{trade.pnl.toFixed(2)}
-                      </div>
-                      <div className={`text-[9px] ${trade.pnl >= 0 ? 'text-emerald-400/60' : 'text-red-400/60'}`}>
-                        {trade.pnl_percent >= 0 ? '+' : ''}{trade.pnl_percent.toFixed(2)}%
-                      </div>
-                    </div>
-                  </div>
-                ))
+                  )
+                })
               )}
             </div>
           </div>
