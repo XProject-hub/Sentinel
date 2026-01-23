@@ -1463,6 +1463,38 @@ class AutonomousTraderV2:
                     )
                     await self.learning_engine.update_from_trade(outcome)
                     
+                # CRITICAL: Store trade FIRST before anything else!
+                # This ensures trade is never lost even if subsequent operations fail
+                trade_stored = False
+                try:
+                    await self._store_trade_event(user_id, position.symbol, 'closed', net_pnl_percent, reason, position, pnl_value)
+                    trade_stored = True
+                except Exception as store_err:
+                    logger.error(f"CRITICAL: Failed to store trade {position.symbol}: {store_err}")
+                    # Try emergency backup storage
+                    try:
+                        if self.redis_client:
+                            await self.redis_client.lpush(f'trades:emergency:{user_id}', json.dumps({
+                                'symbol': position.symbol,
+                                'pnl_percent': net_pnl_percent,
+                                'pnl_value': pnl_value,
+                                'reason': reason,
+                                'time': datetime.utcnow().isoformat()
+                            }))
+                            trade_stored = True
+                            logger.warning(f"Trade {position.symbol} saved to emergency backup")
+                    except:
+                        pass
+                
+                # Only set cooldown and remove from tracking AFTER trade is stored
+                if trade_stored:
+                    # ADD COOLDOWN: Prevent reopening this symbol for 60 seconds
+                    self._cooldown_symbols[position.symbol] = datetime.utcnow()
+                    logger.debug(f"{position.symbol} on cooldown for {self.cooldown_seconds}s")
+                else:
+                    # Trade not stored - DON'T set cooldown so it gets logged as external close next cycle
+                    logger.error(f"Trade {position.symbol} NOT stored - will be logged as external close")
+                
                 # Remove from active positions
                 if user_id in self.active_positions:
                     if position.symbol in self.active_positions[user_id]:
@@ -1471,13 +1503,6 @@ class AutonomousTraderV2:
                 # Remove breakout flag from Redis
                 if self.redis_client:
                     await self.redis_client.hdel("positions:breakout", position.symbol)
-                
-                # ADD COOLDOWN: Prevent reopening this symbol for 60 seconds
-                self._cooldown_symbols[position.symbol] = datetime.utcnow()
-                logger.debug(f"{position.symbol} on cooldown for {self.cooldown_seconds}s")
-                        
-                # Store trade for dashboard with NET P&L (per user)
-                await self._store_trade_event(user_id, position.symbol, 'closed', net_pnl_percent, reason, position, pnl_value)
                 
             else:
                 logger.error(f"Failed to close {position.symbol}: {result}")
