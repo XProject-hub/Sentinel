@@ -2085,26 +2085,26 @@ class AutonomousTraderV2:
                 if confidence < self.min_confidence:
                     continue
                 
-                # Create opportunity
+                # Create opportunity (use correct TradingOpportunity fields)
                 opp = TradingOpportunity(
                     symbol=symbol,
                     direction=direction,
                     confidence=confidence,
-                    edge=edge,
-                    entry_price=last_price,
+                    edge_score=edge,  # Correct field name
+                    opportunity_score=edge * confidence,  # Combined score
                     current_price=last_price,
                     price_change_24h=price_change,
                     volume_24h=volume,
                     volatility=volatility,
                     regime='MOMENTUM',
-                    strategy='momentum',
+                    should_trade=True,
                     reasons=[f"Strong momentum {price_change:+.1f}%", f"Volume ${volume/1e6:.1f}M"]
                 )
                 
                 candidates.append(opp)
             
-            # Sort by edge * confidence
-            candidates.sort(key=lambda x: x.edge * x.confidence, reverse=True)
+            # Sort by opportunity_score (edge * confidence)
+            candidates.sort(key=lambda x: x.opportunity_score, reverse=True)
             
             # Validate top candidates through safety filters
             for opp in candidates[:20]:  # Check top 20
@@ -2112,7 +2112,7 @@ class AutonomousTraderV2:
                 
                 if is_valid:
                     opportunities.append(opp)
-                    logger.info(f"MOMENTUM OK: {opp.symbol} {opp.direction.upper()} | Edge: {opp.edge:.1f}% | Conf: {opp.confidence}")
+                    logger.info(f"MOMENTUM OK: {opp.symbol} {opp.direction.upper()} | Edge: {opp.edge_score:.1f}% | Conf: {opp.confidence}")
                     
                     if len(opportunities) >= 5:  # Max 5 candidates
                         break
