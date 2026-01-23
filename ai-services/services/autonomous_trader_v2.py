@@ -2476,6 +2476,14 @@ class AutonomousTraderV2:
             
             # === BREAKOUT DETECTION (if mean reversion didn't find anything) ===
             # This catches big moves that normal filters would reject
+            # Check if breakout trading is enabled for this user
+            user_set = self.user_settings.get(user_id, {})
+            enable_breakout = user_set.get('enable_breakout', False)
+            
+            if not enable_breakout:
+                logger.debug(f"Breakout trading DISABLED for {user_id} - skipping breakout detection")
+                return  # Skip breakout section entirely
+            
             breakouts = await self._find_breakouts(user_id, client, wallet)
             
             # Calculate breakout position limit based on user settings
@@ -4164,6 +4172,9 @@ class AutonomousTraderV2:
             user_set['use_regime_detection'] = str(parsed.get('useRegimeDetection', 'true')).lower() == 'true'
             user_set['use_edge_estimation'] = str(parsed.get('useEdgeEstimation', 'true')).lower() == 'true'
             
+            # Breakout trading toggle (default: OFF for safer trading)
+            user_set['enable_breakout'] = str(parsed.get('enableBreakout', 'false')).lower() == 'true'
+            
             # Kelly multiplier (0.1 to 1.0, default 1.0 = FULL SIZE)
             user_set['kelly_multiplier'] = float(parsed.get('kellyMultiplier', 1.0))
             
@@ -4186,6 +4197,7 @@ class AutonomousTraderV2:
                     'max_exposure_percent': 100,
                     'max_daily_drawdown': 0,   # 0 = OFF
                     'breakout_extra_slots': False,
+                    'enable_breakout': False,  # Breakout trading OFF by default
                     'ai_full_auto': False,
                     'min_confidence': 65,
                     'min_edge': 0.15,

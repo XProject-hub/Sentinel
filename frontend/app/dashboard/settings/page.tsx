@@ -68,6 +68,7 @@ interface BotSettings {
   useQLearning: boolean
   momentumThreshold: number
   breakoutExtraSlots: boolean  // Allow +2 extra positions for breakouts
+  enableBreakout: boolean  // Enable/disable breakout trading
 }
 
 const defaultSettings: BotSettings = {
@@ -99,7 +100,8 @@ const defaultSettings: BotSettings = {
   useEdgeEstimation: true,
   useQLearning: true,
   momentumThreshold: 0,
-  breakoutExtraSlots: false  // OFF by default - user must enable
+  breakoutExtraSlots: false,  // OFF by default - user must enable
+  enableBreakout: false  // Breakout trading OFF by default (safer)
 }
 
 // Strategy presets - PROFESSIONAL PRESETS (from ChatGPT quant analysis)
@@ -897,7 +899,41 @@ export default function SettingsPage() {
                     <p className="text-xs text-gray-500 mt-3">0 = OFF (no daily loss limit). Stops trading after X% daily loss.</p>
                   </div>
 
-                  {/* Breakout Extra Slots */}
+                  {/* Enable Breakout Trading */}
+                  <div className={`p-5 rounded-2xl border transition-all ${
+                    settings.enableBreakout 
+                      ? 'bg-orange-500/10 border-orange-500/30' 
+                      : 'bg-white/[0.02] border-white/5'
+                  }`}>
+                    <div className="flex items-center justify-between">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-1">
+                          <TrendingUp className={`w-4 h-4 ${settings.enableBreakout ? 'text-orange-400' : 'text-gray-500'}`} />
+                          <span className="font-medium text-white">Enable Breakout Trading</span>
+                          {!settings.enableBreakout && (
+                            <span className="px-2 py-0.5 text-[10px] font-medium bg-green-500/20 text-green-400 rounded-full">SAFER</span>
+                          )}
+                        </div>
+                        <p className="text-xs text-gray-500">
+                          Trade coins with massive moves (+10% or more). Higher risk/reward but more volatile.
+                          When OFF, bot only uses regular opportunity scanning (recommended for stable returns).
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => updateSetting('enableBreakout', !settings.enableBreakout)}
+                        className={`relative w-12 h-6 rounded-full transition-colors ml-4 ${
+                          settings.enableBreakout ? 'bg-orange-500' : 'bg-white/10'
+                        }`}
+                      >
+                        <div className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow-lg transition-transform ${
+                          settings.enableBreakout ? 'left-[26px]' : 'left-0.5'
+                        }`} />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Breakout Extra Slots - only show if breakout is enabled */}
+                  {settings.enableBreakout && (
                   <div className={`p-5 rounded-2xl border transition-all ${
                     settings.breakoutExtraSlots 
                       ? 'bg-emerald-500/5 border-emerald-500/20' 
@@ -926,6 +962,7 @@ export default function SettingsPage() {
                       </button>
                     </div>
                   </div>
+                  )}
                 </div>
               </section>
             )}
