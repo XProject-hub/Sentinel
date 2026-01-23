@@ -171,7 +171,7 @@ class AutonomousTraderV2:
         self.rsi_entry_min = 30    # RSI minimum for entry
         self.rsi_entry_max = 60    # RSI maximum for entry
         self.volume_ratio_min = 1.1  # Minimum volume ratio
-        self.spread_max = 0.15     # Maximum spread % (slippage protection)
+        self.spread_max = 0.25     # Maximum spread % (slippage protection)
         self.wick_ratio_max = 0.60 # Maximum wick ratio (rejection candle filter)
         self.distance_from_low_max = 0.30  # Max distance from local low
         self.green_red_ratio_min = 1.3  # Min green/red candle ratio
@@ -522,7 +522,7 @@ class AutonomousTraderV2:
             self.rsi_entry_min = config.get('rsi_min', 30)
             self.rsi_entry_max = config.get('rsi_max', 60)
             self.volume_ratio_min = config.get('volume_ratio_min', 1.0)
-            self.spread_max = config.get('spread_max', 0.15)
+            self.spread_max = config.get('spread_max', 0.25)
             self.wick_ratio_max = config.get('wick_ratio_max', 0.60)
             self.distance_from_low_max = config.get('distance_from_low_max', 0.30)
             self.green_red_ratio_min = config.get('green_red_ratio_min', 1.2)
@@ -1694,9 +1694,10 @@ class AutonomousTraderV2:
                 max_distance = max_distance / 100
             
             # BREAKOUTS: Use much higher threshold since they've already moved significantly
-            # Breakouts can be up to 85% from support (normal trades: 30%)
+            # Breakouts by definition have already moved - allow up to 97% of range
+            # The scoring system already validates candle quality
             if is_breakout:
-                max_distance = 0.85  # Allow breakouts to be 85% up from local low
+                max_distance = 0.97  # Allow breakouts near top/bottom of range
             
             if local_range > 0:
                 if opp.direction == 'long':
@@ -1867,22 +1868,26 @@ class AutonomousTraderV2:
             else:
                 score_breakdown.append(f"CloseLoc:{close_location:.0%}=0")
             
-            # ===== RULE #5: Volume Spike >= 1.5x (0-25 points) =====
+            # ===== RULE #5: Volume Spike (0-25 points) =====
+            # Adjusted for real market conditions - even 0.8x with good candles can work
             avg_volume_20 = sum(volumes[-20:]) / 20 if len(volumes) >= 20 else sum(volumes) / len(volumes)
             volume_ratio = last_volume / avg_volume_20 if avg_volume_20 > 0 else 1
             
             if volume_ratio >= 2.0:
                 score += 25
                 score_breakdown.append(f"VolSpike:{volume_ratio:.1f}x=25")
-            elif volume_ratio >= 1.8:
+            elif volume_ratio >= 1.5:
                 score += 20
                 score_breakdown.append(f"VolSpike:{volume_ratio:.1f}x=20")
-            elif volume_ratio >= 1.5:
+            elif volume_ratio >= 1.2:
                 score += 15
                 score_breakdown.append(f"VolSpike:{volume_ratio:.1f}x=15")
-            elif volume_ratio >= 1.2:
-                score += 8
-                score_breakdown.append(f"VolSpike:{volume_ratio:.1f}x=8")
+            elif volume_ratio >= 0.9:
+                score += 10
+                score_breakdown.append(f"VolSpike:{volume_ratio:.1f}x=10")
+            elif volume_ratio >= 0.7:
+                score += 5
+                score_breakdown.append(f"VolSpike:{volume_ratio:.1f}x=5")
             else:
                 score_breakdown.append(f"VolSpike:{volume_ratio:.1f}x=0")
             
@@ -3109,10 +3114,10 @@ class AutonomousTraderV2:
                 logger.info(f"SAFETY FILTER BLOCKED: {opp.symbol} - {safety_reason}")
                 return False, safety_reason
         
-        # Check basic equity
-        total_equity = float(wallet.get('totalEquity', 0))
+        # Check basic equity (support both snake_case and camelCase)
+        total_equity = float(wallet.get('total_equity', wallet.get('totalEquity', 0)))
         if total_equity < 10:
-            return False, "Insufficient equity"
+            return False, f"Insufficient equity (${total_equity:.2f})"
         
         # Breakouts ALSO need minimum quality thresholds based on USER'S settings
         if is_breakout:
