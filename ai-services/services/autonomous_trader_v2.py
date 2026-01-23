@@ -1017,7 +1017,7 @@ class AutonomousTraderV2:
             # 3. Check existing positions for exit - CRITICAL FOR LOCK_PROFIT!
             positions_list = list(self.active_positions.get(user_id, {}).items())
             if positions_list:
-                logger.info(f"Fast-checking {len(positions_list)} positions (TP={self.take_profit}%, SL={self.emergency_stop_loss}%)")
+                logger.info(f"Fast-checking {len(positions_list)} positions (TP={self.take_profit}%, SL={self.emergency_stop_loss}%, Trail={self.trail_from_peak}%, MinTrail={self.min_profit_to_trail}%)")
                 
                 # BATCH: Get all tickers in ONE API call (5s timeout)
                 try:
@@ -3860,6 +3860,8 @@ class AutonomousTraderV2:
                     
                     # Activate trailing when profit reaches min_profit_to_trail (e.g., 0.3%)
                     if pnl_percent >= self.min_profit_to_trail:
+                        if not position.trailing_active:
+                            logger.info(f"TRAILING ACTIVATED {position.symbol}: P&L={pnl_percent:+.2f}% >= MinTrail={self.min_profit_to_trail}%")
                         position.trailing_active = True
                     
                     # ADAPTIVE TRAIL: Wider when in more profit
@@ -3878,7 +3880,7 @@ class AutonomousTraderV2:
                         if pnl_percent >= -0.05:  # Allow tiny loss due to spread
                             should_exit = True
                             exit_reason = f"Trailing stop (peak: +{position.peak_pnl_percent:.2f}%, dropped {drop_from_peak:.2f}%)"
-                            logger.info(f"TRAILING SELL {position.symbol}: Peak=+{position.peak_pnl_percent:.2f}%, Now={pnl_percent:+.2f}%, Drop={drop_from_peak:.2f}% >= {adaptive_trail}% (adaptive)")
+                            logger.info(f"TRAILING SELL {position.symbol}: Peak=+{position.peak_pnl_percent:.2f}%, Now={pnl_percent:+.2f}%, Drop={drop_from_peak:.2f}% >= Trail={adaptive_trail}% | MinTrail={self.min_profit_to_trail}%")
                         else:
                             logger.debug(f" {position.symbol}: Trailing triggered but P&L too negative ({pnl_percent:+.2f}%), holding")
                     
@@ -4141,7 +4143,7 @@ class AutonomousTraderV2:
             # Max position percent (5-100%)
             user_set['max_position_percent'] = float(parsed.get('maxPositionPercent', 15))
             
-            logger.debug(f"Loaded settings for {user_id}: TP={user_set['take_profit']}%, SL={user_set['stop_loss']}%, Trail={user_set['trailing']}%")
+            logger.debug(f"Loaded settings for {user_id}: TP={user_set['take_profit']}%, SL={user_set['stop_loss']}%, Trail={user_set['trailing']}%, MinTrail={user_set['min_profit_to_trail']}%")
             
         except Exception as e:
             logger.error(f"Failed to load settings for {user_id}: {e}")
