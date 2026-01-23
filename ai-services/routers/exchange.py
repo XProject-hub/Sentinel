@@ -1944,6 +1944,7 @@ async def get_settings(user_id: str = "default"):
         "useSmartExit": False,
         "momentumThreshold": 0.05,
         # Breakout settings
+        "enableBreakout": False,  # Enable/disable breakout trading
         "breakoutExtraSlots": False,  # Allow +2 positions for breakouts
     }
     
@@ -2005,6 +2006,7 @@ async def get_settings(user_id: str = "default"):
                     # Kelly Criterion
                     "kellyMultiplier": float(parsed.get('kellyMultiplier', 0.5)),
                     # Breakout settings
+                    "enableBreakout": parsed.get('enableBreakout', 'false') == 'true',
                     "breakoutExtraSlots": parsed.get('breakoutExtraSlots', 'false') == 'true',
                 }
             }
@@ -2093,6 +2095,7 @@ async def save_settings(request: Request, user_id: str = "default"):
             'kellyMultiplier': str(body.get('kellyMultiplier', 0.5)),
             
             # Breakout settings
+            'enableBreakout': str(body.get('enableBreakout', False)).lower(),
             'breakoutExtraSlots': str(body.get('breakoutExtraSlots', False)).lower(),
         }
         

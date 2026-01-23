@@ -2009,6 +2009,123 @@ class AutonomousTraderV2:
             logger.warning(f"CONFIRM {opp.symbol}: Error {e} - allowing trade")
             return True, f"Confirmation error: {e}"
     
+    async def _find_momentum_opportunities(self, user_id: str, client: BybitV5Client, wallet: Dict) -> List[TradingOpportunity]:
+        """
+        MOMENTUM OPPORTUNITIES - Same as AI Signals display
+        
+        These are the regular momentum-based trades that AI Signals shows.
+        Simple but effective: trade with strong momentum when filters pass.
+        
+        ENTRY CONDITIONS:
+        1. Strong momentum (>0.5% 24h change)
+        2. Good volume (>$1M)
+        3. Low spread (<0.5%)
+        4. Must pass all safety filters (_validate_opportunity)
+        """
+        opportunities = []
+        
+        try:
+            # Get tickers
+            tickers_result = await client.get_tickers()
+            if not tickers_result.get('success'):
+                return opportunities
+            
+            tickers = tickers_result.get('data', {}).get('list', [])
+            
+            # Filter and score opportunities
+            candidates = []
+            for ticker in tickers[:200]:  # Scan top 200
+                symbol = ticker.get('symbol', '')
+                if not symbol.endswith('USDT') or symbol in ['USDCUSDT', 'USDTUSDT', 'DAIUSDT', 'TUSDUSDT']:
+                    continue
+                
+                # Skip if already in position
+                if symbol in self.active_positions.get(user_id, {}):
+                    continue
+                
+                # Skip if on cooldown
+                if symbol in self._cooldown_symbols or symbol in self._failed_order_symbols:
+                    continue
+                
+                price_change = float(ticker.get('price24hPcnt', 0)) * 100
+                volume = float(ticker.get('turnover24h', 0))
+                last_price = float(ticker.get('lastPrice', 0))
+                bid_price = float(ticker.get('bid1Price', 0))
+                ask_price = float(ticker.get('ask1Price', 0))
+                
+                # Basic filters
+                if volume < 1000000 or last_price <= 0:  # Min $1M volume
+                    continue
+                
+                # Calculate spread
+                spread = ((ask_price - bid_price) / last_price * 100) if last_price > 0 else 0
+                if spread > 0.3:  # Strict spread filter for momentum
+                    continue
+                
+                # Determine direction - need strong momentum
+                if price_change > 1.0:
+                    direction = 'long'
+                elif price_change < -1.0:
+                    direction = 'short'
+                else:
+                    continue  # Not enough momentum
+                
+                # Calculate edge
+                volatility = abs(price_change)
+                edge = max(0, volatility * 0.25 - spread * 2)
+                
+                if edge < self.min_edge:
+                    continue
+                
+                # Calculate confidence
+                volume_score = min(50, volume / 10000000 * 50)
+                momentum_score = min(50, abs(price_change) * 8)
+                confidence = int(volume_score + momentum_score)
+                
+                if confidence < self.min_confidence:
+                    continue
+                
+                # Create opportunity
+                opp = TradingOpportunity(
+                    symbol=symbol,
+                    direction=direction,
+                    confidence=confidence,
+                    edge=edge,
+                    entry_price=last_price,
+                    current_price=last_price,
+                    price_change_24h=price_change,
+                    volume_24h=volume,
+                    volatility=volatility,
+                    regime='MOMENTUM',
+                    strategy='momentum',
+                    reasons=[f"Strong momentum {price_change:+.1f}%", f"Volume ${volume/1e6:.1f}M"]
+                )
+                
+                candidates.append(opp)
+            
+            # Sort by edge * confidence
+            candidates.sort(key=lambda x: x.edge * x.confidence, reverse=True)
+            
+            # Validate top candidates through safety filters
+            for opp in candidates[:20]:  # Check top 20
+                is_valid, reason = await self._validate_opportunity(user_id, client, opp, is_breakout=False)
+                
+                if is_valid:
+                    opportunities.append(opp)
+                    logger.info(f"MOMENTUM OK: {opp.symbol} {opp.direction.upper()} | Edge: {opp.edge:.1f}% | Conf: {opp.confidence}")
+                    
+                    if len(opportunities) >= 5:  # Max 5 candidates
+                        break
+                else:
+                    logger.debug(f"MOMENTUM BLOCKED {opp.symbol}: {reason}")
+            
+            logger.info(f"MOMENTUM: Found {len(opportunities)} valid opportunities from {len(candidates)} candidates")
+            
+        except Exception as e:
+            logger.error(f"Error finding momentum opportunities: {e}")
+        
+        return opportunities
+    
     async def _find_mean_reversion_opportunities(self, user_id: str, client: BybitV5Client, wallet: Dict) -> List[TradingOpportunity]:
         """
         MEAN REVERSION STRATEGY v2.0 - Professional Statistical Edge
@@ -2475,15 +2592,50 @@ class AutonomousTraderV2:
                 if mean_rev_opps:
                     return
             
-            # === BREAKOUT DETECTION (if mean reversion didn't find anything) ===
-            # This catches big moves that normal filters would reject
-            # Check if breakout trading is enabled for this user
+            # === MOMENTUM OPPORTUNITIES (AI Signals) ===
+            # These are the regular momentum-based opportunities shown in AI Signals
+            # Always active - this is the main trading source when breakouts are disabled
             user_set = self.user_settings.get(user_id, {})
             enable_breakout = user_set.get('enable_breakout', False)
             
+            momentum_opps = await self._find_momentum_opportunities(user_id, client, wallet)
+            
+            momentum_trades_opened = 0
+            max_momentum_per_cycle = 2
+            
+            for opp in momentum_opps:
+                num_positions = len(self.active_positions.get(user_id, {}))
+                
+                # Check position limit
+                if self.max_open_positions > 0 and num_positions >= self.max_open_positions:
+                    logger.debug(f"MOMENTUM {opp.symbol} skipped - position limit reached")
+                    break
+                
+                if momentum_trades_opened >= max_momentum_per_cycle:
+                    break
+                
+                # Skip if already in position
+                if opp.symbol in self.active_positions.get(user_id, {}):
+                    continue
+                
+                # Skip if on cooldown
+                if opp.symbol in self._cooldown_symbols or opp.symbol in self._failed_order_symbols:
+                    continue
+                
+                logger.info(f"MOMENTUM TRADE: {opp.symbol} {opp.direction.upper()} | Edge: {opp.edge:.1f}% | Conf: {opp.confidence}")
+                await self._log_to_console(f"MOMENTUM {opp.direction.upper()}: {opp.symbol} | Edge {opp.edge:.1f}%", "TRADE", user_id)
+                
+                try:
+                    await self._execute_trade(user_id, client, opp, wallet)
+                    momentum_trades_opened += 1
+                except Exception as e:
+                    logger.error(f"MOMENTUM trade failed: {opp.symbol} - {e}")
+            
+            # === BREAKOUT DETECTION (if enabled) ===
+            # This catches big moves - only runs if breakout trading is enabled
             if not enable_breakout:
                 logger.debug(f"Breakout trading DISABLED for {user_id} - skipping breakout detection")
-                return  # Skip breakout section entirely
+                return  # Done - momentum opportunities already processed
             
             breakouts = await self._find_breakouts(user_id, client, wallet)
             
