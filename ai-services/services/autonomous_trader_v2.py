@@ -1613,13 +1613,13 @@ class AutonomousTraderV2:
                     upper_wick = high_price - max(open_price, close_price)
                     wick_ratio = upper_wick / candle_range
                     if wick_ratio > self.wick_ratio_max:
-                        return False, f"REJECTION: Upper wick {wick_ratio:.0%} > {self.wick_ratio_max:.0%}"
+                        return False, f"Wick rejection {wick_ratio:.0%}"
                 else:
                     # For SHORT: lower wick should be small (not rejected at bottom)
                     lower_wick = min(open_price, close_price) - low_price
                     wick_ratio = lower_wick / candle_range
                     if wick_ratio > self.wick_ratio_max:
-                        return False, f"REJECTION: Lower wick {wick_ratio:.0%} > {self.wick_ratio_max:.0%}"
+                        return False, f"Wick rejection {wick_ratio:.0%}"
             
             # ================================================================
             # FILTER 2: BTC CORRELATION SAFETY
@@ -1638,15 +1638,15 @@ class AutonomousTraderV2:
                             
                             # If BTC required positive and it's negative, block
                             if self.btc_required_positive and btc_change < 0:
-                                return False, f"BTC REQUIRED POSITIVE: BTC is {btc_change:.1f}%"
+                                return False, f"BTC negative {btc_change:.1f}%"
                             
                             # If BTC below threshold, block alt longs
                             if btc_change < self.btc_block_threshold:
-                                return False, f"BTC BLOCK: BTC {btc_change:.1f}% < threshold {self.btc_block_threshold}%"
+                                return False, f"BTC down {btc_change:.1f}%"
                             
                             # If BTC is crashing (>5% down), ALWAYS block regardless of preset
                             if btc_change < -5.0:
-                                return False, f"BTC CRASH: BTC is {btc_change:.1f}% - NO alt longs!"
+                                return False, f"BTC crash {btc_change:.1f}%"
                 except Exception as e:
                     logger.debug(f"BTC correlation check failed: {e}")
             
@@ -1668,7 +1668,7 @@ class AutonomousTraderV2:
                         
                         # Spread above threshold = slippage risk
                         if spread_pct > self.spread_max:
-                            return False, f"SPREAD: {spread_pct:.2f}% > max {self.spread_max}%"
+                            return False, f"Spread {spread_pct:.2f}%"
             except Exception as e:
                 logger.debug(f"Spread check failed: {e}")
             
@@ -1705,16 +1705,14 @@ class AutonomousTraderV2:
                     
                     # If already bounced more than threshold, we're chasing
                     if distance_from_support > max_distance:
-                        filter_type = "BREAKOUT" if is_breakout else "ENTRY QUALITY"
-                        return False, f"{filter_type}: {distance_from_support:.0%} > {max_distance:.0%} - too extended"
+                        return False, f"Chasing {distance_from_support:.0%}"
                 else:
                     # Distance from local high (resistance)
                     distance_from_resistance = (local_high - close_price) / local_range
                     
                     # If already dropped more than threshold, we're chasing the dump
                     if distance_from_resistance > max_distance:
-                        filter_type = "BREAKOUT" if is_breakout else "ENTRY QUALITY"
-                        return False, f"{filter_type}: {distance_from_resistance:.0%} > {max_distance:.0%} - too extended"
+                        return False, f"Chasing {distance_from_resistance:.0%}"
             
             # ================================================================
             # FILTER 5: EXPECTED VALUE CHECK
@@ -1735,7 +1733,7 @@ class AutonomousTraderV2:
             
             # Only block if preset requires positive EV (MICRO preset does)
             if self.require_positive_ev and ev <= 0:
-                return False, f"NEGATIVE EV: {ev:.3f} (Win%={estimated_win_rate:.0%}, TP={potential_win}%, SL={potential_loss}%)"
+                return False, f"Negative EV {ev:.2f}"
             
             # Passed all filters!
             logger.info(f"✅ SAFETY PASSED: {opp.symbol} | Wick OK | BTC OK | Spread OK | Entry quality OK | EV={ev:.3f}")
@@ -1804,14 +1802,14 @@ class AutonomousTraderV2:
                 # Must have: mostly green candles, volume not dying
                 
                 if green_count < 2:
-                    return False, f"Breakout {opp.symbol}: Only {green_count}/5 green candles - momentum weak"
+                    return False, f"Only {green_count}/5 green candles"
                 
                 if not last_candle_green:
-                    return False, f"Breakout {opp.symbol}: Last candle RED - momentum fading"
+                    return False, f"Last candle RED"
                 
                 # RSI shouldn't be extremely overbought (>85 = exhaustion)
                 if opp.direction == 'long' and rsi > 85:
-                    return False, f"Breakout {opp.symbol}: RSI={rsi:.0f} - exhaustion risk"
+                    return False, f"RSI={rsi:.0f} overbought"
                 
                 logger.info(f"CONFIRM BREAKOUT: {opp.symbol} | {green_count}/5 green | RSI={rsi:.0f} | Vol {'UP' if volume_increasing else 'down'}")
                 return True, f"Breakout confirmed: {green_count}/5 green, RSI={rsi:.0f}"
@@ -1821,26 +1819,26 @@ class AutonomousTraderV2:
             
             # DON'T buy if making new lows (falling knife)
             if making_new_lows and opp.direction == 'long':
-                return False, f"{opp.symbol}: Still making new lows - wait for stabilization"
+                return False, f"Making new lows"
             
             # For LONG: Need some green candles (not all red)
             if opp.direction == 'long':
                 if green_count < 2:
-                    return False, f"{opp.symbol}: Only {green_count}/5 green - no buy signal"
+                    return False, f"Only {green_count}/5 green candles"
                 
                 # RSI check - don't buy extreme oversold without confirmation
                 if rsi < 25 and not last_candle_green:
-                    return False, f"{opp.symbol}: RSI={rsi:.0f} oversold but no reversal candle"
+                    return False, f"RSI={rsi:.0f} no reversal"
             
             # For SHORT: Need some red candles
             if opp.direction == 'short':
                 red_count = 5 - green_count
                 if red_count < 2:
-                    return False, f"{opp.symbol}: Only {red_count}/5 red - no sell signal"
+                    return False, f"Only {red_count}/5 red candles"
                 
                 # Don't short extreme overbought without confirmation
                 if rsi > 75 and last_candle_green:
-                    return False, f"{opp.symbol}: RSI={rsi:.0f} overbought but still rising"
+                    return False, f"RSI={rsi:.0f} still rising"
             
             logger.info(f"CONFIRM NORMAL: {opp.symbol} | {green_count}/5 green | RSI={rsi:.0f} | LastGreen={last_candle_green}")
             return True, f"Entry confirmed: {green_count}/5 green, RSI={rsi:.0f}"
@@ -2396,7 +2394,9 @@ class AutonomousTraderV2:
                 
                 if not should_trade:
                     logger.info(f"🚫 {trade_type} BLOCKED: {opp.symbol} - {reject_reason}")
-                    await self._log_to_console(f"{trade_type} BLOCKED: {opp.symbol} - {reject_reason[:40]}", "WARNING", user_id)
+                    # Shorten reason for console (remove symbol from reason if present)
+                    short_reason = reject_reason.replace(f"Breakout {opp.symbol}: ", "").replace(f"{opp.symbol}: ", "")[:35]
+                    await self._log_to_console(f"🚫 {opp.symbol}: {short_reason}", "WARNING", user_id)
                     continue
                 
                 # Passed ALL filters - proceed with trade
