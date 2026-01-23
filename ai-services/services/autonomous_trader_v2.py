@@ -3404,16 +3404,28 @@ class AutonomousTraderV2:
                     logger.warning(f"Insufficient equity for {opp.symbol}: ${total_equity:.2f}")
                     return
                 
-                # Use max_position_percent from settings (default 5%)
-                max_pos_pct = getattr(self, 'max_position_percent', 5)
-                base_position_value = total_equity * (max_pos_pct / 100)
+                # Get USER's settings (not class defaults!)
+                user_settings = self.user_settings.get(user_id, {})
+                max_pos_pct = float(user_settings.get('max_position_percent', 10))  # Default 10%
+                max_positions = int(user_settings.get('max_open_positions', 10))  # maxOpenPositions from UI
+                kelly_mult = float(user_settings.get('kelly_multiplier', 0.5))
+                
+                # Calculate: equity / max_positions = base position
+                # Then apply Kelly multiplier for risk adjustment
+                base_position_value = (total_equity / max_positions) * kelly_mult
+                
+                # Cap at user's max_position_percent
+                max_allowed = total_equity * (max_pos_pct / 100)
+                base_position_value = min(base_position_value, max_allowed)
                 
                 # Apply size multiplier for extreme breakouts
                 size_multiplier = getattr(opp, 'size_multiplier', 1.0)
                 position_value = base_position_value * size_multiplier
                 
-                # Minimum $10 position
-                position_value = max(10, min(position_value, total_equity * 0.2))  # Max 20% per trade
+                # Minimum $10 position, max based on user settings (not hardcoded 20%!)
+                position_value = max(10, position_value)
+                
+                logger.info(f"SIZING: equity=${total_equity:.0f} | max_pos={max_positions} | kelly={kelly_mult}x | pos=${position_value:.0f}")
                 
                 # Determine leverage based on settings
                 leverage_mode = getattr(self, 'leverage_mode', 'auto')
@@ -3427,8 +3439,6 @@ class AutonomousTraderV2:
                         leverage = 5
                 else:
                     leverage = int(leverage_mode.replace('x', ''))
-                
-                logger.info(f" BREAKOUT sizing: ${position_value:.0f} | {leverage}x | Size mult: {size_multiplier:.0%}")
             else:
                 if pos_size.position_value_usdt < 5:
                     logger.debug(f"Position too small for {opp.symbol}")
