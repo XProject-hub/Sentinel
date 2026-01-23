@@ -213,7 +213,8 @@ class EdgeEstimator:
         }
 
     async def calculate_edge(self, symbol: str, direction: str = 'long',
-                            current_price: float = 0.0, volatility: float = 0.0) -> EdgeData:
+                            current_price: float = 0.0, volatility: float = 0.0,
+                            regime: str = 'RANGE') -> EdgeData:
         """
         Calculate edge for a potential trade (alias for estimate_edge with different signature)
         
@@ -222,6 +223,7 @@ class EdgeEstimator:
             direction: 'LONG' or 'SHORT' or 'long' or 'short'
             current_price: Current market price (optional)
             volatility: Current volatility measure (optional)
+            regime: Current market regime (BULL, BEAR, RANGE, etc.)
             
         Returns:
             EdgeData compatible object
@@ -234,7 +236,7 @@ class EdgeEstimator:
             symbol=symbol,
             direction=dir_lower,
             confidence=0.5,
-            regime='RANGE'
+            regime=regime
         )
         
         # Return an object with the expected attributes
