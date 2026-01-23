@@ -1491,18 +1491,20 @@ class AutonomousTraderV2:
                     # ADD COOLDOWN: Prevent reopening this symbol for 60 seconds
                     self._cooldown_symbols[position.symbol] = datetime.utcnow()
                     logger.debug(f"{position.symbol} on cooldown for {self.cooldown_seconds}s")
+                    
+                    # ONLY remove from active positions if trade was stored!
+                    # This ensures _sync_positions can handle it if storage failed
+                    if user_id in self.active_positions:
+                        if position.symbol in self.active_positions[user_id]:
+                            del self.active_positions[user_id][position.symbol]
+                    
+                    # Remove breakout flag from Redis
+                    if self.redis_client:
+                        await self.redis_client.hdel("positions:breakout", position.symbol)
                 else:
-                    # Trade not stored - DON'T set cooldown so it gets logged as external close next cycle
-                    logger.error(f"Trade {position.symbol} NOT stored - will be logged as external close")
-                
-                # Remove from active positions
-                if user_id in self.active_positions:
-                    if position.symbol in self.active_positions[user_id]:
-                        del self.active_positions[user_id][position.symbol]
-                
-                # Remove breakout flag from Redis
-                if self.redis_client:
-                    await self.redis_client.hdel("positions:breakout", position.symbol)
+                    # Trade not stored - DON'T set cooldown, DON'T remove from tracking
+                    # _sync_positions will detect it's gone from exchange and log as external close
+                    logger.error(f"Trade {position.symbol} NOT stored - leaving in tracking for _sync_positions to handle")
                 
             else:
                 logger.error(f"Failed to close {position.symbol}: {result}")
