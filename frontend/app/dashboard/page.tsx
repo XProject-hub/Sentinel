@@ -747,7 +747,7 @@ export default function DashboardPage() {
                   <thead className="sticky top-0 bg-[#060a13] z-10">
                     <tr className="border-b border-white/5">
                       <th className="text-left text-[10px] font-medium text-gray-500 px-3 py-2">PAIR</th>
-                      <th className="text-center text-[10px] font-medium text-gray-500 px-1 py-2" style={{width: '80px'}}>CHART</th>
+                      <th className="text-center text-[10px] font-medium text-gray-500 px-1 py-2" style={{width: '90px'}}>CHART</th>
                       <th className="text-left text-[10px] font-medium text-gray-500 px-3 py-2">SIDE</th>
                       <th className="text-right text-[10px] font-medium text-gray-500 px-3 py-2">SIZE / MARGIN</th>
                       <th className="text-right text-[10px] font-medium text-gray-500 px-3 py-2">ENTRY</th>
@@ -815,23 +815,47 @@ export default function DashboardPage() {
                             </div>
                           </td>
                           {/* Mini Sparkline Chart */}
-                          <td className="px-1 py-1" style={{width: '80px'}}>
-                            {priceCharts[pos.symbol] && priceCharts[pos.symbol].length > 1 ? (
-                              <ResponsiveContainer width={70} height={28}>
-                                <RechartsLineChart data={priceCharts[pos.symbol]}>
-                                  <Line 
-                                    type="monotone" 
-                                    dataKey="close" 
-                                    stroke={finalPnlEUR >= 0 ? '#10b981' : '#ef4444'}
-                                    strokeWidth={1.5}
-                                    dot={false}
-                                    isAnimationActive={false}
+                          <td className="px-1 py-1" style={{width: '90px'}}>
+                            {priceCharts[pos.symbol] && priceCharts[pos.symbol].length > 1 ? (() => {
+                              const chartData = priceCharts[pos.symbol]
+                              const isUp = finalPnlEUR >= 0
+                              const gradientId = `gradient-${pos.symbol.replace(/[^a-zA-Z]/g, '')}`
+                              return (
+                                <div className="relative">
+                                  <ResponsiveContainer width={80} height={32}>
+                                    <AreaChart data={chartData} margin={{top: 2, right: 2, bottom: 2, left: 2}}>
+                                      <defs>
+                                        <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+                                          <stop offset="0%" stopColor={isUp ? '#10b981' : '#ef4444'} stopOpacity={0.4}/>
+                                          <stop offset="100%" stopColor={isUp ? '#10b981' : '#ef4444'} stopOpacity={0.05}/>
+                                        </linearGradient>
+                                      </defs>
+                                      <Area 
+                                        type="monotone" 
+                                        dataKey="close" 
+                                        stroke={isUp ? '#10b981' : '#ef4444'}
+                                        strokeWidth={1.5}
+                                        fill={`url(#${gradientId})`}
+                                        isAnimationActive={false}
+                                      />
+                                    </AreaChart>
+                                  </ResponsiveContainer>
+                                  {/* Glow dot at end */}
+                                  <div 
+                                    className={`absolute right-1 top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full ${isUp ? 'bg-emerald-400' : 'bg-red-400'}`}
+                                    style={{boxShadow: `0 0 6px ${isUp ? '#10b981' : '#ef4444'}`}}
                                   />
-                                </RechartsLineChart>
-                              </ResponsiveContainer>
-                            ) : (
-                              <div className="w-[70px] h-[28px] flex items-center justify-center">
-                                <div className="w-8 h-1 bg-gray-700 rounded animate-pulse"></div>
+                                </div>
+                              )
+                            })() : (
+                              <div className="w-[80px] h-[32px] flex items-center justify-center">
+                                <div className="flex gap-0.5">
+                                  <div className="w-1 h-3 bg-gray-700 rounded animate-pulse" style={{animationDelay: '0ms'}}></div>
+                                  <div className="w-1 h-4 bg-gray-700 rounded animate-pulse" style={{animationDelay: '100ms'}}></div>
+                                  <div className="w-1 h-2 bg-gray-700 rounded animate-pulse" style={{animationDelay: '200ms'}}></div>
+                                  <div className="w-1 h-5 bg-gray-700 rounded animate-pulse" style={{animationDelay: '300ms'}}></div>
+                                  <div className="w-1 h-3 bg-gray-700 rounded animate-pulse" style={{animationDelay: '400ms'}}></div>
+                                </div>
                               </div>
                             )}
                           </td>
