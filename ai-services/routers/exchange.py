@@ -496,13 +496,30 @@ async def get_user_positions(user_id: str, exchange: str = "bybit"):
         for pos in data.get("list", []):
             size = float(pos.get("size", 0))
             if size > 0:
+                mark_price = float(pos.get("markPrice", 0))
+                position_value = float(pos.get("positionValue", 0))
+                if position_value == 0 and mark_price > 0:
+                    position_value = size * mark_price
+                
+                # Gross P&L (without fees)
+                unrealized_pnl_gross = float(pos.get("unrealisedPnl", 0))
+                
+                # Calculate exit fee (taker: 0.055%)
+                estimated_exit_fee = position_value * 0.00055
+                
+                # NET P&L = Gross - Exit Fee
+                estimated_net_pnl = unrealized_pnl_gross - estimated_exit_fee
+                
                 positions.append({
                     "symbol": pos.get("symbol"),
                     "side": pos.get("side"),
                     "size": size,
                     "entryPrice": float(pos.get("avgPrice", 0)),
-                    "markPrice": float(pos.get("markPrice", 0)),
-                    "unrealizedPnl": float(pos.get("unrealisedPnl", 0)),
+                    "markPrice": mark_price,
+                    "positionValue": position_value,
+                    "unrealisedPnl": unrealized_pnl_gross,  # Gross
+                    "estimatedNetPnl": round(estimated_net_pnl, 4),  # NET (after fees)
+                    "estimatedExitFee": round(estimated_exit_fee, 4),
                     "leverage": pos.get("leverage"),
                 })
         

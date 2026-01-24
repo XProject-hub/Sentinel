@@ -1296,7 +1296,7 @@ class AutonomousTraderV2:
                     close_reason = "Closed externally (manual or Bybit SL/TP)"
                     
                     try:
-                        # Get actual closed P&L from Bybit
+                        # Get actual closed P&L from Bybit (includes fees calculation!)
                         client = self.user_clients.get(user_id)
                         if client:
                             pnl_result = await client.get_pnl(symbol=symbol, limit=5)
@@ -1304,15 +1304,23 @@ class AutonomousTraderV2:
                                 # Find the most recent close for this symbol
                                 for pnl_entry in pnl_result["data"]["list"]:
                                     if pnl_entry.get("symbol") == symbol:
-                                        actual_pnl = float(pnl_entry.get("closedPnl", 0))
+                                        # closedPnl does NOT include fees - we must subtract them!
+                                        raw_pnl = float(pnl_entry.get("closedPnl", 0))
+                                        open_fee = float(pnl_entry.get("openFee", 0))
+                                        close_fee = float(pnl_entry.get("closeFee", 0))
+                                        total_fees = open_fee + close_fee
+                                        
+                                        # NET P&L = closedPnl - fees
+                                        actual_pnl = raw_pnl - total_fees
                                         pnl_value = actual_pnl
-                                        # Calculate percentage
+                                        
+                                        # Calculate percentage based on NET P&L
                                         if closed_pos.position_value and closed_pos.position_value > 0:
                                             pnl_percent = (actual_pnl / closed_pos.position_value) * 100
                                         else:
                                             pnl_percent = 0
-                                        close_reason = f"Manual close (actual P&L from Bybit)"
-                                        logger.info(f"Got ACTUAL P&L for {symbol}: ${actual_pnl:.2f} ({pnl_percent:.2f}%)")
+                                        close_reason = f"Manual close (net after ${total_fees:.2f} fees)"
+                                        logger.info(f"Got NET P&L for {symbol}: ${actual_pnl:.2f} ({pnl_percent:.2f}%) | Raw: ${raw_pnl:.2f} - Fees: ${total_fees:.2f}")
                                         break
                         
                         # Fallback to estimation if Bybit API didn't return data
