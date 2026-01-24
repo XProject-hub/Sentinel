@@ -2012,6 +2012,9 @@ async def get_settings(user_id: str = "default"):
         "partialExitPercent": 50,
         "useSmartExit": False,
         "momentumThreshold": 0.05,
+        # Kelly Criterion
+        "kellyEnabled": False,  # OFF = equal sizing per trade
+        "kellyMultiplier": 0.5,
         # Breakout settings
         "enableBreakout": False,  # Enable/disable breakout trading
         "breakoutExtraSlots": False,  # Allow +2 positions for breakouts
@@ -2073,6 +2076,7 @@ async def get_settings(user_id: str = "default"):
                     "useSmartExit": parsed.get('useSmartExit', 'false') == 'true',
                     "momentumThreshold": float(parsed.get('momentumThreshold', defaults['momentumThreshold'])),
                     # Kelly Criterion
+                    "kellyEnabled": parsed.get('kellyEnabled', 'false') == 'true',
                     "kellyMultiplier": float(parsed.get('kellyMultiplier', 0.5)),
                     # Breakout settings
                     "enableBreakout": parsed.get('enableBreakout', 'false') == 'true',
@@ -2161,6 +2165,7 @@ async def save_settings(request: Request, user_id: str = "default"):
             'momentumThreshold': str(body.get('momentumThreshold', 0.05)),
             
             # Kelly Criterion
+            'kellyEnabled': str(body.get('kellyEnabled', False)).lower(),
             'kellyMultiplier': str(body.get('kellyMultiplier', 0.5)),
             
             # Breakout settings

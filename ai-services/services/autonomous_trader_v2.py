@@ -4657,19 +4657,24 @@ class AutonomousTraderV2:
                 user_settings = self.user_settings.get(user_id, {})
                 max_pos_pct = float(user_settings.get('max_position_percent', 100))  # Default 100% (no limit)
                 max_positions = int(user_settings.get('max_open_positions', 10))  # maxOpenPositions from UI
+                kelly_enabled = bool(user_settings.get('kelly_enabled', False))  # Kelly ON/OFF toggle
                 kelly_mult = float(user_settings.get('kelly_multiplier', 1.0))  # Default 1.0 = FULL SIZE
                 
                 # SIMPLE FORMULA: equity / max_positions
                 base_per_position = total_equity / max_positions
                 
                 # ═══════════════════════════════════════════════════════════════
-                # IMPROVED KELLY SIZING - Use master detector's calculated Kelly
+                # POSITION SIZING - Kelly or Equal
                 # ═══════════════════════════════════════════════════════════════
                 calculated_kelly = getattr(opp, 'calculated_kelly', 0.0)
                 master_analysis = getattr(opp, 'master_analysis', None)
                 
-                if master_analysis and calculated_kelly > 0:
-                    # Use master detector's Kelly fraction (already fractional Kelly)
+                if not kelly_enabled:
+                    # KELLY OFF = EQUAL SIZING (simple: equity / max_positions)
+                    position_value = base_per_position
+                    logger.info(f"EQUAL SIZING [{user_id[:8]}]: ${total_equity:.0f} / {max_positions} = ${position_value:.0f}/pos (Kelly OFF)")
+                elif master_analysis and calculated_kelly > 0:
+                    # KELLY ON with master detector's calculated Kelly
                     # Scale by user's kelly_mult preference
                     effective_kelly = calculated_kelly * kelly_mult
                     position_value = base_per_position * (1 + effective_kelly * 4)  # Kelly can boost up to 2x
@@ -5489,7 +5494,10 @@ class AutonomousTraderV2:
             # Breakout trading toggle (default: OFF for safer trading)
             user_set['enable_breakout'] = str(parsed.get('enableBreakout', 'false')).lower() == 'true'
             
-            # Kelly multiplier (0.1 to 1.0, default 1.0 = FULL SIZE)
+            # Kelly Criterion settings
+            # kellyEnabled: when OFF, use equal sizing (no Kelly adjustment)
+            user_set['kelly_enabled'] = str(parsed.get('kellyEnabled', 'false')).lower() == 'true'
+            # Kelly multiplier (0.1 to 1.0, default 1.0 = FULL SIZE) - only used if kelly_enabled
             user_set['kelly_multiplier'] = float(parsed.get('kellyMultiplier', 1.0))
             
             # Max position percent (5-100%)
