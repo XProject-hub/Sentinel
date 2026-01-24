@@ -1290,25 +1290,48 @@ class AutonomousTraderV2:
                     # Get position info before deleting
                     closed_pos = self.active_positions[user_id][symbol]
                     
-                    # Try to estimate P&L from last known data
-                    estimated_pnl = 0.0
+                    # Try to get ACTUAL P&L from Bybit closed PnL API
+                    actual_pnl = 0.0
                     pnl_value = 0.0
-                    close_reason = "Closed externally (Bybit SL/TP or manual)"
+                    close_reason = "Closed externally (manual or Bybit SL/TP)"
                     
-                    # Check if we can get last price
                     try:
-                        if closed_pos.peak_pnl_percent and closed_pos.peak_pnl_percent > 0.5:
-                            # Likely hit trailing stop or take profit
-                            estimated_pnl = closed_pos.peak_pnl_percent * 0.7  # Estimate
-                            close_reason = f"External close (was +{closed_pos.peak_pnl_percent:.1f}% peak)"
-                        elif closed_pos.entry_price and closed_pos.position_value:
-                            # Estimate based on current SL setting
-                            estimated_pnl = -self.emergency_stop_loss  # Assume SL hit
-                            close_reason = "External close (likely SL triggered on Bybit)"
+                        # Get actual closed P&L from Bybit
+                        client = self.user_clients.get(user_id)
+                        if client:
+                            pnl_result = await client.get_pnl(symbol=symbol, limit=5)
+                            if pnl_result.get("success") and pnl_result.get("data", {}).get("list"):
+                                # Find the most recent close for this symbol
+                                for pnl_entry in pnl_result["data"]["list"]:
+                                    if pnl_entry.get("symbol") == symbol:
+                                        actual_pnl = float(pnl_entry.get("closedPnl", 0))
+                                        pnl_value = actual_pnl
+                                        # Calculate percentage
+                                        if closed_pos.position_value and closed_pos.position_value > 0:
+                                            pnl_percent = (actual_pnl / closed_pos.position_value) * 100
+                                        else:
+                                            pnl_percent = 0
+                                        close_reason = f"Manual close (actual P&L from Bybit)"
+                                        logger.info(f"Got ACTUAL P&L for {symbol}: ${actual_pnl:.2f} ({pnl_percent:.2f}%)")
+                                        break
                         
-                        pnl_value = closed_pos.position_value * (estimated_pnl / 100) if closed_pos.position_value else 0
-                    except:
-                        pass
+                        # Fallback to estimation if Bybit API didn't return data
+                        if actual_pnl == 0 and closed_pos.peak_pnl_percent:
+                            if closed_pos.peak_pnl_percent > 0.3:
+                                # Use peak as estimate
+                                pnl_percent = closed_pos.peak_pnl_percent * 0.8
+                                pnl_value = closed_pos.position_value * (pnl_percent / 100) if closed_pos.position_value else 0
+                                close_reason = f"External close (peak was +{closed_pos.peak_pnl_percent:.1f}%)"
+                            else:
+                                # Small or no peak - use last known P&L or zero
+                                pnl_percent = 0
+                                pnl_value = 0
+                                close_reason = "External close (P&L unknown)"
+                    except Exception as e:
+                        logger.warning(f"Could not get actual P&L for {symbol}: {e}")
+                        pnl_percent = 0
+                        pnl_value = 0
+                        close_reason = "External close (P&L fetch failed)"
                     
                     # Delete from active positions
                     del self.active_positions[user_id][symbol]
@@ -1318,14 +1341,14 @@ class AutonomousTraderV2:
                     
                     # LOG TO CONSOLE so user sees it on dashboard!
                     await self._log_to_console(
-                        f"CLOSED {symbol}: {estimated_pnl:+.2f}% (${pnl_value:+.2f}) | {close_reason}",
+                        f"CLOSED {symbol}: {pnl_percent:+.2f}% (${pnl_value:+.2f}) | {close_reason}",
                         "TRADE",
                         user_id
                     )
                     
                     # STORE in trades:completed so it shows in Recent Trades!
                     await self._store_trade_event(
-                        user_id, symbol, 'closed', estimated_pnl, close_reason, closed_pos, pnl_value
+                        user_id, symbol, 'closed', pnl_percent, close_reason, closed_pos, pnl_value
                     )
                     
                     # Update user stats (approximate)
@@ -1336,7 +1359,7 @@ class AutonomousTraderV2:
                     user_stats['total_pnl'] += pnl_value
                     await self._save_user_stats(user_id)
                     
-                    logger.info(f"Position {symbol} closed EXTERNALLY | Est P&L: {estimated_pnl:+.2f}% (${pnl_value:+.2f}) | {close_reason}")
+                    logger.info(f"Position {symbol} closed EXTERNALLY | P&L: {pnl_percent:+.2f}% (${pnl_value:+.2f}) | {close_reason}")
         
         # IMPORTANT: Sync position sizer with exchange to remove any stale positions
         # This ensures position_sizer tracks THIS USER's positions correctly (PER USER!)
