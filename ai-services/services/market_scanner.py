@@ -45,7 +45,7 @@ class TradingOpportunity:
     
     # Regime
     regime: str = 'unknown'
-    regime_action: str = 'avoid'
+    regime_action: str = 'HOLD'  # Default to HOLD, not avoid - allow trading by default
     
     # Price data
     current_price: float = 0.0
@@ -539,7 +539,7 @@ class MarketScanner:
                 if isinstance(result, Exception):
                     regimes[symbol] = {
                         'regime': 'unknown',
-                        'action': 'avoid',
+                        'action': 'HOLD',  # Default to HOLD on error, not avoid
                         'volatility': 0,
                         'liquidity': 0
                     }
