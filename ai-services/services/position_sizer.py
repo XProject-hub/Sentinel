@@ -293,11 +293,16 @@ class PositionSizer:
                 symbol, "No positive edge", wallet_balance
             )
             
-        # 6. Check regime
+        # 6. Check regime - BUT allow excellent R:R trades through!
         if regime_action == 'avoid':
-            return self._blocked_position(
-                symbol, "Regime recommends avoiding trades", wallet_balance
-            )
+            # OVERRIDE: If R:R is excellent (>= 2.5:1), allow the trade anyway
+            # The math works in our favor even in bad regimes
+            if risk_reward >= 2.5 and edge_score > 0:
+                logger.info(f"[{user_id}] REGIME OVERRIDE: {symbol} - R:R {risk_reward:.1f}:1 allows trade despite regime")
+            else:
+                return self._blocked_position(
+                    symbol, "Regime recommends avoiding trades", wallet_balance
+                )
             
         # === Calculate Base Position Size ===
         

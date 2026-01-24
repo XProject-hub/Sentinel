@@ -2426,10 +2426,22 @@ class AutonomousTraderV2:
             is_bounce_trade = getattr(opp, 'is_bounce_trade', False)
             is_early_entry = abs(opp.price_change_24h) < 10 if is_breakout else False
             
-            # BOUNCE TRADES: SKIP chasing check - they're at the bottom by design!
-            if is_bounce_trade:
-                logger.debug(f"{opp.symbol}: Bounce trade - skipping chasing filter")
-                # No chasing check for bounces - they're contrarian
+            # Check for excellent R:R from master detector - skip chasing filter!
+            master_analysis = getattr(opp, 'master_analysis', None)
+            has_excellent_rr = False
+            if master_analysis:
+                rr = master_analysis.get('risk_reward_ratio', 0)
+                ev = master_analysis.get('expected_value', 0)
+                if rr >= 2.5 and ev > 0:
+                    has_excellent_rr = True
+            
+            # BOUNCE TRADES or EXCELLENT R:R: SKIP chasing check!
+            if is_bounce_trade or has_excellent_rr:
+                if has_excellent_rr:
+                    logger.debug(f"{opp.symbol}: Excellent R:R {rr:.1f}:1 - skipping chasing filter")
+                else:
+                    logger.debug(f"{opp.symbol}: Bounce trade - skipping chasing filter")
+                # No chasing check for bounces or excellent R:R - they're worth the risk!
                 pass
             elif is_breakout:
                 # EARLY ENTRIES (+5% to +10%): More lenient - allow up to 90%
