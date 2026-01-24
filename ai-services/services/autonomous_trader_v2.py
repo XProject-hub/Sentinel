@@ -3545,8 +3545,8 @@ class AutonomousTraderV2:
                 if opp.symbol in self._cooldown_symbols or opp.symbol in self._failed_order_symbols:
                     continue
                 
-                logger.info(f"MOMENTUM TRADE: {opp.symbol} {opp.direction.upper()} | Edge: {opp.edge:.1f}% | Conf: {opp.confidence}")
-                await self._log_to_console(f"MOMENTUM {opp.direction.upper()}: {opp.symbol} | Edge {opp.edge:.1f}%", "TRADE", user_id)
+                logger.info(f"MOMENTUM TRADE: {opp.symbol} {opp.direction.upper()} | Edge: {opp.edge_score:.1f}% | Conf: {opp.confidence}")
+                await self._log_to_console(f"MOMENTUM {opp.direction.upper()}: {opp.symbol} | Edge {opp.edge_score:.1f}%", "TRADE", user_id)
                 
                 try:
                     await self._execute_trade(user_id, client, opp, wallet)
@@ -4455,8 +4455,9 @@ class AutonomousTraderV2:
             if master:
                 rr = master.get('risk_reward_ratio', 0)
                 ev = master.get('expected_value', 0)
-                # OVERRIDE: Allow trades with R:R >= 3:1 and positive EV even in bad regime
-                if rr >= 3.0 and ev > 0:
+                # OVERRIDE: Allow trades with R:R >= 2.5:1 and positive EV even in bad regime
+                # (matches BOUNCE OVERRIDE threshold in _confirm_entry)
+                if rr >= 2.5 and ev > 0:
                     logger.info(f"REGIME OVERRIDE: {opp.symbol} - Excellent R:R {rr:.1f}:1 allows trade despite regime")
                 else:
                     self.stats['trades_rejected_regime'] += 1
