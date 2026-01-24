@@ -205,6 +205,15 @@ class AutonomousTraderV2:
         self.momentum_threshold = 0.02  # Minimum momentum % required
         self._ticker_momentum = {}  # Cache for fast momentum checks
         
+        # ═══════════════════════════════════════════════════════════════
+        # SMART STRATEGY FLAGS - New professional trading mode
+        # ═══════════════════════════════════════════════════════════════
+        self.use_smart_trailing = True   # Use percentage-based trailing (NEW!)
+        self.use_master_detector = True  # Use full master detector analysis
+        self.require_positive_rr = True  # Require R:R > 1.0 to enter
+        self.require_positive_ev = False # Require positive expected value
+        self.min_master_score = 45       # Minimum score from master detector
+        
         # Time stop (MICRO PROFIT mode)
         self.time_stop_minutes = 4  # Close after 4 minutes
         self.time_stop_min_pnl = 0.15  # Only if PnL < +0.15%
@@ -367,6 +376,11 @@ class AutonomousTraderV2:
                 'min_confidence': 58,
                 'min_models_agree': 2,
                 
+                # SMART MODE - OFF for scalp (need tight trailing)
+                'use_smart_exit': False,
+                'use_master_detector': True,
+                'require_positive_rr': False,  # Scalp doesn't need R:R check
+                
                 'use_mean_reversion': False,
                 'regime_required': ['RANGE', 'LOW_VOLATILITY'],
                 'winrate_expected': '65-75%',
@@ -400,6 +414,11 @@ class AutonomousTraderV2:
                 'min_models_agree': 2,
                 'require_positive_ev': True,
                 
+                # SMART MODE - Mixed for micro
+                'use_smart_exit': True,   # Use smart trailing
+                'use_master_detector': True,
+                'require_positive_rr': True,  # Require positive R:R
+                
                 'use_mean_reversion': True,
                 'regime_required': ['RANGE', 'CHOPPY'],
                 'winrate_expected': '70-80%',
@@ -432,6 +451,12 @@ class AutonomousTraderV2:
                 'min_confidence': 72,
                 'min_models_agree': 3,  # ALL models must agree
                 'require_positive_sentiment': True,
+                
+                # SMART MODE - FULL ON for swing (let winners run!)
+                'use_smart_exit': True,
+                'use_master_detector': True,
+                'require_positive_rr': True,
+                'require_positive_ev': True,
                 
                 'use_mean_reversion': False,
                 'regime_required': ['STABLE_TREND', 'RANGE_EXPANSION'],
@@ -501,6 +526,59 @@ class AutonomousTraderV2:
                 'min_models_agree': 2,
                 'use_mean_reversion': True,
                 'description': 'Same as MICRO - statistical edge'
+            },
+            
+            # ═══════════════════════════════════════════════════════════════
+            # SMART PRESET - NEW! Uses R:R, EV, Smart Trailing
+            # ═══════════════════════════════════════════════════════════════
+            # This is the PROFESSIONAL preset that uses all new features:
+            # - R:R check before entry (must be > 1.0)
+            # - Expected Value calculation (must be positive)
+            # - Smart trailing (lets winners run)
+            # - EMA trend detection
+            # - RSI divergence detection
+            # 
+            # PHILOSOPHY: Fewer trades, higher quality = more profit!
+            # User said: "10 positions losing is worse than 3 winning"
+            'smart': {
+                # EXIT - Using SMART trailing (percentage of profit, not fixed)
+                'stop_loss': 1.2,          # 1.2% stop loss - give room to breathe
+                'take_profit': 3.5,        # 3.5% take profit target (R:R = ~2.9:1)
+                'trailing': 0.40,          # 40% of profit as trail (smart mode)
+                'min_trail': 0.70,         # Start trailing at 0.7% profit
+                'max_trade_minutes': 90,   # Give trades time to develop
+                
+                # ENTRY THRESHOLDS - STRICT! Quality over quantity
+                'momentum_min': 0.04,      # Higher momentum required
+                'momentum_max': 0.30,
+                'rsi_min': 25,
+                'rsi_max': 72,             # Avoid overbought
+                'volume_ratio_min': 1.3,   # Need volume confirmation
+                'spread_max': 0.18,        # Tighter spread = less slippage
+                'wick_ratio_max': 0.50,    # Stricter wick filter
+                'distance_from_low_max': 0.35,  # Better entry points
+                'green_red_ratio_min': 1.4,  # Need candle confirmation
+                'btc_correlation_check': True,
+                'btc_block_threshold': -2.5,  # Block if BTC dumping
+                
+                # AI SCORE - HIGH CONVICTION ONLY
+                'min_confidence': 70,      # HIGHER! Was 60
+                'min_edge': 0.25,          # HIGHER! Was using default 0.15
+                'min_models_agree': 2,
+                'require_positive_ev': True,  # CRITICAL: Must have positive EV
+                
+                # POSITION LIMITS - FEWER BUT BETTER
+                'max_positions': 6,        # Only 6 positions max!
+                
+                # SMART MODE FLAGS
+                'use_smart_exit': True,      # Use new smart trailing
+                'use_master_detector': True, # Use full master detector
+                'require_positive_rr': True, # Require R:R > 1.0
+                'min_master_score': 55,      # NEW: Minimum master detector score
+                'use_mean_reversion': False,
+                'regime_required': [],
+                'winrate_expected': '60-70%',
+                'description': 'SMART: Fewer trades, higher quality - PROFIT FOCUSED'
             }
         }
         
@@ -513,7 +591,8 @@ class AutonomousTraderV2:
             'conservative': 'conservative', 'safe': 'conservative',
             'balanced': 'balanced', 'normal': 'balanced',
             'aggressive': 'aggressive', 'risky': 'aggressive',
-            'meanreversion': 'mean_reversion', 'mean_reversion': 'mean_reversion'
+            'meanreversion': 'mean_reversion', 'mean_reversion': 'mean_reversion',
+            'smart': 'smart', 'professional': 'smart', 'pro': 'smart'
         }
         
         actual_preset = preset_map.get(preset_lower, 'micro')  # Default to MICRO (best)
@@ -550,15 +629,30 @@ class AutonomousTraderV2:
             self.require_positive_ev = config.get('require_positive_ev', False)
             self.require_positive_sentiment = config.get('require_positive_sentiment', False)
             
+            # EDGE requirement (CRITICAL for quality trades!)
+            if 'min_edge' in config:
+                self.min_edge = config['min_edge']
+            
+            # Position limit from preset (SMART uses fewer positions)
+            if 'max_positions' in config:
+                self.max_open_positions = config['max_positions']
+            
             # Mean reversion mode
             self.use_mean_reversion = config.get('use_mean_reversion', False)
             self.regime_required = config.get('regime_required', [])
             
+            # SMART mode flags
+            self.use_smart_trailing = config.get('use_smart_exit', True)  # Default ON
+            self.use_master_detector = config.get('use_master_detector', True)  # Default ON
+            self.require_positive_rr = config.get('require_positive_rr', True)  # Default ON
+            self.min_master_score = config.get('min_master_score', 45)  # NEW: Min score from master detector
+            
             logger.info(f"PRESET '{actual_preset.upper()}' applied:")
             logger.info(f"  EXIT: SL={self.emergency_stop_loss}%, TP={self.take_profit}%, Trail={self.trail_from_peak}%")
             logger.info(f"  ENTRY: Momentum={self.momentum_min}-{self.momentum_max}%, RSI={self.rsi_entry_min}-{self.rsi_entry_max}")
-            logger.info(f"  AI: MinConf={self.min_confidence}%, ModelsAgree={self.min_models_agree}")
-            logger.info(f"  Expected winrate: {config.get('winrate_expected', 'N/A')}")
+            logger.info(f"  AI: MinConf={self.min_confidence}%, MinEdge={self.min_edge}, ModelsAgree={self.min_models_agree}")
+            logger.info(f"  SMART: Trailing={self.use_smart_trailing}, R:R Check={self.require_positive_rr}, +EV={self.require_positive_ev}, MinScore={self.min_master_score}")
+            logger.info(f"  LIMITS: MaxPositions={self.max_open_positions} | Expected winrate: {config.get('winrate_expected', 'N/A')}")
         else:
             logger.warning(f"Unknown strategy preset '{preset}', using MICRO")
             self._apply_strategy_preset('micro')
@@ -999,7 +1093,14 @@ class AutonomousTraderV2:
             self.use_max_trade_time = user_set.get('use_max_trade_time', True)
             self.active_strategy_name = user_set.get('strategy_preset', 'micro').upper()
             
-            # 0.5 AI FULL AUTO: Let AI select strategy based on market conditions
+            # ════════════════════════════════════════════════════════════════
+            # CRITICAL: Apply strategy preset to get min_edge, max_positions, etc!
+            # Without this, SMART preset's stricter rules won't be applied!
+            # ════════════════════════════════════════════════════════════════
+            selected_preset = user_set.get('strategy_preset', 'micro').lower()
+            self._apply_strategy_preset(selected_preset)
+            
+            # 0.5 AI FULL AUTO: Let AI override with market-based strategy
             if self.ai_full_auto:
                 try:
                     await self._auto_select_strategy(client)
@@ -1618,6 +1719,551 @@ class AutonomousTraderV2:
         rsi = 100 - (100 / (1 + rs))
         return rsi
     
+    def _calculate_ema(self, closes: List[float], period: int) -> float:
+        """Calculate Exponential Moving Average"""
+        if len(closes) < period:
+            return closes[-1] if closes else 0
+        
+        multiplier = 2 / (period + 1)
+        ema = closes[0]
+        for price in closes[1:]:
+            ema = (price - ema) * multiplier + ema
+        return ema
+    
+    def _calculate_atr(self, highs: List[float], lows: List[float], closes: List[float], period: int = 14) -> float:
+        """Calculate Average True Range for volatility measurement"""
+        if len(closes) < period + 1:
+            return 0
+        
+        true_ranges = []
+        for i in range(1, len(closes)):
+            high_low = highs[i] - lows[i]
+            high_close = abs(highs[i] - closes[i-1])
+            low_close = abs(lows[i] - closes[i-1])
+            true_ranges.append(max(high_low, high_close, low_close))
+        
+        return sum(true_ranges[-period:]) / period if true_ranges else 0
+    
+    def _detect_divergence(self, prices: List[float], rsi_values: List[float]) -> Tuple[str, float]:
+        """
+        Detect RSI divergence - POWERFUL reversal signal
+        
+        Bullish divergence: Price makes lower low, RSI makes higher low
+        Bearish divergence: Price makes higher high, RSI makes lower high
+        
+        Returns: (divergence_type, strength)
+        """
+        if len(prices) < 10 or len(rsi_values) < 10:
+            return 'none', 0
+        
+        # Find recent swing points
+        price_recent = prices[-5:]
+        price_prev = prices[-10:-5]
+        rsi_recent = rsi_values[-5:]
+        rsi_prev = rsi_values[-10:-5]
+        
+        recent_price_low = min(price_recent)
+        prev_price_low = min(price_prev)
+        recent_rsi_low = min(rsi_recent)
+        prev_rsi_low = min(rsi_prev)
+        
+        recent_price_high = max(price_recent)
+        prev_price_high = max(price_prev)
+        recent_rsi_high = max(rsi_recent)
+        prev_rsi_high = max(rsi_prev)
+        
+        # Bullish divergence: price lower low, RSI higher low
+        if recent_price_low < prev_price_low * 0.995 and recent_rsi_low > prev_rsi_low + 3:
+            strength = (recent_rsi_low - prev_rsi_low) / 10  # Normalize
+            return 'bullish', min(1.0, strength)
+        
+        # Bearish divergence: price higher high, RSI lower high  
+        if recent_price_high > prev_price_high * 1.005 and recent_rsi_high < prev_rsi_high - 3:
+            strength = (prev_rsi_high - recent_rsi_high) / 10
+            return 'bearish', min(1.0, strength)
+        
+        return 'none', 0
+    
+    async def _master_entry_detector(self, symbol: str, direction: str, 
+                                     client: BybitV5Client, price_change_24h: float = 0) -> Dict:
+        """
+        ═══════════════════════════════════════════════════════════════════════
+        MASTER ENTRY DETECTOR v4.0 - PROFESSIONAL HEDGE FUND QUALITY
+        ═══════════════════════════════════════════════════════════════════════
+        
+        This is THE ULTIMATE entry detection system that combines:
+        
+        1. MULTI-TIMEFRAME CONFLUENCE (1m, 5m, 15m alignment)
+        2. TREND DETECTION (EMA crossovers, price structure)
+        3. MOMENTUM SCORING (RSI, MACD concept, volume)
+        4. SUPPORT/RESISTANCE (key levels detection)
+        5. VOLUME PROFILE (accumulation vs distribution)
+        6. DIVERGENCE DETECTION (RSI divergence = reversal signal)
+        7. PROPER KELLY EDGE CALCULATION
+        
+        Returns comprehensive analysis dict with:
+        - should_enter: bool
+        - direction: 'long' or 'short'
+        - confidence: 0-100
+        - edge: float (expected value)
+        - kelly_fraction: float (optimal bet size)
+        - entry_type: 'trend', 'reversal', 'breakout', 'bounce'
+        - reasons: List[str]
+        - warnings: List[str]
+        """
+        result = {
+            'should_enter': False,
+            'direction': direction,
+            'confidence': 0,
+            'edge': 0,
+            'kelly_fraction': 0,
+            'entry_type': 'unknown',
+            'score': 0,
+            'trend_score': 0,
+            'momentum_score': 0,
+            'volume_score': 0,
+            'structure_score': 0,
+            'reasons': [],
+            'warnings': [],
+            'rsi': 50,
+            'ema_fast': 0,
+            'ema_slow': 0,
+            'atr': 0,
+            'volume_ratio': 1.0,
+            'position_in_range': 0.5,
+        }
+        
+        try:
+            # ═══════════════════════════════════════════════════════════════
+            # STEP 1: GATHER MULTI-TIMEFRAME DATA
+            # ═══════════════════════════════════════════════════════════════
+            
+            # Get 5-minute klines (primary timeframe)
+            klines_5m = await client.get_klines(symbol, interval='5', limit=50)
+            if not klines_5m.get('success') or not klines_5m.get('data', {}).get('list'):
+                result['warnings'].append("No 5m data available")
+                return result
+            
+            kline_list_5m = klines_5m['data']['list']
+            if len(kline_list_5m) < 20:
+                result['warnings'].append("Insufficient 5m data")
+                return result
+            
+            # Parse 5m data (chronological order)
+            closes_5m = [float(k[4]) for k in reversed(kline_list_5m)]
+            opens_5m = [float(k[1]) for k in reversed(kline_list_5m)]
+            highs_5m = [float(k[2]) for k in reversed(kline_list_5m)]
+            lows_5m = [float(k[3]) for k in reversed(kline_list_5m)]
+            volumes_5m = [float(k[5]) for k in reversed(kline_list_5m)]
+            
+            current_price = closes_5m[-1]
+            
+            # ═══════════════════════════════════════════════════════════════
+            # STEP 2: CALCULATE TECHNICAL INDICATORS
+            # ═══════════════════════════════════════════════════════════════
+            
+            # RSI (14 period)
+            rsi = self._calculate_rsi(closes_5m, period=14)
+            result['rsi'] = rsi
+            
+            # EMAs for trend
+            ema_9 = self._calculate_ema(closes_5m, 9)
+            ema_21 = self._calculate_ema(closes_5m, 21)
+            ema_50 = self._calculate_ema(closes_5m[-50:] if len(closes_5m) >= 50 else closes_5m, 50)
+            result['ema_fast'] = ema_9
+            result['ema_slow'] = ema_21
+            
+            # ATR for volatility
+            atr = self._calculate_atr(highs_5m, lows_5m, closes_5m, 14)
+            atr_pct = (atr / current_price * 100) if current_price > 0 else 0
+            result['atr'] = atr_pct
+            
+            # Volume analysis
+            avg_volume = sum(volumes_5m[-20:]) / 20 if len(volumes_5m) >= 20 else sum(volumes_5m) / len(volumes_5m)
+            recent_volume = sum(volumes_5m[-3:]) / 3
+            volume_ratio = recent_volume / avg_volume if avg_volume > 0 else 1
+            result['volume_ratio'] = volume_ratio
+            
+            # Price position in range
+            range_high = max(highs_5m[-20:])
+            range_low = min(lows_5m[-20:])
+            range_size = range_high - range_low
+            position_in_range = (current_price - range_low) / range_size if range_size > 0 else 0.5
+            result['position_in_range'] = position_in_range
+            
+            # Calculate RSI values for divergence
+            rsi_values = []
+            for i in range(14, len(closes_5m)):
+                rsi_values.append(self._calculate_rsi(closes_5m[:i+1], 14))
+            
+            # Detect divergence
+            divergence_type, divergence_strength = self._detect_divergence(closes_5m[-15:], rsi_values[-15:] if len(rsi_values) >= 15 else rsi_values)
+            
+            # ═══════════════════════════════════════════════════════════════
+            # STEP 3: TREND ANALYSIS (0-30 points)
+            # ═══════════════════════════════════════════════════════════════
+            trend_score = 0
+            
+            # EMA alignment
+            if direction == 'long':
+                # Bullish: price > EMA9 > EMA21
+                if current_price > ema_9 > ema_21:
+                    trend_score += 15
+                    result['reasons'].append("Strong uptrend (price > EMA9 > EMA21)")
+                elif current_price > ema_9:
+                    trend_score += 8
+                    result['reasons'].append("Above fast EMA")
+                elif current_price > ema_21:
+                    trend_score += 4
+                    result['reasons'].append("Above slow EMA")
+                else:
+                    result['warnings'].append("Price below both EMAs - risky long")
+                
+                # EMA crossover (bullish)
+                prev_ema_9 = self._calculate_ema(closes_5m[:-1], 9)
+                prev_ema_21 = self._calculate_ema(closes_5m[:-1], 21)
+                if prev_ema_9 <= prev_ema_21 and ema_9 > ema_21:
+                    trend_score += 10
+                    result['reasons'].append("Bullish EMA crossover!")
+                    
+            else:  # SHORT
+                # Bearish: price < EMA9 < EMA21
+                if current_price < ema_9 < ema_21:
+                    trend_score += 15
+                    result['reasons'].append("Strong downtrend (price < EMA9 < EMA21)")
+                elif current_price < ema_9:
+                    trend_score += 8
+                    result['reasons'].append("Below fast EMA")
+                elif current_price < ema_21:
+                    trend_score += 4
+                    result['reasons'].append("Below slow EMA")
+                else:
+                    result['warnings'].append("Price above both EMAs - risky short")
+                
+                # EMA crossover (bearish)
+                prev_ema_9 = self._calculate_ema(closes_5m[:-1], 9)
+                prev_ema_21 = self._calculate_ema(closes_5m[:-1], 21)
+                if prev_ema_9 >= prev_ema_21 and ema_9 < ema_21:
+                    trend_score += 10
+                    result['reasons'].append("Bearish EMA crossover!")
+            
+            # Higher timeframe trend bonus
+            if len(closes_5m) >= 50:
+                if direction == 'long' and current_price > ema_50:
+                    trend_score += 5
+                    result['reasons'].append("Above EMA50 (HTF bullish)")
+                elif direction == 'short' and current_price < ema_50:
+                    trend_score += 5
+                    result['reasons'].append("Below EMA50 (HTF bearish)")
+            
+            result['trend_score'] = trend_score
+            
+            # ═══════════════════════════════════════════════════════════════
+            # STEP 4: MOMENTUM ANALYSIS (0-30 points)
+            # ═══════════════════════════════════════════════════════════════
+            momentum_score = 0
+            
+            # RSI analysis
+            if direction == 'long':
+                if 30 <= rsi <= 50:
+                    momentum_score += 15  # Ideal: recovering from oversold
+                    result['reasons'].append(f"RSI {rsi:.0f} - ideal long zone")
+                elif 50 < rsi <= 65:
+                    momentum_score += 10  # Good momentum
+                    result['reasons'].append(f"RSI {rsi:.0f} - good momentum")
+                elif rsi < 30:
+                    momentum_score += 8  # Oversold - could bounce
+                    result['reasons'].append(f"RSI {rsi:.0f} - oversold, bounce potential")
+                elif rsi > 75:
+                    momentum_score -= 5  # Overbought risk
+                    result['warnings'].append(f"RSI {rsi:.0f} - overbought!")
+            else:  # SHORT
+                if 50 <= rsi <= 70:
+                    momentum_score += 15  # Ideal: weakening from overbought
+                    result['reasons'].append(f"RSI {rsi:.0f} - ideal short zone")
+                elif 35 <= rsi < 50:
+                    momentum_score += 10  # Momentum down
+                    result['reasons'].append(f"RSI {rsi:.0f} - momentum fading")
+                elif rsi > 70:
+                    momentum_score += 8  # Overbought - could dump
+                    result['reasons'].append(f"RSI {rsi:.0f} - overbought, dump potential")
+                elif rsi < 25:
+                    momentum_score -= 5  # Too oversold, might bounce
+                    result['warnings'].append(f"RSI {rsi:.0f} - too oversold for short!")
+            
+            # Divergence bonus (powerful reversal signal)
+            if divergence_type == 'bullish' and direction == 'long':
+                momentum_score += int(15 * divergence_strength)
+                result['entry_type'] = 'reversal'
+                result['reasons'].append(f"BULLISH DIVERGENCE detected! (strength: {divergence_strength:.0%})")
+            elif divergence_type == 'bearish' and direction == 'short':
+                momentum_score += int(15 * divergence_strength)
+                result['entry_type'] = 'reversal'
+                result['reasons'].append(f"BEARISH DIVERGENCE detected! (strength: {divergence_strength:.0%})")
+            
+            # Candle momentum (last 5 candles)
+            green_count = sum(1 for i in range(-5, 0) if closes_5m[i] > opens_5m[i])
+            if direction == 'long' and green_count >= 3:
+                momentum_score += 5
+                result['reasons'].append(f"{green_count}/5 green candles")
+            elif direction == 'short' and green_count <= 2:
+                momentum_score += 5
+                result['reasons'].append(f"{5-green_count}/5 red candles")
+            
+            result['momentum_score'] = momentum_score
+            
+            # ═══════════════════════════════════════════════════════════════
+            # STEP 5: VOLUME ANALYSIS (0-20 points)
+            # ═══════════════════════════════════════════════════════════════
+            volume_score = 0
+            
+            if volume_ratio >= 2.0:
+                volume_score += 20
+                result['reasons'].append(f"MASSIVE volume spike ({volume_ratio:.1f}x)")
+            elif volume_ratio >= 1.5:
+                volume_score += 15
+                result['reasons'].append(f"Strong volume ({volume_ratio:.1f}x)")
+            elif volume_ratio >= 1.2:
+                volume_score += 10
+                result['reasons'].append(f"Above average volume ({volume_ratio:.1f}x)")
+            elif volume_ratio >= 0.8:
+                volume_score += 5
+                result['reasons'].append(f"Normal volume ({volume_ratio:.1f}x)")
+            else:
+                result['warnings'].append(f"Low volume ({volume_ratio:.1f}x) - weak conviction")
+            
+            # Volume trend (increasing = conviction)
+            vol_trend = volumes_5m[-1] > volumes_5m[-2] > volumes_5m[-3] if len(volumes_5m) >= 3 else False
+            if vol_trend:
+                volume_score += 5
+                result['reasons'].append("Volume increasing")
+            
+            result['volume_score'] = volume_score
+            
+            # ═══════════════════════════════════════════════════════════════
+            # STEP 6: PRICE STRUCTURE ANALYSIS (0-20 points)
+            # ═══════════════════════════════════════════════════════════════
+            structure_score = 0
+            
+            # Position in range check
+            if direction == 'long':
+                if position_in_range < 0.30:
+                    structure_score += 15  # Near support - ideal long
+                    result['reasons'].append(f"Near support ({position_in_range:.0%} of range)")
+                    result['entry_type'] = 'bounce' if result['entry_type'] == 'unknown' else result['entry_type']
+                elif position_in_range < 0.50:
+                    structure_score += 10
+                    result['reasons'].append(f"Lower half of range ({position_in_range:.0%})")
+                elif position_in_range > 0.85:
+                    structure_score -= 10
+                    result['warnings'].append(f"Near resistance ({position_in_range:.0%}) - chasing!")
+            else:  # SHORT
+                if position_in_range > 0.70:
+                    structure_score += 15  # Near resistance - ideal short
+                    result['reasons'].append(f"Near resistance ({position_in_range:.0%} of range)")
+                elif position_in_range > 0.50:
+                    structure_score += 10
+                    result['reasons'].append(f"Upper half of range ({position_in_range:.0%})")
+                elif position_in_range < 0.15:
+                    structure_score -= 10
+                    result['warnings'].append(f"Near support ({position_in_range:.0%}) - chasing dump!")
+            
+            # Breakout detection
+            if direction == 'long' and current_price > range_high * 0.995:
+                structure_score += 10
+                result['entry_type'] = 'breakout'
+                result['reasons'].append("Breaking above resistance!")
+            elif direction == 'short' and current_price < range_low * 1.005:
+                structure_score += 10
+                result['entry_type'] = 'breakout'
+                result['reasons'].append("Breaking below support!")
+            
+            # Last candle quality
+            last_open = opens_5m[-1]
+            last_close = closes_5m[-1]
+            last_high = highs_5m[-1]
+            last_low = lows_5m[-1]
+            candle_range = last_high - last_low if last_high > last_low else 0.0001
+            body_size = abs(last_close - last_open)
+            body_ratio = body_size / candle_range
+            
+            if body_ratio >= 0.6:
+                structure_score += 5
+                result['reasons'].append(f"Strong candle body ({body_ratio:.0%})")
+            
+            result['structure_score'] = structure_score
+            
+            # ═══════════════════════════════════════════════════════════════
+            # STEP 7: CALCULATE TOTAL SCORE AND EDGE
+            # ═══════════════════════════════════════════════════════════════
+            total_score = trend_score + momentum_score + volume_score + structure_score
+            result['score'] = total_score
+            
+            # Normalize to 0-100 (max possible = 30+30+25+25 = 110)
+            confidence = min(100, (total_score / 100) * 100)
+            result['confidence'] = confidence
+            
+            # ═══════════════════════════════════════════════════════════════
+            # STEP 8: CALCULATE PROPER KELLY EDGE + R:R CHECK
+            # ═══════════════════════════════════════════════════════════════
+            # 
+            # ChatGPT wisdom: "Win rate 55% + R:R 1:1.5 = profitabilan"
+            # "Gubiš jer SL veći od TP ili TP prerezan prerano"
+            #
+            # Win probability based on score
+            if total_score >= 80:
+                win_prob = 0.75
+                result['reasons'].append("High conviction setup (75% win prob)")
+            elif total_score >= 70:
+                win_prob = 0.68
+            elif total_score >= 60:
+                win_prob = 0.62
+            elif total_score >= 50:
+                win_prob = 0.55
+            else:
+                win_prob = 0.48
+                result['warnings'].append("Low conviction - consider skipping")
+            
+            # ═══════════════════════════════════════════════════════════════
+            # R:R CALCULATION - Critical for profitability!
+            # ═══════════════════════════════════════════════════════════════
+            # 
+            # Calculate potential reward and risk based on structure
+            # Reward = distance to resistance/target
+            # Risk = distance to support/stop
+            
+            if direction == 'long':
+                # Potential reward: distance to top of range
+                potential_reward_pct = ((range_high - current_price) / current_price) * 100
+                # Potential risk: distance to bottom of range
+                potential_risk_pct = ((current_price - range_low) / current_price) * 100
+            else:
+                # Short: reward is down, risk is up
+                potential_reward_pct = ((current_price - range_low) / current_price) * 100
+                potential_risk_pct = ((range_high - current_price) / current_price) * 100
+            
+            # Cap values to reasonable limits
+            potential_reward_pct = min(5.0, max(0.3, potential_reward_pct))
+            potential_risk_pct = min(3.0, max(0.2, potential_risk_pct))
+            
+            # Calculate actual R:R ratio
+            risk_reward = potential_reward_pct / potential_risk_pct if potential_risk_pct > 0 else 1.0
+            
+            # Store for reference
+            result['potential_reward'] = potential_reward_pct
+            result['potential_risk'] = potential_risk_pct
+            result['risk_reward_ratio'] = risk_reward
+            
+            # R:R FILTER - Don't enter bad R:R trades!
+            if risk_reward < 1.0:
+                result['warnings'].append(f"BAD R:R ({risk_reward:.2f}:1) - risk > reward!")
+            elif risk_reward >= 2.0:
+                result['reasons'].append(f"EXCELLENT R:R ({risk_reward:.2f}:1)")
+                win_prob += 0.05  # Boost win prob for good R:R
+            elif risk_reward >= 1.5:
+                result['reasons'].append(f"Good R:R ({risk_reward:.2f}:1)")
+            
+            # ═══════════════════════════════════════════════════════════════
+            # EXPECTED VALUE CALCULATION
+            # ═══════════════════════════════════════════════════════════════
+            # EV = (Win% × AvgWin) - (Loss% × AvgLoss)
+            # Must be positive for profitable trading
+            
+            expected_value = (win_prob * potential_reward_pct) - ((1 - win_prob) * potential_risk_pct)
+            result['expected_value'] = expected_value
+            
+            if expected_value <= 0:
+                result['warnings'].append(f"Negative EV ({expected_value:.3f}%) - skip!")
+            elif expected_value >= 0.3:
+                result['reasons'].append(f"Strong +EV ({expected_value:.2f}%)")
+            
+            # Edge = simplified EV normalized
+            edge = (win_prob * risk_reward) - (1 - win_prob)
+            result['edge'] = edge
+            
+            # Kelly Criterion: f* = (bp - q) / b
+            # Where b = odds (R/R), p = win prob, q = loss prob
+            if risk_reward > 0:
+                kelly_raw = (risk_reward * win_prob - (1 - win_prob)) / risk_reward
+                # Use fractional Kelly (25% of optimal) for safety
+                kelly_fraction = max(0, min(0.25, kelly_raw * 0.25))
+            else:
+                kelly_fraction = 0
+            
+            result['kelly_fraction'] = kelly_fraction
+            result['win_probability'] = win_prob
+            
+            # ═══════════════════════════════════════════════════════════════
+            # STEP 9: FINAL DECISION
+            # ═══════════════════════════════════════════════════════════════
+            
+            # Entry thresholds based on trade type
+            min_score_thresholds = {
+                'breakout': 45,   # Breakouts need less confirmation (momentum driven)
+                'bounce': 50,     # Bounces need moderate confirmation
+                'reversal': 55,   # Reversals need good confirmation (divergence)
+                'trend': 60,      # Trend following needs strong confirmation
+                'unknown': 55,    # Default
+            }
+            
+            min_score = min_score_thresholds.get(result['entry_type'], 55)
+            
+            # Use preset's min_master_score if higher (SMART preset uses 55+)
+            preset_min_score = getattr(self, 'min_master_score', 45)
+            if preset_min_score > min_score:
+                min_score = preset_min_score
+                result['reasons'].append(f"Using preset min_score: {min_score}")
+            
+            # ═══════════════════════════════════════════════════════════════
+            # STRICT ENTRY CRITERIA - Only take HIGH PROBABILITY trades!
+            # ═══════════════════════════════════════════════════════════════
+            
+            # Get flags (with safe defaults)
+            check_rr = getattr(self, 'require_positive_rr', True)
+            check_ev = getattr(self, 'require_positive_ev', False)
+            
+            # REJECT if negative EV (only if flag is ON)
+            if check_ev and expected_value <= 0:
+                result['should_enter'] = False
+                result['warnings'].append(f"NEGATIVE EV ({expected_value:.3f}%) - NO TRADE!")
+            # REJECT if R:R is bad (only if flag is ON)
+            elif check_rr and risk_reward < 1.0:
+                result['should_enter'] = False
+                result['warnings'].append(f"BAD R:R ({risk_reward:.2f}:1) - risk exceeds reward!")
+            # REJECT if edge is negative
+            elif edge <= 0:
+                result['should_enter'] = False
+                result['warnings'].append(f"Negative edge ({edge:.3f}) - no trade")
+            # REJECT if score too low
+            elif total_score < min_score:
+                result['should_enter'] = False
+                result['warnings'].append(f"Score {total_score} < {min_score} required for {result['entry_type']}")
+            else:
+                # ALL CHECKS PASSED - This is a HIGH QUALITY trade!
+                result['should_enter'] = True
+                result['reasons'].append(f"✓ APPROVED: Score={total_score}, R:R={risk_reward:.1f}, EV=+{expected_value:.2f}%")
+            
+            # Set entry type if still unknown
+            if result['entry_type'] == 'unknown':
+                if abs(price_change_24h) > 10:
+                    result['entry_type'] = 'breakout'
+                elif trend_score >= 20:
+                    result['entry_type'] = 'trend'
+                else:
+                    result['entry_type'] = 'momentum'
+            
+            logger.info(f"MASTER DETECTOR {symbol} {direction.upper()}: "
+                       f"Score={total_score} | R:R={risk_reward:.1f}:1 | EV={expected_value:+.2f}% | "
+                       f"WinProb={win_prob:.0%} | Kelly={kelly_fraction:.1%} | Type={result['entry_type']} | "
+                       f"{'✓ APPROVED' if result['should_enter'] else '✗ REJECTED'}")
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Master detector error for {symbol}: {e}")
+            result['warnings'].append(f"Analysis error: {e}")
+            return result
+    
     async def _advanced_safety_filters(self, opp: TradingOpportunity, client: BybitV5Client, 
                                        kline_data: Dict = None, is_breakout: bool = False) -> Tuple[bool, str]:
         """
@@ -1742,27 +2388,43 @@ class AutonomousTraderV2:
             if max_distance > 1:
                 max_distance = max_distance / 100
             
-            # BREAKOUTS: Use higher threshold since they've already moved significantly
-            # ChatGPT: DON'T touch this - Chasing filter is protecting you from FOMO!
-            # 85% means: if price already moved 85% of its range, don't chase
-            if is_breakout:
-                max_distance = 0.85  # Allow breakouts up to 85% of range
+            # Check if bounce trade or early entry
+            is_bounce_trade = getattr(opp, 'is_bounce_trade', False)
+            is_early_entry = abs(opp.price_change_24h) < 10 if is_breakout else False
             
-            if local_range > 0:
-                if opp.direction == 'long':
-                    # Distance from local low (support)
-                    distance_from_support = (close_price - local_low) / local_range
-                    
-                    # If already bounced more than threshold, we're chasing
-                    if distance_from_support > max_distance:
-                        return False, f"Chasing {distance_from_support:.0%}"
+            # BOUNCE TRADES: SKIP chasing check - they're at the bottom by design!
+            if is_bounce_trade:
+                logger.debug(f"{opp.symbol}: Bounce trade - skipping chasing filter")
+                # No chasing check for bounces - they're contrarian
+                pass
+            elif is_breakout:
+                # EARLY ENTRIES (+5% to +10%): More lenient - allow up to 90%
+                # REGULAR BREAKOUTS (+10%+): Standard 85%
+                if is_early_entry:
+                    max_distance = 0.92  # Very lenient for early entries
                 else:
-                    # Distance from local high (resistance)
-                    distance_from_resistance = (local_high - close_price) / local_range
-                    
-                    # If already dropped more than threshold, we're chasing the dump
-                    if distance_from_resistance > max_distance:
-                        return False, f"Chasing {distance_from_resistance:.0%}"
+                    max_distance = 0.85  # Standard for regular breakouts
+                
+                if local_range > 0:
+                    if opp.direction == 'long':
+                        distance_from_support = (close_price - local_low) / local_range
+                        if distance_from_support > max_distance:
+                            return False, f"Chasing {distance_from_support:.0%}"
+                    else:
+                        distance_from_resistance = (local_high - close_price) / local_range
+                        if distance_from_resistance > max_distance:
+                            return False, f"Chasing {distance_from_resistance:.0%}"
+            else:
+                # Regular trades - use default max_distance
+                if local_range > 0:
+                    if opp.direction == 'long':
+                        distance_from_support = (close_price - local_low) / local_range
+                        if distance_from_support > max_distance:
+                            return False, f"Chasing {distance_from_support:.0%}"
+                    else:
+                        distance_from_resistance = (local_high - close_price) / local_range
+                        if distance_from_resistance > max_distance:
+                            return False, f"Chasing {distance_from_resistance:.0%}"
             
             # ================================================================
             # FILTER 5: EXPECTED VALUE CHECK
@@ -1796,20 +2458,63 @@ class AutonomousTraderV2:
     async def _confirm_entry(self, opp: TradingOpportunity, client: BybitV5Client, 
                             is_breakout: bool = False, is_mean_rev: bool = False) -> Tuple[bool, str]:
         """
-        SCORING-BASED ENTRY CONFIRMATION
+        ENHANCED ENTRY CONFIRMATION v4.0
         
-        Uses ChatGPT breakout rules with scoring system:
-        - Each rule contributes points (0-25)
-        - Total score out of 100
-        - STRICT mode: score >= 70
-        - AGGRESSIVE mode: score >= 60
+        Uses the new MASTER DETECTOR for comprehensive analysis:
+        - Multi-timeframe confluence
+        - Trend detection (EMA crossovers)
+        - Momentum scoring (RSI, divergence)
+        - Volume profile analysis
+        - Proper Kelly edge calculation
         
-        This replaces individual boolean filters with a weighted scoring approach.
+        Falls back to legacy scoring for compatibility.
         """
         try:
             # Mean reversion trades are already confirmed during detection
             if is_mean_rev:
                 return True, "Mean reversion pre-confirmed"
+            
+            # Check if master detector is enabled
+            use_master = getattr(self, 'use_master_detector', True)
+            
+            if use_master:
+                # ═══════════════════════════════════════════════════════════════
+                # USE MASTER DETECTOR FOR COMPREHENSIVE ANALYSIS
+                # ═══════════════════════════════════════════════════════════════
+                master_result = await self._master_entry_detector(
+                    symbol=opp.symbol,
+                    direction=opp.direction,
+                    client=client,
+                    price_change_24h=opp.price_change_24h
+                )
+                
+                # Store master analysis in opportunity for later use
+                opp.master_analysis = master_result
+                opp.calculated_edge = master_result['edge']
+                opp.calculated_kelly = master_result['kelly_fraction']
+                opp.entry_type = master_result['entry_type']
+                opp.volume_ratio = master_result.get('volume_ratio', 0)  # For quality gate
+                
+                # If master detector approved, use its result
+                if master_result['should_enter']:
+                    # Update opportunity with master detector findings
+                    if master_result['confidence'] > opp.confidence:
+                        opp.confidence = master_result['confidence']
+                    if master_result['edge'] > opp.edge_score:
+                        opp.edge_score = master_result['edge']
+                    
+                    reason = f"MASTER: Score {master_result['score']}, Edge {master_result['edge']:.3f}, Type: {master_result['entry_type']}"
+                    return True, reason
+                
+                # If master detector rejected but it's a breakout, use legacy scoring as fallback
+                if not is_breakout:
+                    # For non-breakouts, trust master detector rejection
+                    warning = master_result['warnings'][0] if master_result['warnings'] else "Master detector rejected"
+                    return False, warning
+            
+            # ═══════════════════════════════════════════════════════════════
+            # LEGACY SCORING (used when master detector OFF or for breakout fallback)
+            # ═══════════════════════════════════════════════════════════════
             
             # Get klines for analysis (5min timeframe)
             klines = await client.get_klines(opp.symbol, interval='5', limit=25)
@@ -1987,26 +2692,54 @@ class AutonomousTraderV2:
                 score_breakdown.append(f"Wick:{wick_ratio:.0%}=0")
             
             # ===== RULE #9: RSI Soft Filter (bonus/penalty) =====
+            # Check if this is a bounce trade (long after big dump)
+            is_bounce_trade = getattr(opp, 'is_bounce_trade', False)
+            
             if opp.direction == 'long':
-                if 30 <= rsi <= 60:
-                    score += 5  # Ideal zone
-                    score_breakdown.append(f"RSI:{rsi:.0f}=+5")
-                elif rsi > 80:
-                    score -= 10  # Too overbought
-                    score_breakdown.append(f"RSI:{rsi:.0f}=-10")
-                elif rsi > 70:
-                    score -= 5
-                    score_breakdown.append(f"RSI:{rsi:.0f}=-5")
+                if is_bounce_trade:
+                    # BOUNCE TRADE: Low RSI is GOOD (oversold = bounce potential)
+                    if rsi < 25:
+                        score += 15  # Very oversold = strong bounce signal
+                        score_breakdown.append(f"RSI:{rsi:.0f}=+15(bounce)")
+                    elif rsi < 35:
+                        score += 10  # Oversold = good bounce
+                        score_breakdown.append(f"RSI:{rsi:.0f}=+10(bounce)")
+                    elif rsi < 50:
+                        score += 5
+                        score_breakdown.append(f"RSI:{rsi:.0f}=+5")
+                    else:
+                        score_breakdown.append(f"RSI:{rsi:.0f}=0")
                 else:
-                    score_breakdown.append(f"RSI:{rsi:.0f}=0")
+                    # Normal long: prefer neutral RSI
+                    if 30 <= rsi <= 60:
+                        score += 5  # Ideal zone
+                        score_breakdown.append(f"RSI:{rsi:.0f}=+5")
+                    elif rsi > 80:
+                        score -= 10  # Too overbought
+                        score_breakdown.append(f"RSI:{rsi:.0f}=-10")
+                    elif rsi > 70:
+                        score -= 5
+                        score_breakdown.append(f"RSI:{rsi:.0f}=-5")
+                    elif rsi < 25:
+                        score += 5  # Oversold can be good for longs too
+                        score_breakdown.append(f"RSI:{rsi:.0f}=+5(oversold)")
+                    else:
+                        score_breakdown.append(f"RSI:{rsi:.0f}=0")
             else:  # SHORT
-                if 40 <= rsi <= 70:
-                    score += 5
+                # Shorts: prefer HIGH RSI (overbought = good for shorts)
+                if 50 <= rsi <= 75:
+                    score += 5  # Ideal zone for shorts
                     score_breakdown.append(f"RSI:{rsi:.0f}=+5")
+                elif rsi > 75:
+                    score += 10  # Overbought = great for shorts
+                    score_breakdown.append(f"RSI:{rsi:.0f}=+10(overbought)")
                 elif rsi < 20:
+                    score -= 15  # Way too oversold - expect bounce!
+                    score_breakdown.append(f"RSI:{rsi:.0f}=-15(bounce risk)")
+                elif rsi < 30:
                     score -= 10  # Too oversold
                     score_breakdown.append(f"RSI:{rsi:.0f}=-10")
-                elif rsi < 30:
+                elif rsi < 40:
                     score -= 5
                     score_breakdown.append(f"RSI:{rsi:.0f}=-5")
                 else:
@@ -2015,11 +2748,19 @@ class AutonomousTraderV2:
             # =====================================================
             # FINAL DECISION based on score
             # =====================================================
-            # ChatGPT FIX: Breakouts need 52, normal trades need 65
-            # Breakouts already passed detection + chasing/wick/spread filters protect us
+            # BOUNCE TRADES: Very low bar (45) - they're contrarian high-conviction
+            # EARLY ENTRIES: Lower bar (48) - catching moves early
+            # BREAKOUTS: Standard (52) - confirmed moves
+            # REGULAR: Higher bar (55) - need more confirmation
             
-            # BALANCED: Breakout=52, Regular=55 (was 65 - too strict, caused 0 trades)
-            min_score = 52 if is_breakout else 55
+            if is_bounce_trade:
+                min_score = 45  # Low bar for bounce trades
+            elif is_breakout and abs(opp.price_change_24h) < 10:
+                min_score = 48  # Lower bar for early entries
+            elif is_breakout:
+                min_score = 52  # Standard for breakouts
+            else:
+                min_score = 55  # Higher for regular trades
             
             score_str = " | ".join(score_breakdown[:5])  # Limit for readability
             
@@ -2398,16 +3139,19 @@ class AutonomousTraderV2:
             
     async def _find_breakouts(self, user_id: str, client: BybitV5Client, wallet: Dict) -> List[TradingOpportunity]:
         """
-        BREAKOUT DETECTOR - Find coins with MASSIVE moves (+5% or more)
+        SMART BREAKOUT DETECTOR v3.0 - Earlier Entries + Bounce Trades
         
-        This catches opportunities like HANA +10% that normal filters would miss.
-        When a coin explodes, we want IN - no overthinking!
+        IMPROVEMENTS:
+        1. EARLIER ENTRY: 5% threshold instead of 10% for faster entries
+        2. BOUNCE TRADES: When coin dumps hard but is oversold, go LONG for bounce
+        3. EARLY SHORTS: Short at -5% if momentum is strong (not waiting for -10%)
+        4. POSITION-AWARE: Check where price is in range before entry
         
         Rules:
-        - +5% to +10% = Strong breakout, enter with normal size
-        - +10% to +20% = Mega breakout, enter with caution (might be late)
-        - +20%+ = FOMO territory, skip or small size
-        - Negative breakouts work too for shorts
+        - +5% to +15% = Good breakout, enter LONG
+        - +15%+ = Late, reduce size or skip
+        - -5% to -15% = Good breakdown, enter SHORT (if not at bottom)
+        - -15%+ with price at LOW = BOUNCE TRADE (go LONG!)
         """
         breakouts = []
         
@@ -2489,89 +3233,156 @@ class AutonomousTraderV2:
                         pass
                 
                 # =========================================================
-                # BREAKOUT DETECTION - Only SIGNIFICANT moves (10%+)
+                # SMART BREAKOUT DETECTION v3.0 - EARLIER ENTRIES!
                 # =========================================================
-                # 5-10% = normal volatility, not breakout
-                # 10%+ = real breakout worth trading
+                # OLD: 10%+ = too late, missing the move
+                # NEW: 5%+ = catch the move early
+                # BOUNCE: Big dump + at bottom = go LONG for bounce
                 is_breakout = False
+                is_bounce_trade = False
                 direction = None
                 breakout_strength = 0
-                size_multiplier = 1.0  # Reduce size for extreme moves
+                size_multiplier = 1.0
                 
-                # Bullish breakout (+10% and up) - raised threshold for real breakouts
-                if price_change >= 10:
-                    # CRITICAL CHECK: Don't long if already near 24h HIGH!
-                    # If price pumped +15% and is at the top, the pump is OVER
-                    # Longing here = chasing a finished move
-                    if position_in_range > 0.85:
-                        # Price is near 24h high - pump might be exhausted
-                        # Still allow but with reduced size
-                        logger.info(f"{symbol}: Near 24h HIGH ({position_in_range:.0%}) - reducing size")
-                        size_multiplier = 0.3  # Very small size near top
+                # =========================================================
+                # BOUNCE TRADE DETECTION - Buy the dip after big dumps!
+                # =========================================================
+                # When coin dumps -10%+ but price is at 24h LOW = bounce opportunity
+                # This is CONTRARIAN - going long when everyone is panicking
+                if price_change <= -10 and position_in_range < 0.25:
+                    # Big dump AND price at bottom = BOUNCE TRADE LONG!
+                    is_breakout = True
+                    is_bounce_trade = True
+                    direction = 'long'  # YES, LONG after dump!
+                    
+                    abs_change = abs(price_change)
+                    if abs_change >= 25:
+                        # Huge dump = strong bounce potential
+                        breakout_strength = 90
+                        size_multiplier = 0.7  # Decent size for big bounces
+                    elif abs_change >= 15:
+                        breakout_strength = 80
+                        size_multiplier = 0.5
+                    else:
+                        breakout_strength = 70
+                        size_multiplier = 0.5
+                    
+                    logger.info(f"🔄 BOUNCE TRADE: {symbol} dumped {price_change:.1f}% but at LOW ({position_in_range:.0%}) - going LONG!")
+                
+                # =========================================================
+                # BULLISH BREAKOUT - EARLIER ENTRY AT 5%!
+                # =========================================================
+                elif price_change >= 5:
+                    # Position check: don't buy at the very top
+                    if position_in_range > 0.90:
+                        logger.info(f"{symbol}: SKIP LONG - already at 24h TOP ({position_in_range:.0%})")
+                        continue
+                    elif position_in_range > 0.80:
+                        size_multiplier = 0.4  # Reduced size near top
+                    elif position_in_range > 0.70:
+                        size_multiplier = 0.7  # Slightly reduced
                     
                     is_breakout = True
                     direction = 'long'
                     
-                    # Tiered approach: bigger move = more caution
                     if price_change >= 50:
-                        # EXTREME breakout (+50%+) - very risky, small size
-                        breakout_strength = 60
-                        size_multiplier = min(size_multiplier, 0.3)  # Only 30% of normal size
-                        logger.warning(f" EXTREME breakout {symbol} +{price_change:.1f}% - using 30% size")
+                        breakout_strength = 50  # Very late, low confidence
+                        size_multiplier = min(size_multiplier, 0.2)
+                        logger.warning(f"⚠️ EXTREME breakout {symbol} +{price_change:.1f}% - minimal size")
                     elif price_change >= 25:
-                        # BIG breakout (+25-50%) - risky, reduced size
-                        breakout_strength = 75
-                        size_multiplier = min(size_multiplier, 0.5)  # 50% of normal size
+                        breakout_strength = 65
+                        size_multiplier = min(size_multiplier, 0.4)
+                    elif price_change >= 15:
+                        breakout_strength = 80
+                        size_multiplier = min(size_multiplier, 0.6)
+                    elif price_change >= 10:
+                        # SWEET SPOT: +10-15% is ideal
+                        breakout_strength = 95
+                        # Keep size_multiplier from position check
                     else:
-                        # NORMAL breakout (+5-25%) - ideal
-                        breakout_strength = min(100, price_change * 10)
-                        # Keep size_multiplier from above if near high
+                        # EARLY ENTRY: +5-10% - catching it early!
+                        breakout_strength = 100  # Highest confidence for early entries
+                        size_multiplier = min(size_multiplier, 1.0)
+                        logger.info(f"🚀 EARLY LONG: {symbol} +{price_change:.1f}% - catching early!")
                     
-                # Bearish breakout (-10% and down) - raised threshold for real breakouts
-                elif price_change <= -10:
-                    # CRITICAL CHECK: Don't short if already near 24h LOW!
-                    # If price dumped -15% but is now at the bottom, the dump is OVER
-                    # Shorting here = chasing a finished move
-                    if position_in_range < 0.30:
-                        # Price is near 24h low - dump is exhausted, likely to bounce
-                        # SKIP SHORT or consider LONG for bounce
-                        logger.info(f"{symbol}: SKIP SHORT - already at 24h LOW ({position_in_range:.0%}), dump exhausted")
+                # =========================================================
+                # BEARISH BREAKOUT (SHORT) - EARLIER ENTRY AT -5%!
+                # =========================================================
+                elif price_change <= -5:
+                    # Position check: don't short at the very bottom
+                    if position_in_range < 0.15:
+                        # Skip - dump is done, should bounce (handled above)
+                        logger.info(f"{symbol}: SKIP SHORT - already at 24h BOTTOM ({position_in_range:.0%})")
                         continue
+                    elif position_in_range < 0.30:
+                        # Near bottom - risky for shorts
+                        size_multiplier = 0.3
+                    elif position_in_range < 0.40:
+                        size_multiplier = 0.6
                     
                     is_breakout = True
                     direction = 'short'
                     
                     abs_change = abs(price_change)
                     if abs_change >= 50:
-                        breakout_strength = 60
-                        size_multiplier = 0.3
-                        logger.warning(f" EXTREME dump {symbol} {price_change:.1f}% - using 30% size")
+                        breakout_strength = 50
+                        size_multiplier = min(size_multiplier, 0.2)
+                        logger.warning(f"⚠️ EXTREME dump {symbol} {price_change:.1f}% - minimal size")
                     elif abs_change >= 25:
-                        breakout_strength = 75
-                        size_multiplier = 0.5
+                        breakout_strength = 65
+                        size_multiplier = min(size_multiplier, 0.4)
+                    elif abs_change >= 15:
+                        breakout_strength = 80
+                        size_multiplier = min(size_multiplier, 0.6)
+                    elif abs_change >= 10:
+                        # Good short entry
+                        breakout_strength = 95
                     else:
-                        breakout_strength = min(100, abs_change * 10)
-                        size_multiplier = 1.0
+                        # EARLY SHORT: -5% to -10% - catching the dump early!
+                        breakout_strength = 100
+                        size_multiplier = min(size_multiplier, 1.0)
+                        logger.info(f"📉 EARLY SHORT: {symbol} {price_change:.1f}% - catching early!")
                 
                 if is_breakout:
+                    # Determine trade type for logging
+                    if is_bounce_trade:
+                        trade_type = "🔄 BOUNCE"
+                        reason_str = f"BOUNCE: Dump {price_change:+.1f}% at bottom ({position_in_range:.0%}) - LONG for reversal"
+                    elif direction == 'long':
+                        if price_change < 10:
+                            trade_type = "🚀 EARLY_LONG"
+                            reason_str = f"EARLY LONG: +{price_change:.1f}% breakout starting"
+                        else:
+                            trade_type = "📈 BREAKOUT_LONG"
+                            reason_str = f"BREAKOUT LONG: +{price_change:.1f}% confirmed"
+                    else:
+                        if abs(price_change) < 10:
+                            trade_type = "📉 EARLY_SHORT"
+                            reason_str = f"EARLY SHORT: {price_change:.1f}% breakdown starting"
+                        else:
+                            trade_type = "📉 BREAKOUT_SHORT"
+                            reason_str = f"BREAKOUT SHORT: {price_change:.1f}% confirmed"
+                    
                     # Create opportunity with HIGH edge/confidence to bypass normal filters
                     opp = TradingOpportunity(
                         symbol=symbol,
                         direction=direction,
-                        edge_score=0.8,  # High edge to pass filters
+                        edge_score=0.85 if is_bounce_trade else 0.8,  # Higher edge for bounces
                         confidence=breakout_strength,
-                        opportunity_score=breakout_strength * size_multiplier,  # Adjust score by risk
+                        opportunity_score=breakout_strength * size_multiplier,
                         current_price=last_price,
                         price_change_24h=price_change,
                         volume_24h=volume,
                         should_trade=True,
-                        reasons=[f" BREAKOUT: {price_change:+.1f}% move (size: {size_multiplier*100:.0f}%)"],
+                        reasons=[reason_str],
                         timestamp=datetime.utcnow().isoformat()
                     )
-                    # Store size multiplier for position sizing
+                    # Store metadata for position sizing and tracking
                     opp.size_multiplier = size_multiplier
+                    opp.is_bounce_trade = is_bounce_trade
+                    opp.position_in_range = position_in_range
                     breakouts.append(opp)
-                    logger.info(f" BREAKOUT: {symbol} {price_change:+.1f}% | Vol: ${volume/1000000:.1f}M | Size: {size_multiplier*100:.0f}%")
+                    logger.info(f"{trade_type}: {symbol} {price_change:+.1f}% | Pos: {position_in_range:.0%} | Vol: ${volume/1000000:.1f}M | Size: {size_multiplier*100:.0f}%")
             
             # Sort by opportunity score (balances size and strength)
             breakouts.sort(key=lambda x: x.opportunity_score, reverse=True)
@@ -2733,23 +3544,31 @@ class AutonomousTraderV2:
                 
                 # === MOMENTUM CHECK FOR BREAKOUTS ===
                 # Ensure we're trading WITH momentum, not catching falling knives
-                # For LONG: price should still be moving up (not reversing)
-                # For SHORT: price should still be moving down
+                # EXCEPTION: Bounce trades are CONTRARIAN - they go against momentum
                 is_pre_breakout = getattr(opp, 'is_pre_breakout', False)
+                is_bounce_trade = getattr(opp, 'is_bounce_trade', False)
                 
-                if not is_pre_breakout:  # Skip momentum check for pre-breakouts
-                    # Get recent price action (using 24h change as proxy)
+                if not is_pre_breakout and not is_bounce_trade:
+                    # Regular breakouts need momentum confirmation
                     if opp.direction == 'long' and opp.price_change_24h < 5:
-                        # Breakout said long, but price not moving up anymore
                         logger.info(f"BREAKOUT {opp.symbol} skipped - momentum fading ({opp.price_change_24h:+.1f}% < +5%)")
                         continue
                     elif opp.direction == 'short' and opp.price_change_24h > -5:
-                        # Breakout said short, but price not moving down anymore
                         logger.info(f"BREAKOUT {opp.symbol} skipped - momentum fading ({opp.price_change_24h:+.1f}% > -5%)")
                         continue
+                elif is_bounce_trade:
+                    # Bounce trade: price SHOULD be negative (we're buying the dip)
+                    # But not TOO negative (still dumping hard = wait)
+                    # We want the dump to be slowing down
+                    logger.info(f"🔄 BOUNCE {opp.symbol}: Attempting contrarian LONG after {opp.price_change_24h:.1f}% dump")
                 
                 # Log the trade type
-                trade_type = "PRE-BREAKOUT" if is_pre_breakout else "BREAKOUT"
+                if is_bounce_trade:
+                    trade_type = "🔄 BOUNCE"
+                elif is_pre_breakout:
+                    trade_type = "PRE-BREAKOUT"
+                else:
+                    trade_type = "BREAKOUT"
                 
                 # === FULL VALIDATION FOR BREAKOUTS ===
                 # Breakouts MUST pass ALL filters: RSI, candles, spread, BTC correlation, etc.
@@ -2797,11 +3616,15 @@ class AutonomousTraderV2:
                     # We're losing badly - be VERY conservative
                     adjusted_min_confidence = max(75, self.min_confidence + 15)
                     adjusted_min_edge = max(0.35, self.min_edge + 0.15)
-                    logger.info(f"CONSERVATIVE MODE: Win rate {recent_win_rate:.1f}% - requiring conf>{adjusted_min_confidence}, edge>{adjusted_min_edge}")
+                    # REDUCE POSITIONS - fewer but better!
+                    self.max_open_positions = max(3, self.max_open_positions // 2)
+                    logger.info(f"CONSERVATIVE MODE: Win rate {recent_win_rate:.1f}% - conf>{adjusted_min_confidence}, edge>{adjusted_min_edge}, max_pos={self.max_open_positions}")
                 elif recent_win_rate < 50:
                     # We're losing - be more conservative
                     adjusted_min_confidence = max(70, self.min_confidence + 10)
                     adjusted_min_edge = max(0.25, self.min_edge + 0.10)
+                    # Slightly reduce positions
+                    self.max_open_positions = max(4, int(self.max_open_positions * 0.75))
             
             # Rate limiting: Allow up to 3 trades per cycle for more active trading
             normal_trades_this_cycle = 0
@@ -3574,10 +4397,103 @@ class AutonomousTraderV2:
                 return False, f" MICRO PROFIT needs higher confidence ({opp.confidence:.0f}% < 65%)"
             
             logger.info(f" MICRO PROFIT approved: {opp.symbol} edge={opp.edge_score:.2f} conf={opp.confidence:.0f}%")
+        
+        # ═══════════════════════════════════════════════════════════════
+        # 7.6 QUALITY GATE - Require MULTIPLE confirmations before entry
+        # ═══════════════════════════════════════════════════════════════
+        # Philosophy: Better to miss a trade than take a bad one!
+        # User said: "10 losing positions is worse than 3 winning"
+        
+        is_breakout = getattr(opp, 'is_breakout', False) or abs(getattr(opp, 'price_change_24h', 0)) >= 5
+        is_bounce = getattr(opp, 'is_bounce_trade', False)
+        
+        quality_confirmations = 0
+        
+        # Quality requirements based on preset/trade type
+        # SCALP: 1 confirmation (fast trades, many opportunities)
+        # MICRO: 3 confirmations (quality trades)
+        # SWING/SMART: 3 confirmations (high quality)
+        # Breakouts/bounces: 2 confirmations (already filtered)
+        preset_name = getattr(self, 'active_strategy_name', 'MICRO').upper()
+        
+        if is_breakout or is_bounce:
+            quality_required = 2
+        elif preset_name == 'SCALP':
+            quality_required = 1  # Scalp needs speed, less filtering
+        elif preset_name in ['SWING', 'SMART']:
+            quality_required = 3  # High quality trades
+        else:
+            quality_required = 2  # Default balanced
+        
+        quality_reasons = []
+        
+        # Check 1: Master detector approved with good score
+        master_analysis = getattr(opp, 'master_analysis', None)
+        if master_analysis and master_analysis.get('should_enter', False):
+            if master_analysis.get('score', 0) >= 50:
+                quality_confirmations += 1
+                quality_reasons.append(f"Master={master_analysis.get('score', 0)}")
+            if master_analysis.get('score', 0) >= 65:
+                quality_confirmations += 1  # Extra point for high score
+                quality_reasons.append("HighScore")
+        
+        # Check 2: Positive R:R ratio
+        if master_analysis and master_analysis.get('risk_reward_ratio', 0) >= 1.5:
+            quality_confirmations += 1
+            quality_reasons.append(f"R:R={master_analysis.get('risk_reward_ratio', 0):.1f}")
+        
+        # Check 3: Positive Expected Value
+        if master_analysis and master_analysis.get('expected_value', 0) > 0:
+            quality_confirmations += 1
+            quality_reasons.append(f"EV={master_analysis.get('expected_value', 0):+.2f}%")
+        
+        # Check 4: Good edge score
+        if opp.edge_score >= 0.20:
+            quality_confirmations += 1
+            quality_reasons.append(f"Edge={opp.edge_score:.2f}")
+        
+        # Check 5: High confidence
+        if opp.confidence >= 65:
+            quality_confirmations += 1
+            quality_reasons.append(f"Conf={opp.confidence:.0f}%")
+        
+        # Check 6: Volume confirmation
+        if getattr(opp, 'volume_ratio', 0) >= 1.3:
+            quality_confirmations += 1
+            quality_reasons.append("VolSpike")
+        
+        # QUALITY GATE: Reject if not enough confirmations
+        use_smart_mode = getattr(self, 'use_master_detector', True)
+        if use_smart_mode and quality_confirmations < quality_required:
+            self.stats['trades_rejected_low_edge'] += 1
+            return False, f"Quality gate: {quality_confirmations}/{quality_required} confirmations ({', '.join(quality_reasons)})"
+        
+        if quality_confirmations >= quality_required:
+            logger.info(f"QUALITY GATE PASSED {opp.symbol}: {quality_confirmations} confirmations - {', '.join(quality_reasons)}")
             
         # 8. Risk check via position sizer
-        if not opp.edge_data:
-            return False, "No edge data"
+        # Use edge_data if available, otherwise use master detector results or defaults
+        has_edge_data = opp.edge_data is not None
+        master_analysis = getattr(opp, 'master_analysis', None)
+        calculated_kelly = getattr(opp, 'calculated_kelly', 0.0)
+        calculated_edge = getattr(opp, 'calculated_edge', opp.edge_score)
+        
+        # Get win probability and risk/reward from edge_data or calculate from master
+        if has_edge_data:
+            win_probability = opp.edge_data.win_probability
+            risk_reward = opp.edge_data.risk_reward_ratio
+            kelly_fraction = opp.edge_data.kelly_fraction
+        elif master_analysis:
+            # Use master detector results
+            win_probability = 0.55 + (master_analysis['score'] / 200)  # Score 60 = 0.85 win prob
+            risk_reward = 1.5  # Default R/R
+            kelly_fraction = calculated_kelly
+            logger.info(f"Using MASTER DETECTOR sizing: win_prob={win_probability:.2f}, kelly={kelly_fraction:.3f}")
+        else:
+            # Default fallback
+            win_probability = 0.55
+            risk_reward = 1.5
+            kelly_fraction = 0.0
         
         # Calculate position size (dynamic or fixed) - PER USER!
         if self.use_dynamic_sizing:
@@ -3585,11 +4501,11 @@ class AutonomousTraderV2:
             position_size = await self.position_sizer.calculate_position_size(
                 symbol=opp.symbol,
                 direction=opp.direction,
-                edge_score=opp.edge_score,
-                win_probability=opp.edge_data.win_probability,
-                risk_reward=opp.edge_data.risk_reward_ratio,
-                kelly_fraction=opp.edge_data.kelly_fraction,
-                regime_action=opp.regime_action,
+                edge_score=calculated_edge,
+                win_probability=win_probability,
+                risk_reward=risk_reward,
+                kelly_fraction=kelly_fraction,
+                regime_action=getattr(opp, 'regime_action', 'normal'),
                 current_price=opp.current_price,
                 wallet_balance=wallet['total_equity'],
                 user_id=user_id
@@ -3599,7 +4515,7 @@ class AutonomousTraderV2:
             position_size = await self.position_sizer.calculate_position_size(
                 symbol=opp.symbol,
                 direction=opp.direction,
-                edge_score=opp.edge_score,
+                edge_score=calculated_edge,
                 win_probability=50,  # Neutral - no edge adjustment
                 risk_reward=1.5,     # Standard R/R
                 kelly_fraction=0.0,  # No Kelly adjustment
@@ -3615,7 +4531,11 @@ class AutonomousTraderV2:
             return False, position_size.limit_reason
             
         # Store position size for execution
-        opp.edge_data._position_size = position_size
+        if has_edge_data:
+            opp.edge_data._position_size = position_size
+        else:
+            # Create a simple container for position size
+            opp._position_size = position_size
         
         return True, "SUPERIOR: Passed ALL AI checks "
         
@@ -3624,7 +4544,12 @@ class AutonomousTraderV2:
         """Execute a trade"""
         try:
             edge_data = opp.edge_data
-            pos_size: PositionSize = getattr(edge_data, '_position_size', None) if edge_data else None
+            # Try to get position size from edge_data or directly from opportunity
+            pos_size: PositionSize = None
+            if edge_data:
+                pos_size = getattr(edge_data, '_position_size', None)
+            if not pos_size:
+                pos_size = getattr(opp, '_position_size', None)
             
             # === BREAKOUT TRADES: Calculate position size manually ===
             is_breakout = "BREAKOUT" in str(opp.reasons)
@@ -3644,11 +4569,34 @@ class AutonomousTraderV2:
                 kelly_mult = float(user_settings.get('kelly_multiplier', 1.0))  # Default 1.0 = FULL SIZE
                 
                 # SIMPLE FORMULA: equity / max_positions
-                # Kelly 1.0 = full size, Kelly 0.5 = half, Kelly 0.1 = 10%
                 base_per_position = total_equity / max_positions
                 
-                # Apply Kelly multiplier (1.0 = no reduction)
-                if kelly_mult >= 1.0:
+                # ═══════════════════════════════════════════════════════════════
+                # IMPROVED KELLY SIZING - Use master detector's calculated Kelly
+                # ═══════════════════════════════════════════════════════════════
+                calculated_kelly = getattr(opp, 'calculated_kelly', 0.0)
+                master_analysis = getattr(opp, 'master_analysis', None)
+                
+                if master_analysis and calculated_kelly > 0:
+                    # Use master detector's Kelly fraction (already fractional Kelly)
+                    # Scale by user's kelly_mult preference
+                    effective_kelly = calculated_kelly * kelly_mult
+                    position_value = base_per_position * (1 + effective_kelly * 4)  # Kelly can boost up to 2x
+                    
+                    # Adjust based on entry type
+                    entry_type = master_analysis.get('entry_type', 'unknown')
+                    if entry_type == 'reversal':
+                        # Reversals are riskier, reduce size
+                        position_value *= 0.7
+                    elif entry_type == 'breakout':
+                        # Breakouts are momentum, can use full size
+                        position_value *= 1.0
+                    elif entry_type == 'bounce':
+                        # Bounces are contrarian, moderate size
+                        position_value *= 0.8
+                    
+                    logger.info(f"MASTER KELLY: {opp.symbol} kelly={calculated_kelly:.3f} x {kelly_mult} -> ${position_value:.0f} ({entry_type})")
+                elif kelly_mult >= 1.0:
                     # Kelly 1.0 or higher = use full calculated size
                     position_value = base_per_position
                 else:
@@ -4065,57 +5013,111 @@ class AutonomousTraderV2:
                 drop_from_peak = ((current_price - position.trough_price) / position.trough_price) * 100
             
             if not should_exit:
+                # ═══════════════════════════════════════════════════════════════
+                # TRAILING EXIT LOGIC - Uses smart or legacy based on setting
+                # ═══════════════════════════════════════════════════════════════
+                
+                # Calculate minimum profitable exit (must cover fees)
+                min_profit_after_fees = 0.20  # Must make at least 0.2% to be worth it
+                
+                # Check which trailing mode to use
+                use_smart = getattr(self, 'use_smart_trailing', True)
+                
                 if is_lock_profit_mode:
-                    # === LOCK PROFIT MODE ===
-                    # Activate as soon as we've EVER been in profit (peak >= 0.01%)
+                    # === LOCK PROFIT MODE (Conservative) ===
+                    # Only for users who want to lock small profits quickly
                     if position.peak_pnl_percent >= self.min_profit_to_trail:
                         position.trailing_active = True
                         
-                        # Log EVERY check for debugging
-                        logger.info(f" LOCK_PROFIT {position.symbol}: Peak={position.peak_pnl_percent:+.3f}%, Now={pnl_percent:+.3f}%, Drop={drop_from_peak:.3f}%, Trigger={self.trail_from_peak:.3f}%")
-                        
-                        # EXIT if dropped from peak by threshold
-                        # BUT ONLY IF current P&L is still positive (or break-even)!
-                        # This ensures we ALWAYS lock profit, never lock loss
-                        if drop_from_peak >= self.trail_from_peak and pnl_percent >= -0.02:
-                            # Only sell if we're still in profit or at worst break-even (-0.02% for fees)
-                            if pnl_percent >= 0:
-                                should_exit = True
-                                exit_reason = f" LOCK PROFIT (peak: {position.peak_pnl_percent:.2f}%, now: {pnl_percent:+.2f}%)"
-                                logger.info(f" LOCK PROFIT SELL: {position.symbol} | Peak={position.peak_pnl_percent:+.2f}%, Now={pnl_percent:+.2f}%  PROFIT!")
-                            else:
-                                # Price dropped too fast, don't sell at loss - wait for recovery
-                                logger.debug(f" {position.symbol}: Dropped but P&L negative ({pnl_percent:+.2f}%), waiting for recovery")
-                else:
-                    # === ADAPTIVE TRAILING MODE ===
-                    # Key insight: Let winners run MORE when profit is HIGH
-                    # Tighter trailing when profit is small (protect gains)
+                        if drop_from_peak >= self.trail_from_peak and pnl_percent >= min_profit_after_fees:
+                            should_exit = True
+                            exit_reason = f"LOCK PROFIT (peak: {position.peak_pnl_percent:.2f}%, now: {pnl_percent:+.2f}%)"
+                            logger.info(f"LOCK PROFIT SELL: {position.symbol} | Peak={position.peak_pnl_percent:+.2f}%, Now={pnl_percent:+.2f}%")
+                        elif drop_from_peak >= self.trail_from_peak and pnl_percent < min_profit_after_fees:
+                            logger.debug(f"{position.symbol}: Trail triggered but profit too small ({pnl_percent:+.2f}% < {min_profit_after_fees}%), waiting")
+                elif use_smart:
+                    # ═══════════════════════════════════════════════════════════════
+                    # SMART TRAILING MODE (NEW!) - Let winners run!
+                    # ═══════════════════════════════════════════════════════════════
+                    # 
+                    # Trailing activation based on MEANINGFUL profit:
+                    # - Small profit (<0.5%) = NO trailing, let it run
+                    # - Medium profit (0.5-1%) = Loose trailing (50% of profit)
+                    # - Good profit (1-2%) = Moderate trailing (40% of profit)  
+                    # - Big profit (2%+) = Protect gains (30% of profit as trail)
                     
-                    # Activate trailing when profit reaches min_profit_to_trail (e.g., 0.3%)
+                    # PHASE 1: Don't activate trailing until meaningful profit
+                    meaningful_profit_threshold = max(0.5, self.min_profit_to_trail)
+                    
+                    if position.peak_pnl_percent >= meaningful_profit_threshold:
+                        if not position.trailing_active:
+                            logger.info(f"SMART TRAIL ACTIVATED {position.symbol}: Peak={position.peak_pnl_percent:+.2f}% >= {meaningful_profit_threshold}%")
+                        position.trailing_active = True
+                    
+                    # PHASE 2: Calculate SMART trailing distance
+                    # The more profit, the wider the trail (let winners run!)
+                    if position.trailing_active:
+                        if position.peak_pnl_percent >= 3.0:
+                            # BIG WINNER: Trail at 35% of peak
+                            adaptive_trail = position.peak_pnl_percent * 0.35
+                            min_exit_profit = position.peak_pnl_percent * 0.50
+                        elif position.peak_pnl_percent >= 2.0:
+                            # GOOD WINNER: Trail at 40% of peak
+                            adaptive_trail = position.peak_pnl_percent * 0.40
+                            min_exit_profit = position.peak_pnl_percent * 0.45
+                        elif position.peak_pnl_percent >= 1.0:
+                            # MODERATE: Trail at 45% of peak
+                            adaptive_trail = position.peak_pnl_percent * 0.45
+                            min_exit_profit = position.peak_pnl_percent * 0.40
+                        else:
+                            # SMALL: Use base trail but don't be too tight
+                            adaptive_trail = max(0.30, self.trail_from_peak)
+                            min_exit_profit = min_profit_after_fees
+                        
+                        # PHASE 3: Exit decision
+                        if drop_from_peak >= adaptive_trail:
+                            if pnl_percent >= min_exit_profit:
+                                should_exit = True
+                                protected_pct = (pnl_percent / position.peak_pnl_percent * 100) if position.peak_pnl_percent > 0 else 0
+                                exit_reason = f"Smart trail (peak: +{position.peak_pnl_percent:.2f}%, kept {protected_pct:.0f}%)"
+                                logger.info(f"SMART EXIT {position.symbol}: Peak=+{position.peak_pnl_percent:.2f}%, Exit=+{pnl_percent:.2f}% | Kept {protected_pct:.0f}% of gains!")
+                            elif pnl_percent >= min_profit_after_fees:
+                                should_exit = True
+                                exit_reason = f"Trailing stop (peak: +{position.peak_pnl_percent:.2f}%, dropped {drop_from_peak:.2f}%)"
+                                logger.info(f"TRAILING SELL {position.symbol}: Peak=+{position.peak_pnl_percent:.2f}%, Now=+{pnl_percent:.2f}%")
+                            else:
+                                logger.debug(f"{position.symbol}: Trail triggered but waiting for better exit (now: {pnl_percent:+.2f}%)")
+                    
+                    # PHASE 4: Emergency protection if profit evaporates
+                    if position.peak_pnl_percent >= 1.0 and pnl_percent < 0.15 and pnl_percent >= 0:
+                        should_exit = True
+                        exit_reason = f"Profit protection (was +{position.peak_pnl_percent:.2f}%, saving +{pnl_percent:.2f}%)"
+                        logger.info(f"PROFIT PROTECTION {position.symbol}: Peak was +{position.peak_pnl_percent:.2f}%, exiting at +{pnl_percent:.2f}% before loss!")
+                
+                else:
+                    # ═══════════════════════════════════════════════════════════════
+                    # LEGACY TRAILING MODE - Original fixed percentage trailing
+                    # ═══════════════════════════════════════════════════════════════
+                    
+                    # Activate trailing when profit reaches min_profit_to_trail
                     if pnl_percent >= self.min_profit_to_trail:
                         if not position.trailing_active:
                             logger.info(f"TRAILING ACTIVATED {position.symbol}: P&L={pnl_percent:+.2f}% >= MinTrail={self.min_profit_to_trail}%")
                         position.trailing_active = True
                     
                     # ADAPTIVE TRAIL: Wider when in more profit
-                    # +0.3% profit = use base trail (0.5%)
-                    # +1.0% profit = use 0.8% trail (let it run more)
-                    # +2.0% profit = use 1.0% trail (really let it run)
                     adaptive_trail = self.trail_from_peak
                     if pnl_percent >= 2.0:
-                        adaptive_trail = max(1.0, self.trail_from_peak * 2)  # 2x wider
+                        adaptive_trail = max(1.0, self.trail_from_peak * 2)
                     elif pnl_percent >= 1.0:
-                        adaptive_trail = max(0.8, self.trail_from_peak * 1.5)  # 1.5x wider
+                        adaptive_trail = max(0.8, self.trail_from_peak * 1.5)
                     
                     # Once trailing is active, sell when price drops from peak
                     if position.trailing_active and drop_from_peak >= adaptive_trail:
-                        # Only sell if we're still in profit (or minimal loss)
                         if pnl_percent >= -0.05:  # Allow tiny loss due to spread
                             should_exit = True
                             exit_reason = f"Trailing stop (peak: +{position.peak_pnl_percent:.2f}%, dropped {drop_from_peak:.2f}%)"
-                            logger.info(f"TRAILING SELL {position.symbol}: Peak=+{position.peak_pnl_percent:.2f}%, Now={pnl_percent:+.2f}%, Drop={drop_from_peak:.2f}% >= Trail={adaptive_trail}% | MinTrail={self.min_profit_to_trail}%")
-                        else:
-                            logger.debug(f" {position.symbol}: Trailing triggered but P&L too negative ({pnl_percent:+.2f}%), holding")
+                            logger.info(f"TRAILING SELL {position.symbol}: Peak=+{position.peak_pnl_percent:.2f}%, Now={pnl_percent:+.2f}%, Drop={drop_from_peak:.2f}%")
                     
             # === EXECUTE EXIT ===
             if should_exit:
@@ -4440,6 +5442,7 @@ class AutonomousTraderV2:
             'swing': {'take_profit': 2.5, 'stop_loss': 1.2, 'trailing': 0.6, 'min_trail': 1.0, 'max_trade_minutes': 60},
             'conservative': {'take_profit': 0.6, 'stop_loss': 0.3, 'trailing': 0.1, 'min_trail': 0.3, 'max_trade_minutes': 8},
             'balanced': {'take_profit': 1.2, 'stop_loss': 0.8, 'trailing': 0.3, 'min_trail': 0.5, 'max_trade_minutes': 20},
+            'smart': {'take_profit': 3.0, 'stop_loss': 1.0, 'trailing': 0.40, 'min_trail': 0.60, 'max_trade_minutes': 60},
             'aggressive': {'take_profit': 3.0, 'stop_loss': 1.5, 'trailing': 0.8, 'min_trail': 1.2, 'max_trade_minutes': 45},
             'mean_reversion': {'take_profit': 0.6, 'stop_loss': 0.4, 'trailing': 0.12, 'min_trail': 0.3, 'max_trade_minutes': 8},
         }

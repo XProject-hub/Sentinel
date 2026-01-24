@@ -43,8 +43,8 @@ interface BotSettings {
   aiFullAuto: boolean  // When ON: AI manages everything automatically
   useMaxTradeTime: boolean  // Use preset's max trade time limit
   
-  strategyPreset: 'scalp' | 'micro' | 'swing' | 'conservative' | 'balanced' | 'aggressive'
-  riskMode: 'SCALP' | 'MICRO' | 'SWING' | 'CONSERVATIVE' | 'BALANCED' | 'AGGRESSIVE'
+  strategyPreset: 'scalp' | 'micro' | 'swing' | 'conservative' | 'balanced' | 'aggressive' | 'smart'
+  riskMode: 'SCALP' | 'MICRO' | 'SWING' | 'CONSERVATIVE' | 'BALANCED' | 'AGGRESSIVE' | 'SMART'
   takeProfitPercent: number
   stopLossPercent: number
   trailingStopPercent: number
@@ -176,6 +176,19 @@ const riskPresets = {
     description: '🔥 Big wins, big losses - for risk takers',
     icon: Sparkles,
     color: 'orange'
+  },
+  // 🧠 SMART - NEW! Professional with R:R + EV + Smart Trailing
+  // FEWER trades but HIGHER quality = more profit!
+  SMART: {
+    takeProfitPercent: 3.5,     // Updated to match backend
+    stopLossPercent: 1.2,       // Updated to match backend  
+    trailingStopPercent: 0.40,  // 40% of profit as trail
+    minProfitToTrail: 0.70,     // Start trailing at 0.7% profit
+    winrate: '60-70%',          // Higher expected winrate
+    regime: 'ANY',
+    description: '🧠 SMART: Fewer trades, higher quality - MAX 6 positions!',
+    icon: Brain,
+    color: 'violet'
   }
 }
 
@@ -318,8 +331,15 @@ export default function SettingsPage() {
       'SWING': 'swing',
       'CONSERVATIVE': 'conservative',
       'BALANCED': 'balanced',
-      'AGGRESSIVE': 'aggressive'
+      'AGGRESSIVE': 'aggressive',
+      'SMART': 'smart'  // Added SMART preset mapping!
     }
+    
+    // Get preset-specific values (with defaults)
+    const presetMinEdge = mode === 'SMART' ? 0.25 : (mode === 'SWING' ? 0.20 : 0.15)
+    const presetMinConf = mode === 'SMART' ? 70 : (mode === 'SWING' ? 72 : 60)
+    const presetMaxPos = mode === 'SMART' ? 6 : (mode === 'SWING' ? 5 : (mode === 'SCALP' ? 8 : 10))
+    
     setSettings(prev => ({
       ...prev,
       strategyPreset: (presetMap[mode] || 'micro') as BotSettings['strategyPreset'],
@@ -327,7 +347,11 @@ export default function SettingsPage() {
       takeProfitPercent: preset.takeProfitPercent,
       stopLossPercent: preset.stopLossPercent,
       trailingStopPercent: preset.trailingStopPercent,
-      minProfitToTrail: preset.minProfitToTrail
+      minProfitToTrail: preset.minProfitToTrail,
+      // Apply preset-specific entry filters
+      minEdge: presetMinEdge,
+      minConfidence: presetMinConf,
+      maxOpenPositions: presetMaxPos
     }))
     setHasChanges(true)
   }

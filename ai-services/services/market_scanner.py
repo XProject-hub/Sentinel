@@ -70,6 +70,21 @@ class TradingOpportunity:
     funding_rate: float = 0.0
     funding_reason: str = ""
     
+    # Volume analysis (set by master detector)
+    volume_ratio: float = 0.0  # Recent volume / avg volume
+    
+    # Trade type flags (set during breakout detection)
+    is_bounce_trade: bool = False  # Bounce trade (long after big dump)
+    is_breakout: bool = False      # Breakout trade
+    position_in_range: float = 0.5 # Price position in 24h range (0=low, 1=high)
+    size_multiplier: float = 1.0   # Position size multiplier
+    
+    # Master detector results
+    master_analysis: Optional[dict] = None
+    calculated_edge: float = 0.0
+    calculated_kelly: float = 0.0
+    entry_type: str = 'unknown'
+    
     # Timing
     timestamp: str = ""
 

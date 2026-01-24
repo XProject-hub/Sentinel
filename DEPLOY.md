@@ -41,11 +41,21 @@ docker compose build
 docker compose up -d
 ```
 
+## Quick Update AI Services Only
+
+```bash
+cd /opt/sentinel
+git pull && export GIT_COMMIT=$(git rev-parse --short HEAD) && docker compose build ai-services && docker compose up -d ai-services
+```
+
 ## Quick Commands
 
 ```bash
 # View logs
 docker compose logs -f
+
+# View AI logs only
+docker compose logs -f sentinel_ai
 
 # Restart specific service
 docker compose restart frontend

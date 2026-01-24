@@ -100,34 +100,41 @@ async def get_system_stats():
         except:
             memory_percent, memory_used, memory_total = await _get_docker_memory()
         
-        # Disk usage - check 1.8TB data disk first, fallback to root
+        # Disk usage - Get BOTH root disk AND data disk separately
+        # System Disk = / (root)
+        # Data Disk = /mnt/sentinel-data (1.8TB)
+        
+        # 1. Get ROOT disk (System Disk)
         try:
-            # Try the 1.8TB data disk mount point first
-            data_disk_paths = ['/mnt/sentinel-data', '/mnt/data', '/data']
-            disk = None
+            root_disk = psutil.disk_usage('/')
+            disk_percent = root_disk.percent
+            disk_used = root_disk.used
+            disk_total = root_disk.total
             disk_path = '/'
-            
-            for path in data_disk_paths:
-                try:
-                    disk = psutil.disk_usage(path)
-                    if disk.total > 500 * (1024**3):  # More than 500GB = probably the big disk
-                        disk_path = path
-                        break
-                except:
-                    continue
-            
-            if disk is None:
-                disk = psutil.disk_usage('/')
-                disk_path = '/'
-            
-            disk_percent = disk.percent
-            disk_used = disk.used
-            disk_total = disk.total
         except:
             disk_percent = 0
             disk_used = 0
             disk_total = 0
             disk_path = '/'
+        
+        # 2. Get DATA disk (the 1.8TB disk at /mnt/sentinel-data)
+        data_disk_percent = 0
+        data_disk_used = 0
+        data_disk_total = 0
+        data_disk_path = None
+        
+        data_disk_paths = ['/mnt/sentinel-data', '/mnt/data', '/data']
+        for path in data_disk_paths:
+            try:
+                data_disk = psutil.disk_usage(path)
+                if data_disk.total > 500 * (1024**3):  # More than 500GB = the big data disk
+                    data_disk_percent = data_disk.percent
+                    data_disk_used = data_disk.used
+                    data_disk_total = data_disk.total
+                    data_disk_path = path
+                    break
+            except:
+                continue
         
         # Try to get network connections
         try:
@@ -135,14 +142,7 @@ async def get_system_stats():
         except:
             connections = 0
         
-        # Also get root disk for comparison
-        try:
-            root_disk = psutil.disk_usage('/')
-            root_disk_used = root_disk.used
-            root_disk_total = root_disk.total
-        except:
-            root_disk_used = 0
-            root_disk_total = 0
+        # Root disk already captured above as disk_percent
         
         # Check Docker services
         import httpx
@@ -182,11 +182,16 @@ async def get_system_stats():
             "memory_percent": round(memory_percent, 1),
             "memory_used_gb": round(memory_used / (1024**3), 2),
             "memory_total_gb": round(memory_total / (1024**3), 2),
+            # System Disk (root /)
             "disk_percent": round(disk_percent, 1),
-            "data_disk_percent": round(disk_percent, 1),
             "disk_used_gb": round(disk_used / (1024**3), 2),
             "disk_total_gb": round(disk_total / (1024**3), 2),
             "disk_path": disk_path,
+            # Data Disk (1.8TB at /mnt/sentinel-data)
+            "data_disk_percent": round(data_disk_percent, 1),
+            "data_disk_used_gb": round(data_disk_used / (1024**3), 2) if data_disk_total > 0 else 0,
+            "data_disk_total_gb": round(data_disk_total / (1024**3), 2) if data_disk_total > 0 else 0,
+            "data_disk_path": data_disk_path,
             "uptime": get_uptime(),
             "services": services,
             "active_connections": connections,
