@@ -2562,12 +2562,17 @@ class AutonomousTraderV2:
                     return False, warning
                 
                 # For bounce trades with good R:R, allow them even if score is low
+                # For bounce trades with good R:R, allow them even if score is low
                 # (they're contrarian by nature - buying the fear)
                 rr = master_result.get('risk_reward_ratio', 0)
                 ev = master_result.get('expected_value', 0)
                 if is_bounce and rr >= 2.0 and ev > 0:
                     logger.info(f"BOUNCE OVERRIDE: {opp.symbol} - R:R {rr:.1f} + EV {ev:.2f}% allows entry despite low score")
                     return True, f"Bounce trade: R:R={rr:.1f}:1, EV={ev:.2f}%"
+                
+                # For normal momentum trades, trust master detector rejection
+                warning = master_result['warnings'][0] if master_result['warnings'] else "Master detector rejected"
+                return False, warning
             
             # ═══════════════════════════════════════════════════════════════
             # LEGACY SCORING (used when master detector OFF or for breakout fallback)
@@ -4508,7 +4513,6 @@ class AutonomousTraderV2:
         quality_reasons = []
         
         # Check 1: Master detector approved with good score
-        master_analysis = getattr(opp, 'master_analysis', None)
         if master_analysis and master_analysis.get('should_enter', False):
             if master_analysis.get('score', 0) >= 50:
                 quality_confirmations += 1
