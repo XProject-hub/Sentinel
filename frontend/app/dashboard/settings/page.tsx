@@ -182,13 +182,13 @@ const riskPresets = {
   // 🧠 SMART - NEW! Professional with R:R + EV + Smart Trailing
   // FEWER trades but HIGHER quality = more profit!
   SMART: {
-    takeProfitPercent: 3.5,     // Updated to match backend
-    stopLossPercent: 1.2,       // Updated to match backend  
-    trailingStopPercent: 0.40,  // 40% of profit as trail
-    minProfitToTrail: 0.70,     // Start trailing at 0.7% profit
-    winrate: '60-70%',          // Higher expected winrate
+    takeProfitPercent: 0,       // OFF - let trailing stop handle exits
+    stopLossPercent: 2.0,       // 2% stop loss - more room to recover
+    trailingStopPercent: 0.9,   // 0.9% trail from peak
+    minProfitToTrail: 1.3,      // Start trailing only after +1.3% profit
+    winrate: '55-65%',          // Quality over quantity
     regime: 'ANY',
-    description: '🧠 SMART: Fewer trades, higher quality - MAX 6 positions!',
+    description: '🧠 SMART: Let winners run! TP=OFF, Trail from +1.3%',
     icon: Brain,
     color: 'violet'
   }

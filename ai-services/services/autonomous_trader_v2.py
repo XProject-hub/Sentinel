@@ -541,12 +541,12 @@ class AutonomousTraderV2:
             # PHILOSOPHY: Fewer trades, higher quality = more profit!
             # User said: "10 positions losing is worse than 3 winning"
             'smart': {
-                # EXIT - Using SMART trailing (percentage of profit, not fixed)
-                'stop_loss': 1.2,          # 1.2% stop loss - give room to breathe
-                'take_profit': 3.5,        # 3.5% take profit target (R:R = ~2.9:1)
-                'trailing': 0.40,          # 40% of profit as trail (smart mode)
-                'min_trail': 0.70,         # Start trailing at 0.7% profit
-                'max_trade_minutes': 90,   # Give trades time to develop
+                # EXIT - Let winners run with trailing stop (NO fixed TP!)
+                'stop_loss': 2.0,          # 2% stop loss - more room to recover
+                'take_profit': 0,          # OFF - let trailing stop handle exits
+                'trailing': 0.9,           # 0.9% trail from peak - allows normal pullbacks
+                'min_trail': 1.3,          # Start trailing only after +1.3% profit
+                'max_trade_minutes': 120,  # 2 hours - give trades time to develop
                 
                 # ENTRY THRESHOLDS - STRICT! Quality over quantity
                 'momentum_min': 0.04,      # Higher momentum required
@@ -5541,7 +5541,7 @@ class AutonomousTraderV2:
             'swing': {'take_profit': 2.5, 'stop_loss': 1.2, 'trailing': 0.6, 'min_trail': 1.0, 'max_trade_minutes': 60},
             'conservative': {'take_profit': 0.6, 'stop_loss': 0.3, 'trailing': 0.1, 'min_trail': 0.3, 'max_trade_minutes': 8},
             'balanced': {'take_profit': 1.2, 'stop_loss': 0.8, 'trailing': 0.3, 'min_trail': 0.5, 'max_trade_minutes': 20},
-            'smart': {'take_profit': 3.0, 'stop_loss': 1.0, 'trailing': 0.40, 'min_trail': 0.60, 'max_trade_minutes': 60},
+            'smart': {'take_profit': 0, 'stop_loss': 2.0, 'trailing': 0.9, 'min_trail': 1.3, 'max_trade_minutes': 120},
             'aggressive': {'take_profit': 3.0, 'stop_loss': 1.5, 'trailing': 0.8, 'min_trail': 1.2, 'max_trade_minutes': 45},
             'mean_reversion': {'take_profit': 0.6, 'stop_loss': 0.4, 'trailing': 0.12, 'min_trail': 0.3, 'max_trade_minutes': 8},
         }
