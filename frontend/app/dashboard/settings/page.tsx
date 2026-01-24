@@ -53,6 +53,7 @@ interface BotSettings {
   maxPositionPercent: number
   maxTotalExposure: number
   maxDailyDrawdown: number
+  kellyEnabled: boolean  // Enable/disable Kelly criterion (OFF = equal sizing)
   kellyMultiplier: number
   minEdge: number
   minConfidence: number
@@ -86,7 +87,8 @@ const defaultSettings: BotSettings = {
   maxPositionPercent: 10,
   maxTotalExposure: 80,
   maxDailyDrawdown: 0,  // 0 = OFF (no daily limit)
-  kellyMultiplier: 0.3,
+  kellyEnabled: false,  // Kelly OFF by default = equal sizing per trade
+  kellyMultiplier: 0.5,
   minEdge: 0.10,
   minConfidence: 60,
   leverageMode: 'auto',
@@ -879,24 +881,52 @@ export default function SettingsPage() {
                     <p className="text-xs text-gray-500 mt-3">Total portfolio allocation limit</p>
                   </div>
 
-                  {/* Kelly Multiplier */}
+                  {/* Kelly Criterion Toggle + Multiplier */}
                   <div className="p-5 rounded-2xl bg-white/[0.02] border border-white/5">
                     <div className="flex items-center justify-between mb-4">
-                      <span className="font-medium text-white">Kelly Multiplier</span>
-                      <span className="px-3 py-1 rounded-full bg-cyan-500/10 text-cyan-400 text-sm font-mono">
-                        {settings.kellyMultiplier}x
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <Brain className="w-4 h-4 text-cyan-400" />
+                        <span className="font-medium text-white">Dynamic Kelly Sizing</span>
+                      </div>
+                      <button
+                        onClick={() => updateSetting('kellyEnabled', !settings.kellyEnabled)}
+                        className={`relative w-12 h-6 rounded-full transition-colors ${
+                          settings.kellyEnabled ? 'bg-cyan-500' : 'bg-white/10'
+                        }`}
+                      >
+                        <span className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${
+                          settings.kellyEnabled ? 'left-7' : 'left-1'
+                        }`} />
+                      </button>
                     </div>
-                    <input
-                      type="range"
-                      min="0.1"
-                      max="1.0"
-                      step="0.05"
-                      value={settings.kellyMultiplier}
-                      onChange={(e) => updateSetting('kellyMultiplier', parseFloat(e.target.value))}
-                      className="w-full h-2 rounded-full appearance-none cursor-pointer bg-white/10 accent-cyan-500"
-                    />
-                    <p className="text-xs text-gray-500 mt-3">Higher = larger positions, more risk</p>
+                    
+                    {settings.kellyEnabled ? (
+                      <>
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-sm text-gray-400">Kelly Multiplier</span>
+                          <span className="px-3 py-1 rounded-full bg-cyan-500/10 text-cyan-400 text-sm font-mono">
+                            {settings.kellyMultiplier}x
+                          </span>
+                        </div>
+                        <input
+                          type="range"
+                          min="0.1"
+                          max="1.0"
+                          step="0.05"
+                          value={settings.kellyMultiplier}
+                          onChange={(e) => updateSetting('kellyMultiplier', parseFloat(e.target.value))}
+                          className="w-full h-2 rounded-full appearance-none cursor-pointer bg-white/10 accent-cyan-500"
+                        />
+                        <p className="text-xs text-gray-500 mt-3">AI adjusts position size based on edge, confidence, streaks. Higher = more aggressive.</p>
+                      </>
+                    ) : (
+                      <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
+                        <p className="text-sm text-emerald-400 font-medium mb-1">Equal Position Sizing</p>
+                        <p className="text-xs text-gray-400">
+                          Each trade uses {settings.maxPositionPercent}% / {settings.maxOpenPositions} positions = <span className="text-white font-mono">{(settings.maxPositionPercent / settings.maxOpenPositions).toFixed(1)}%</span> per trade
+                        </p>
+                      </div>
+                    )}
                   </div>
 
                   {/* Max Daily Drawdown */}

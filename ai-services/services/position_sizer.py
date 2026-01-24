@@ -100,7 +100,8 @@ class PositionSizer:
         # Leverage mode: '1x', '2x', '3x', '5x', '10x', 'auto'
         self.leverage_mode: str = 'auto'
         
-        # === DYNAMIC KELLY SETTINGS (legacy global) ===
+        # === KELLY SETTINGS ===
+        self.kelly_enabled: bool = False  # When False, use equal sizing instead of Kelly
         self.kelly_multiplier: float = 0.5  # User's Kelly multiplier (0.1 - 1.0)
         self.losing_streak: int = 0  # Consecutive losses
         self.winning_streak: int = 0  # Consecutive wins
@@ -179,16 +180,25 @@ class PositionSizer:
                 if self.leverage_mode not in ['1x', '2x', '3x', '5x', '10x', 'auto']:
                     self.leverage_mode = 'auto'
                 
+                # === KELLY ENABLED (toggle dynamic vs equal sizing) ===
+                # When OFF, use equal position sizing: maxPositionPercent / maxOpenPositions
+                kelly_enabled_raw = parsed.get('kellyEnabled', False)
+                self.kelly_enabled = kelly_enabled_raw in (True, 'true', 'True', '1', 1)
+                
                 # === KELLY MULTIPLIER (Dynamic Kelly) ===
                 # User can adjust from 0.1 (very conservative) to 1.0 (full Kelly)
                 self.kelly_multiplier = float(parsed.get('kellyMultiplier', 0.5))
                 self.kelly_multiplier = max(0.1, min(1.0, self.kelly_multiplier))
                 
+                # Calculate equal sizing for logging
+                equal_size = (self.MAX_SINGLE_POSITION * 100 / self.MAX_OPEN_POSITIONS) if self.MAX_OPEN_POSITIONS > 0 else self.MAX_SINGLE_POSITION * 100
+                
                 logger.debug(f"Loaded position sizer settings for {user_id}: MaxDD={'OFF' if self.MAX_DAILY_DRAWDOWN == 0 else f'{self.MAX_DAILY_DRAWDOWN*100:.1f}%'}, "
                            f"MaxExposure={self.MAX_TOTAL_EXPOSURE*100:.0f}%, "
                            f"MaxPos={self.MAX_SINGLE_POSITION*100:.0f}%, "
                            f"MaxOpenPos={'Unlimited' if self.MAX_OPEN_POSITIONS == 0 else self.MAX_OPEN_POSITIONS}, "
-                           f"Leverage={self.leverage_mode}, Kelly={self.kelly_multiplier}x")
+                           f"Leverage={self.leverage_mode}, "
+                           f"Kelly={'ON ('+str(self.kelly_multiplier)+'x)' if self.kelly_enabled else 'OFF (equal '+f'{equal_size:.1f}%/trade)'}")
         except Exception as e:
             logger.debug(f"Load settings error for {user_id}: {e}")
         
@@ -307,12 +317,23 @@ class PositionSizer:
             
         # === Calculate Base Position Size ===
         
-        # Force fixed sizing (dynamic sizing disabled) or Kelly-based
-        if force_fixed:
-            # Fixed sizing - use full maxPositionPercent
-            base_fraction = self.MAX_RISK_PER_TRADE
-            sizing_method = 'fixed'
-            adjustments.append(f"Fixed sizing: {base_fraction*100:.1f}%")
+        # Check if Kelly is disabled - use EQUAL SIZING
+        if not self.kelly_enabled or force_fixed:
+            # === EQUAL SIZING MODE ===
+            # Divide maxPositionPercent evenly across maxOpenPositions
+            # Example: 70% / 6 positions = 11.67% per trade
+            if self.MAX_OPEN_POSITIONS > 0:
+                # Equal sizing: total allocation / number of positions
+                base_fraction = self.MAX_SINGLE_POSITION / max(1, self.MAX_OPEN_POSITIONS)
+                # But don't exceed max single position anyway
+                base_fraction = min(base_fraction, self.MAX_SINGLE_POSITION)
+            else:
+                # No position limit set, use max single position directly
+                base_fraction = self.MAX_SINGLE_POSITION
+            
+            sizing_method = 'equal'
+            adjustments.append(f"Equal sizing: {self.MAX_SINGLE_POSITION*100:.0f}% / {self.MAX_OPEN_POSITIONS if self.MAX_OPEN_POSITIONS > 0 else '∞'} = {base_fraction*100:.1f}% per trade")
+            
         elif kelly_fraction > 0:
             # === DYNAMIC KELLY CALCULATION ===
             # Apply user's kellyMultiplier
@@ -346,58 +367,64 @@ class PositionSizer:
             sizing_method = 'kelly'
             adjustments.append(f"Kelly: {kelly_fraction*100:.1f}%×{self.kelly_multiplier}x → {adjusted_kelly*100:.1f}%")
         else:
-            # Fallback to user-configured position size
-            base_fraction = self.MAX_RISK_PER_TRADE * 0.5  # 50% of max when no Kelly
-            sizing_method = 'fixed'
-            adjustments.append(f"No Kelly edge, using {base_fraction*100:.1f}%")
+            # Fallback to equal sizing when no Kelly edge available
+            if self.MAX_OPEN_POSITIONS > 0:
+                base_fraction = self.MAX_SINGLE_POSITION / max(1, self.MAX_OPEN_POSITIONS)
+            else:
+                base_fraction = self.MAX_SINGLE_POSITION * 0.5
+            sizing_method = 'equal'
+            adjustments.append(f"No Kelly edge, equal sizing: {base_fraction*100:.1f}%")
             
         # === Apply Adjustments ===
         
         adjusted_fraction = base_fraction
         
-        # 1. Regime adjustment (DYNAMIC KELLY REGIME MULTIPLIER)
-        # Choppy/volatile regime = reduce Kelly significantly
-        regime_multipliers = {
-            'aggressive': 1.0,  # Trending market - full Kelly
-            'normal': 0.8,      # Normal conditions
-            'reduced': 0.5,     # Reduced - half Kelly
-            'avoid': 0.0,       # Don't trade
-            'choppy': 0.6,      # Choppy market - reduce Kelly
-            'volatile': 0.5,    # High volatility - reduce Kelly
-            'hold': 0.7,        # Hold - slightly reduced
-        }
-        regime_mult = regime_multipliers.get(regime_action, 0.5)
-        adjusted_fraction *= regime_mult
-        if regime_mult != 1.0:
-            adjustments.append(f"Regime {regime_action}: Kelly×{regime_mult:.0%}")
-            
-        # 2. Edge-based adjustment
-        if edge_score < 0.2:
-            adjusted_fraction *= 0.5
-            adjustments.append("Low edge: 50% reduction")
-        elif edge_score > 0.5:
-            adjusted_fraction *= 1.2
-            adjustments.append("High edge: 20% increase")
-            
-        # 3. Win probability adjustment
-        if win_probability < 55:
-            adjusted_fraction *= 0.7
-            adjustments.append("Low win prob: 30% reduction")
-        elif win_probability > 65:
-            adjusted_fraction *= 1.1
-            adjustments.append("High win prob: 10% increase")
-            
-        # 4. Correlation adjustment
-        corr_exposure = await self._get_correlation_exposure(symbol)
-        if corr_exposure > self.MAX_CORRELATED_EXPOSURE * wallet_balance * 0.5:
-            adjusted_fraction *= 0.5
-            adjustments.append("Correlated exposure: 50% reduction")
-            
-        # 5. Daily drawdown buffer
-        remaining_dd = self.MAX_DAILY_DRAWDOWN - daily_dd
-        if remaining_dd < 0.01:  # Less than 1% DD remaining
-            adjusted_fraction *= 0.5
-            adjustments.append("Near daily DD limit: 50% reduction")
+        # Only apply dynamic adjustments when Kelly is enabled
+        # When Kelly is disabled, we want EQUAL FIXED sizing with no reductions
+        if self.kelly_enabled and sizing_method == 'kelly':
+            # 1. Regime adjustment (DYNAMIC KELLY REGIME MULTIPLIER)
+            # Choppy/volatile regime = reduce Kelly significantly
+            regime_multipliers = {
+                'aggressive': 1.0,  # Trending market - full Kelly
+                'normal': 0.8,      # Normal conditions
+                'reduced': 0.5,     # Reduced - half Kelly
+                'avoid': 0.0,       # Don't trade
+                'choppy': 0.6,      # Choppy market - reduce Kelly
+                'volatile': 0.5,    # High volatility - reduce Kelly
+                'hold': 0.7,        # Hold - slightly reduced
+            }
+            regime_mult = regime_multipliers.get(regime_action, 0.5)
+            adjusted_fraction *= regime_mult
+            if regime_mult != 1.0:
+                adjustments.append(f"Regime {regime_action}: Kelly×{regime_mult:.0%}")
+                
+            # 2. Edge-based adjustment
+            if edge_score < 0.2:
+                adjusted_fraction *= 0.5
+                adjustments.append("Low edge: 50% reduction")
+            elif edge_score > 0.5:
+                adjusted_fraction *= 1.2
+                adjustments.append("High edge: 20% increase")
+                
+            # 3. Win probability adjustment
+            if win_probability < 55:
+                adjusted_fraction *= 0.7
+                adjustments.append("Low win prob: 30% reduction")
+            elif win_probability > 65:
+                adjusted_fraction *= 1.1
+                adjustments.append("High win prob: 10% increase")
+                
+            # 4. Correlation adjustment
+            corr_exposure = await self._get_correlation_exposure(symbol)
+            if corr_exposure > self.MAX_CORRELATED_EXPOSURE * wallet_balance * 0.5:
+                adjusted_fraction *= 0.5
+                adjustments.append("Correlated exposure: 50% reduction")
+                
+            # 5. Daily drawdown buffer
+            remaining_dd = self.MAX_DAILY_DRAWDOWN - daily_dd
+            if remaining_dd < 0.01:  # Less than 1% DD remaining
+                adjusted_fraction *= 0.5
+                adjustments.append("Near daily DD limit: 50% reduction")
             
         # === Apply Hard Limits ===
         
