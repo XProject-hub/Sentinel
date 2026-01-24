@@ -574,7 +574,7 @@ class AutonomousTraderV2:
                 'use_smart_exit': True,      # Use new smart trailing
                 'use_master_detector': True, # Use full master detector
                 'require_positive_rr': True, # Require R:R > 1.0
-                'min_master_score': 40,      # Lowered from 55 - bounce/reversal use own thresholds
+                'min_master_score': 35,      # LOWERED: Allow excellent R:R trades through
                 'use_mean_reversion': False,
                 'regime_required': [],
                 'winrate_expected': '60-70%',
@@ -1904,11 +1904,12 @@ class AutonomousTraderV2:
             # ═══════════════════════════════════════════════════════════════
             trend_score = 0
             
-            # BOUNCE TRADE DETECTION: If price dumped >8% and we're going LONG, this is a bounce trade
-            # For bounce trades, being below EMAs is EXPECTED (we're buying the fear)
-            is_likely_bounce = (price_change_24h < -8 and direction == 'long')
-            
             # EMA alignment
+            # BOUNCE TRADE DETECTION: If price dropped significantly and going LONG, 
+            # being below EMAs is EXPECTED (we're buying the fear!)
+            is_bounce_trade = (price_change_24h < -8 and direction == 'long')
+            is_pump_short = (price_change_24h > 8 and direction == 'short')
+            
             if direction == 'long':
                 # Bullish: price > EMA9 > EMA21
                 if current_price > ema_9 > ema_21:
@@ -1921,13 +1922,14 @@ class AutonomousTraderV2:
                     trend_score += 4
                     result['reasons'].append("Above slow EMA")
                 else:
-                    # For bounce trades, being below EMAs is EXPECTED - don't penalize!
-                    if is_likely_bounce:
-                        trend_score += 5  # Small bonus for bounce trades (contrarian)
-                        result['reasons'].append("Bounce trade: Below EMAs but buying the dip")
-                        result['entry_type'] = 'bounce'  # Mark as bounce
+                    # For bounce trades, being below EMAs is EXPECTED and GOOD!
+                    if is_bounce_trade:
+                        trend_score += 8  # Bonus for bounce trade setup
+                        result['reasons'].append("BOUNCE: Below EMAs = buying the fear!")
+                        result['entry_type'] = 'bounce'
                     else:
-                        result['warnings'].append("Price below both EMAs - risky long")
+                        trend_score -= 5  # Small penalty (not a hard block!)
+                        result['reasons'].append("Below EMAs (not ideal)")
                 
                 # EMA crossover (bullish)
                 prev_ema_9 = self._calculate_ema(closes_5m[:-1], 9)
@@ -1948,13 +1950,14 @@ class AutonomousTraderV2:
                     trend_score += 4
                     result['reasons'].append("Below slow EMA")
                 else:
-                    # For mean-reversion shorts after pump, being above EMAs is expected
-                    is_likely_pump_short = (price_change_24h > 8 and direction == 'short')
-                    if is_likely_pump_short:
-                        trend_score += 5
-                        result['reasons'].append("Pump short: Above EMAs but shorting the top")
+                    # For pump-short trades, being above EMAs is EXPECTED!
+                    if is_pump_short:
+                        trend_score += 8  # Bonus for short setup on pump
+                        result['reasons'].append("PUMP-SHORT: Above EMAs = selling the greed!")
+                        result['entry_type'] = 'bounce'  # Same logic
                     else:
-                        result['warnings'].append("Price above both EMAs - risky short")
+                        trend_score -= 5  # Small penalty (not a hard block!)
+                        result['reasons'].append("Above EMAs (not ideal)")
                 
                 # EMA crossover (bearish)
                 prev_ema_9 = self._calculate_ema(closes_5m[:-1], 9)
@@ -2224,16 +2227,9 @@ class AutonomousTraderV2:
             
             min_score = min_score_thresholds.get(result['entry_type'], 55)
             
-            # Use preset's min_master_score, BUT give bounce/reversal trades an exception
-            # (they're contrarian trades with lower natural scores)
+            # Use preset's min_master_score if higher (SMART preset uses 55+)
             preset_min_score = getattr(self, 'min_master_score', 45)
-            
-            # For bounce and reversal trades, use the LOWER of entry_type threshold and preset
-            # (these trades are contrarian and shouldn't be held to trend-following standards)
-            if result['entry_type'] in ['bounce', 'reversal']:
-                # Use entry_type threshold (lower) for contrarian trades
-                result['reasons'].append(f"Contrarian trade - using {result['entry_type']} threshold: {min_score}")
-            elif preset_min_score > min_score:
+            if preset_min_score > min_score:
                 min_score = preset_min_score
                 result['reasons'].append(f"Using preset min_score: {min_score}")
             
@@ -2245,26 +2241,37 @@ class AutonomousTraderV2:
             check_rr = getattr(self, 'require_positive_rr', True)
             check_ev = getattr(self, 'require_positive_ev', False)
             
-            # SMART preset requires higher R:R (1.5+) for quality trades
-            # Other presets just need R:R > 1.0
-            min_rr = 1.5 if check_ev else 1.0  # SMART has require_positive_ev=True
-            
+            # ═══════════════════════════════════════════════════════════════
+            # EXCELLENT R:R OVERRIDE - If R:R is amazing, lower score threshold!
+            # ═══════════════════════════════════════════════════════════════
+            # Philosophy: A trade with R:R >= 3:1 and +EV is ALWAYS worth taking!
+            # Even if score is lower, the risk/reward math works in our favor.
+            # 
+            excellent_rr = risk_reward >= 3.0 and expected_value > 0
+            if excellent_rr and total_score >= 20:  # Very low bar for excellent R:R
+                result['should_enter'] = True
+                result['reasons'].append(f"✓ EXCELLENT R:R OVERRIDE: R:R={risk_reward:.1f}:1, EV=+{expected_value:.2f}%")
             # REJECT if negative EV (only if flag is ON)
-            if check_ev and expected_value <= 0:
+            elif check_ev and expected_value <= 0:
                 result['should_enter'] = False
                 result['warnings'].append(f"NEGATIVE EV ({expected_value:.3f}%) - NO TRADE!")
             # REJECT if R:R is bad (only if flag is ON)
-            elif check_rr and risk_reward < min_rr:
+            elif check_rr and risk_reward < 1.0:
                 result['should_enter'] = False
-                result['warnings'].append(f"R:R too low ({risk_reward:.2f}:1 < {min_rr:.1f}) - need better entry!")
+                result['warnings'].append(f"BAD R:R ({risk_reward:.2f}:1) - risk exceeds reward!")
             # REJECT if edge is negative
             elif edge <= 0:
                 result['should_enter'] = False
                 result['warnings'].append(f"Negative edge ({edge:.3f}) - no trade")
-            # REJECT if score too low
+            # REJECT if score too low (but allow slightly lower for good R:R)
             elif total_score < min_score:
-                result['should_enter'] = False
-                result['warnings'].append(f"Score {total_score} < {min_score} required for {result['entry_type']}")
+                # If R:R is good (>= 2:1) and EV positive, lower the bar
+                if risk_reward >= 2.0 and expected_value > 0 and total_score >= min_score - 15:
+                    result['should_enter'] = True
+                    result['reasons'].append(f"✓ GOOD R:R ALLOWS: Score={total_score}, R:R={risk_reward:.1f}:1")
+                else:
+                    result['should_enter'] = False
+                    result['warnings'].append(f"Score {total_score} < {min_score} required for {result['entry_type']}")
             else:
                 # ALL CHECKS PASSED - This is a HIGH QUALITY trade!
                 result['should_enter'] = True
@@ -2533,20 +2540,22 @@ class AutonomousTraderV2:
                     reason = f"MASTER: Score {master_result['score']}, Edge {master_result['edge']:.3f}, Type: {master_result['entry_type']}"
                     return True, reason
                 
-                # If master detector rejected but it's a breakout OR bounce trade, use legacy scoring as fallback
-                # Bounce trades and breakouts get a second chance with legacy scoring
-                is_bounce = getattr(opp, 'is_bounce_trade', False) or master_result.get('entry_type') == 'bounce'
+                # If master detector rejected but it's a breakout OR bounce, use legacy scoring as fallback
+                # Bounce trades and breakouts are special - they deserve a second chance
+                is_bounce = master_result.get('entry_type') == 'bounce' or getattr(opp, 'is_bounce_trade', False)
                 
                 if not is_breakout and not is_bounce:
-                    # For normal momentum trades, trust master detector rejection
+                    # For regular momentum trades, trust master detector rejection
                     warning = master_result['warnings'][0] if master_result['warnings'] else "Master detector rejected"
                     return False, warning
                 
                 # For bounce trades with good R:R, allow them even if score is low
                 # (they're contrarian by nature - buying the fear)
-                if is_bounce and master_result.get('risk_reward', 0) >= 2.0 and master_result.get('expected_value', 0) > 0:
-                    logger.info(f"BOUNCE OVERRIDE: {opp.symbol} - R:R {master_result.get('risk_reward', 0):.1f} + EV {master_result.get('expected_value', 0):.2f}% allows entry despite low score")
-                    return True, f"Bounce trade: R:R={master_result.get('risk_reward', 0):.1f}:1, EV={master_result.get('expected_value', 0):.2f}%"
+                rr = master_result.get('risk_reward_ratio', 0)
+                ev = master_result.get('expected_value', 0)
+                if is_bounce and rr >= 2.0 and ev > 0:
+                    logger.info(f"BOUNCE OVERRIDE: {opp.symbol} - R:R {rr:.1f} + EV {ev:.2f}% allows entry despite low score")
+                    return True, f"Bounce trade: R:R={rr:.1f}:1, EV={ev:.2f}%"
             
             # ═══════════════════════════════════════════════════════════════
             # LEGACY SCORING (used when master detector OFF or for breakout fallback)
@@ -4417,10 +4426,22 @@ class AutonomousTraderV2:
         except Exception as e:
             logger.debug(f"Capital allocator skipped: {e}")
             
-        # 7. Regime check
+        # 7. Regime check - BUT allow excellent R:R trades through!
         if opp.regime_action == 'avoid':
-            self.stats['trades_rejected_regime'] += 1
-            return False, f"Regime recommends avoid"
+            # Check if this trade has excellent R:R from master detector
+            master = getattr(opp, 'master_analysis', None)
+            if master:
+                rr = master.get('risk_reward_ratio', 0)
+                ev = master.get('expected_value', 0)
+                # OVERRIDE: Allow trades with R:R >= 3:1 and positive EV even in bad regime
+                if rr >= 3.0 and ev > 0:
+                    logger.info(f"REGIME OVERRIDE: {opp.symbol} - Excellent R:R {rr:.1f}:1 allows trade despite regime")
+                else:
+                    self.stats['trades_rejected_regime'] += 1
+                    return False, f"Regime recommends avoid"
+            else:
+                self.stats['trades_rejected_regime'] += 1
+                return False, f"Regime recommends avoid"
         
         # 7.5 MICRO PROFIT EXTRA VALIDATION - Must have strong agreement
         if self.risk_mode == "micro_profit":
@@ -4473,10 +4494,14 @@ class AutonomousTraderV2:
                 quality_confirmations += 1  # Extra point for high score
                 quality_reasons.append("HighScore")
         
-        # Check 2: Positive R:R ratio
-        if master_analysis and master_analysis.get('risk_reward_ratio', 0) >= 1.5:
+        # Check 2: Positive R:R ratio (CRITICAL - excellent R:R = 2 confirmations!)
+        rr_value = master_analysis.get('risk_reward_ratio', 0) if master_analysis else 0
+        if rr_value >= 3.0:
+            quality_confirmations += 2  # EXCELLENT R:R = 2 confirmations!
+            quality_reasons.append(f"R:R={rr_value:.1f}(EXCELLENT)")
+        elif rr_value >= 1.5:
             quality_confirmations += 1
-            quality_reasons.append(f"R:R={master_analysis.get('risk_reward_ratio', 0):.1f}")
+            quality_reasons.append(f"R:R={rr_value:.1f}")
         
         # Check 3: Positive Expected Value
         if master_analysis and master_analysis.get('expected_value', 0) > 0:
