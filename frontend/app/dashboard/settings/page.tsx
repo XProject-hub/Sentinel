@@ -340,7 +340,8 @@ export default function SettingsPage() {
     // Get preset-specific values (with defaults)
     const presetMinEdge = mode === 'SMART' ? 0.25 : (mode === 'SWING' ? 0.20 : 0.15)
     const presetMinConf = mode === 'SMART' ? 70 : (mode === 'SWING' ? 72 : 60)
-    const presetMaxPos = mode === 'SMART' ? 6 : (mode === 'SWING' ? 5 : (mode === 'SCALP' ? 8 : 10))
+    // Don't override max positions - let user decide (default 10 for all)
+    const presetMaxPos = mode === 'SWING' ? 5 : (mode === 'SCALP' ? 8 : 10)
     
     setSettings(prev => ({
       ...prev,

@@ -567,8 +567,8 @@ class AutonomousTraderV2:
                 'min_models_agree': 2,
                 'require_positive_ev': True,  # CRITICAL: Must have positive EV
                 
-                # POSITION LIMITS - FEWER BUT BETTER
-                'max_positions': 6,        # Only 6 positions max!
+                # POSITION LIMITS - Use user setting (default 10)
+                'max_positions': 10,       # Default 10, user can override
                 
                 # SMART MODE FLAGS
                 'use_smart_exit': True,      # Use new smart trailing
