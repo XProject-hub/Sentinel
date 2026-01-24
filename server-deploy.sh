@@ -18,6 +18,10 @@ echo ""
 echo "[1/5] Pulling latest code..."
 git pull origin main
 
+# Export git commit for version tracking
+export GIT_COMMIT=$(git rev-parse --short HEAD)
+echo "Git commit: $GIT_COMMIT"
+
 # Check if .env exists
 if [ ! -f .env ]; then
     echo "[!] Creating .env from template..."

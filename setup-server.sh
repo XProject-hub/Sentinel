@@ -121,6 +121,10 @@ cd /opt/sentinel
 echo "Pulling latest changes..."
 git pull origin main
 
+echo "Exporting git commit..."
+export GIT_COMMIT=$(git rev-parse --short HEAD)
+echo "Git commit: $GIT_COMMIT"
+
 echo "Building containers..."
 docker compose build
 
