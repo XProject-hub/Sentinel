@@ -572,9 +572,13 @@ class MarketScanner:
             self.all_symbols = []
             self.symbol_info = {}
             
+            usdt_count = 0
+            usdc_count = 0
+            
             for inst in instruments:
                 symbol = inst.get('symbol', '')
-                if symbol.endswith('USDT'):
+                # Load BOTH USDT and USDC perpetual futures for maximum coverage
+                if symbol.endswith('USDT') or symbol.endswith('USDC'):
                     self.all_symbols.append(symbol)
                     self.symbol_info[symbol] = {
                         'min_qty': float(inst.get('lotSizeFilter', {}).get('minOrderQty', 0.001)),
@@ -582,8 +586,12 @@ class MarketScanner:
                         'tick_size': float(inst.get('priceFilter', {}).get('tickSize', 0.01)),
                         'min_notional': float(inst.get('lotSizeFilter', {}).get('minNotionalValue', 5))
                     }
+                    if symbol.endswith('USDT'):
+                        usdt_count += 1
+                    else:
+                        usdc_count += 1
                     
-            logger.info(f"Loaded {len(self.all_symbols)} crypto trading pairs")
+            logger.info(f"Loaded {len(self.all_symbols)} crypto trading pairs ({usdt_count} USDT + {usdc_count} USDC)")
             
             # Mark all as crypto
             for symbol in self.all_symbols:
