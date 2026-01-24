@@ -14,7 +14,11 @@ import base64
 from loguru import logger
 
 from services.bybit_client import BybitV5Client
+from services.binance_client import BinanceClient
 from config import settings
+
+# Type alias for exchange clients
+ExchangeClient = BybitV5Client | BinanceClient
 
 router = APIRouter()
 
@@ -86,18 +90,28 @@ user_exchange_connections = {}
 async def verify_credentials(request: VerifyCredentialsRequest):
     """Verify exchange API credentials without storing them"""
     
-    if request.exchange.lower() != "bybit":
+    exchange = request.exchange.lower()
+    
+    if exchange not in ["bybit", "binance"]:
         return {
             "valid": False,
-            "error": "Only Bybit is currently supported"
+            "error": "Only Bybit and Binance are currently supported"
         }
     
     try:
-        client = BybitV5Client(
-            api_key=request.api_key,
-            api_secret=request.api_secret,
-            testnet=request.is_testnet
-        )
+        # Create appropriate client based on exchange
+        if exchange == "binance":
+            client = BinanceClient(
+                api_key=request.api_key,
+                api_secret=request.api_secret,
+                testnet=request.is_testnet
+            )
+        else:  # bybit (default)
+            client = BybitV5Client(
+                api_key=request.api_key,
+                api_secret=request.api_secret,
+                testnet=request.is_testnet
+            )
         
         # Test connection
         result = await client.test_connection()
@@ -110,21 +124,34 @@ async def verify_credentials(request: VerifyCredentialsRequest):
             }
         
         # Get balance to verify permissions
-        balance_result = await client.get_wallet_balance(account_type="UNIFIED")
-        
         balance = None
-        if balance_result.get("result", {}).get("list"):
-            account = balance_result["result"]["list"][0]
-            balance = {
-                "total_equity": float(account.get("totalEquity", 0)),
-                "currency": "USDT"
-            }
+        if exchange == "binance":
+            balance_result = await client.get_wallet_balance()
+            if balance_result.get("success") and balance_result.get("data"):
+                # Binance returns array of balances
+                total_balance = 0.0
+                for asset in balance_result["data"]:
+                    if asset.get("asset") == "USDT":
+                        total_balance = float(asset.get("balance", 0))
+                        break
+                balance = {
+                    "total_equity": total_balance,
+                    "currency": "USDT"
+                }
+        else:  # bybit
+            balance_result = await client.get_wallet_balance(account_type="UNIFIED")
+            if balance_result.get("result", {}).get("list"):
+                account = balance_result["result"]["list"][0]
+                balance = {
+                    "total_equity": float(account.get("totalEquity", 0)),
+                    "currency": "USDT"
+                }
         
         await client.close()
         
         return {
             "valid": True,
-            "permissions": ["read", "trade"],  # Bybit V5 API has these by default
+            "permissions": ["read", "trade"],
             "balance": balance
         }
         
@@ -155,27 +182,42 @@ async def set_user_credentials(request: UserCredentialsRequest):
         
         # If active, create connection for API calls
         if request.is_active:
-            client = BybitV5Client(
-                api_key=request.api_key,
-                api_secret=request.api_secret,
-                testnet=request.is_testnet
-            )
+            # Create appropriate client based on exchange
+            exchange = request.exchange.lower()
+            if exchange == "binance":
+                client = BinanceClient(
+                    api_key=request.api_key,
+                    api_secret=request.api_secret,
+                    testnet=request.is_testnet
+                )
+            else:  # bybit (default)
+                client = BybitV5Client(
+                    api_key=request.api_key,
+                    api_secret=request.api_secret,
+                    testnet=request.is_testnet
+                )
             user_exchange_connections[f"{request.user_id}:{request.exchange}"] = client
             
             # Connect user to autonomous trader (but DON'T start trading automatically for NEW users)
+            # Note: Autonomous trader currently only supports Bybit
             # Import here to avoid circular imports at module load time
             from services.autonomous_trader_v2 import autonomous_trader_v2
             
             # Check if this is a NEW user (never traded before) or existing user
             is_new_user = not await r.exists(f'trading:started:{request.user_id}')
             
-            # Connect user to autonomous trader
-            connected = await autonomous_trader_v2.connect_user(
-                user_id=request.user_id,
-                api_key=request.api_key,
-                api_secret=request.api_secret,
-                testnet=request.is_testnet
-            )
+            # Connect user to autonomous trader (Bybit only for now)
+            connected = False
+            if exchange == "bybit":
+                connected = await autonomous_trader_v2.connect_user(
+                    user_id=request.user_id,
+                    api_key=request.api_key,
+                    api_secret=request.api_secret,
+                    testnet=request.is_testnet
+                )
+            else:
+                # Binance autonomous trading support coming soon
+                logger.info(f"User {request.user_id} connected to {exchange} (autonomous trading pending)")
             
             if connected:
                 if is_new_user:
@@ -227,10 +269,11 @@ async def remove_user_credentials(user_id: str, exchange: str):
         return {"success": False, "error": str(e)}
 
 
-async def get_user_client(user_id: str, exchange: str = "bybit") -> Optional[BybitV5Client]:
+async def get_user_client(user_id: str, exchange: str = "bybit") -> Optional[ExchangeClient]:
     """Get or create exchange client for a specific user"""
     
     conn_key = f"{user_id}:{exchange}"
+    exchange = exchange.lower()
     
     # Return existing connection if available
     if conn_key in user_exchange_connections:
@@ -266,11 +309,19 @@ async def get_user_client(user_id: str, exchange: str = "bybit") -> Optional[Byb
         if not api_key or not api_secret:
             return None
         
-        client = BybitV5Client(
-            api_key=api_key,
-            api_secret=api_secret,
-            testnet=is_testnet
-        )
+        # Create appropriate client based on exchange
+        if exchange == "binance":
+            client = BinanceClient(
+                api_key=api_key,
+                api_secret=api_secret,
+                testnet=is_testnet
+            )
+        else:  # bybit (default)
+            client = BybitV5Client(
+                api_key=api_key,
+                api_secret=api_secret,
+                testnet=is_testnet
+            )
         
         user_exchange_connections[conn_key] = client
         return client
@@ -284,15 +335,24 @@ async def get_user_client(user_id: str, exchange: str = "bybit") -> Optional[Byb
 async def test_exchange_connection(request: TestConnectionRequest):
     """Test exchange API connection"""
     
-    if request.exchange.lower() != "bybit":
-        return {"success": False, "error": "Only Bybit is currently supported"}
+    exchange = request.exchange.lower()
+    if exchange not in ["bybit", "binance"]:
+        return {"success": False, "error": "Only Bybit and Binance are currently supported"}
         
     try:
-        client = BybitV5Client(
-            api_key=request.apiKey,
-            api_secret=request.apiSecret,
-            testnet=False
-        )
+        # Create appropriate client based on exchange
+        if exchange == "binance":
+            client = BinanceClient(
+                api_key=request.apiKey,
+                api_secret=request.apiSecret,
+                testnet=False
+            )
+        else:  # bybit (default)
+            client = BybitV5Client(
+                api_key=request.apiKey,
+                api_secret=request.apiSecret,
+                testnet=False
+            )
         
         result = await client.test_connection()
         await client.close()
@@ -308,16 +368,24 @@ async def test_exchange_connection(request: TestConnectionRequest):
 async def connect_exchange(credentials: ExchangeCredentials):
     """Connect and store exchange credentials - PERSISTED to Redis"""
     
-    if credentials.exchange.lower() != "bybit":
-        return {"success": False, "error": "Only Bybit is currently supported"}
+    exchange = credentials.exchange.lower()
+    if exchange not in ["bybit", "binance"]:
+        return {"success": False, "error": "Only Bybit and Binance are currently supported"}
         
     try:
-        # Test connection first
-        client = BybitV5Client(
-            api_key=credentials.apiKey,
-            api_secret=credentials.apiSecret,
-            testnet=credentials.testnet
-        )
+        # Test connection first - create appropriate client based on exchange
+        if exchange == "binance":
+            client = BinanceClient(
+                api_key=credentials.apiKey,
+                api_secret=credentials.apiSecret,
+                testnet=credentials.testnet
+            )
+        else:  # bybit (default)
+            client = BybitV5Client(
+                api_key=credentials.apiKey,
+                api_secret=credentials.apiSecret,
+                testnet=credentials.testnet
+            )
         
         result = await client.test_connection()
         
@@ -327,22 +395,23 @@ async def connect_exchange(credentials: ExchangeCredentials):
             
         # Store connection in memory
         exchange_connections["default"] = client
-        user_exchange_connections["default:bybit"] = client
+        user_exchange_connections[f"default:{exchange}"] = client
         
         # PERSIST credentials to Redis (encrypted) - BOTH formats for compatibility
         r = await get_redis()
         
-        # Legacy format (for backwards compatibility)
-        await r.hset("exchange:credentials:default", mapping={
-            "exchange": credentials.exchange,
-            "api_key": simple_encrypt(credentials.apiKey),
-            "api_secret": simple_encrypt(credentials.apiSecret),
-            "testnet": "1" if credentials.testnet else "0",
-            "connected_at": str(json.dumps({"ts": "now"})),
-        })
+        # Legacy format (for backwards compatibility) - only for bybit
+        if exchange == "bybit":
+            await r.hset("exchange:credentials:default", mapping={
+                "exchange": credentials.exchange,
+                "api_key": simple_encrypt(credentials.apiKey),
+                "api_secret": simple_encrypt(credentials.apiSecret),
+                "testnet": "1" if credentials.testnet else "0",
+                "connected_at": str(json.dumps({"ts": "now"})),
+            })
         
         # New format (for get_user_client)
-        await r.hset("user:default:exchange:bybit", mapping={
+        await r.hset(f"user:default:exchange:{exchange}", mapping={
             "api_key": simple_encrypt(credentials.apiKey),
             "api_secret": simple_encrypt(credentials.apiSecret),
             "is_testnet": "1" if credentials.testnet else "0",
@@ -350,11 +419,11 @@ async def connect_exchange(credentials: ExchangeCredentials):
             "updated_at": datetime.utcnow().isoformat(),
         })
         
-        logger.info("Exchange credentials saved to Redis (both formats) - will persist across restarts")
+        logger.info(f"{exchange.capitalize()} credentials saved to Redis - will persist across restarts")
         
         return {
             "success": True,
-            "message": "Exchange connected successfully - credentials saved"
+            "message": f"{exchange.capitalize()} connected successfully - credentials saved"
         }
         
     except Exception as e:

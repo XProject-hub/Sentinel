@@ -39,6 +39,15 @@ export default function ConnectExchangePage() {
     api_secret: '',
     is_testnet: false,
   })
+
+  // Update form name when exchange is selected
+  useEffect(() => {
+    if (selectedExchange === 'binance') {
+      setFormData(prev => ({ ...prev, name: 'My Binance Account' }))
+    } else {
+      setFormData(prev => ({ ...prev, name: 'My Bybit Account' }))
+    }
+  }, [selectedExchange])
   const [showSecret, setShowSecret] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -87,9 +96,9 @@ export default function ConnectExchangePage() {
     {
       id: 'binance',
       name: 'Binance',
-      description: 'World\'s largest crypto exchange',
-      supported: false,
-      comingSoon: true,
+      description: "World's largest crypto exchange",
+      supported: true,
+      apiGuideUrl: 'https://www.binance.com/en/my/settings/api-management',
     },
     {
       id: 'okx',
@@ -149,9 +158,10 @@ export default function ConnectExchangePage() {
     )
   }
 
-  // If user already has a Bybit connection, show management view
-  const bybitConnection = existingConnections.find(c => c.exchange === 'bybit')
-  if (bybitConnection) {
+  // If user already has any exchange connection, show management view
+  const existingConnection = existingConnections.find(c => c.exchange === 'bybit' || c.exchange === 'binance')
+  if (existingConnection) {
+    const exchangeName = existingConnection.exchange === 'binance' ? 'Binance' : 'Bybit'
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6">
         <div className="max-w-2xl mx-auto">
@@ -161,40 +171,48 @@ export default function ConnectExchangePage() {
             className="bg-slate-900/50 border border-slate-800 rounded-2xl p-8"
           >
             <div className="flex items-center gap-4 mb-6">
-              <div className="w-16 h-16 bg-gradient-to-br from-yellow-500 to-orange-500 rounded-xl flex items-center justify-center">
+              <div className={`w-16 h-16 rounded-xl flex items-center justify-center ${
+                existingConnection.exchange === 'binance' 
+                  ? 'bg-gradient-to-br from-yellow-400 to-yellow-600' 
+                  : 'bg-gradient-to-br from-yellow-500 to-orange-500'
+              }`}>
                 <Wallet className="w-8 h-8 text-white" />
               </div>
               <div>
                 <h1 className="text-2xl font-bold text-white">Exchange Connected</h1>
-                <p className="text-slate-400">Your Bybit account is already connected</p>
+                <p className="text-slate-400">Your {exchangeName} account is already connected</p>
               </div>
             </div>
 
             <div className="bg-slate-800/50 rounded-xl p-4 mb-6">
               <div className="flex items-center justify-between mb-2">
+                <span className="text-slate-400">Exchange</span>
+                <span className="text-white font-medium">{exchangeName}</span>
+              </div>
+              <div className="flex items-center justify-between mb-2">
                 <span className="text-slate-400">Account Name</span>
-                <span className="text-white font-medium">{bybitConnection.name}</span>
+                <span className="text-white font-medium">{existingConnection.name}</span>
               </div>
               <div className="flex items-center justify-between mb-2">
                 <span className="text-slate-400">API Key</span>
-                <span className="text-white font-mono text-sm">{bybitConnection.api_key_masked}</span>
+                <span className="text-white font-mono text-sm">{existingConnection.api_key_masked}</span>
               </div>
               <div className="flex items-center justify-between mb-2">
                 <span className="text-slate-400">Mode</span>
                 <span className={`px-2 py-1 rounded text-xs font-medium ${
-                  bybitConnection.is_testnet 
+                  existingConnection.is_testnet 
                     ? 'bg-yellow-500/20 text-yellow-400' 
                     : 'bg-green-500/20 text-green-400'
                 }`}>
-                  {bybitConnection.is_testnet ? 'Testnet' : 'Mainnet'}
+                  {existingConnection.is_testnet ? 'Testnet' : 'Mainnet'}
                 </span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-slate-400">Status</span>
                 <span className={`flex items-center gap-1.5 ${
-                  bybitConnection.is_active ? 'text-green-400' : 'text-red-400'
+                  existingConnection.is_active ? 'text-green-400' : 'text-red-400'
                 }`}>
-                  {bybitConnection.is_active ? (
+                  {existingConnection.is_active ? (
                     <>
                       <CheckCircle className="w-4 h-4" />
                       Active
@@ -241,7 +259,7 @@ export default function ConnectExchangePage() {
             <CheckCircle className="w-10 h-10 text-green-400" />
           </div>
           <h2 className="text-2xl font-bold text-white mb-2">Exchange Connected!</h2>
-          <p className="text-slate-400 mb-4">Your Bybit account has been successfully connected.</p>
+          <p className="text-slate-400 mb-4">Your {selectedExchange === 'binance' ? 'Binance' : 'Bybit'} account has been successfully connected.</p>
           <p className="text-sm text-slate-500">Redirecting to dashboard...</p>
         </motion.div>
       </div>
@@ -328,26 +346,48 @@ export default function ConnectExchangePage() {
             className="max-w-xl mx-auto"
           >
             <div className="bg-slate-900/50 border border-slate-800 rounded-2xl p-6 mb-6">
-              {/* Info Box */}
+              {/* Info Box - Dynamic based on exchange */}
               <div className="bg-blue-500/10 border border-blue-500/30 rounded-xl p-4 mb-6">
                 <div className="flex items-start gap-3">
                   <Info className="w-5 h-5 text-blue-400 flex-shrink-0 mt-0.5" />
                   <div className="text-sm">
                     <p className="text-blue-300 font-medium mb-1">How to get your API Keys:</p>
-                    <ol className="text-blue-200/80 space-y-1 list-decimal list-inside">
-                      <li>Log in to your Bybit account</li>
-                      <li>Go to API Management in settings</li>
-                      <li>Create new API key with "Contract" permissions</li>
-                      <li>Enable "Trade" permission only (read is automatic)</li>
-                    </ol>
-                    <a 
-                      href="https://www.bybit.com/app/user/api-management" 
-                      target="_blank" 
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 text-cyan-400 hover:text-cyan-300 mt-2"
-                    >
-                      Open Bybit API Settings <ExternalLink className="w-3 h-3" />
-                    </a>
+                    {selectedExchange === 'binance' ? (
+                      <>
+                        <ol className="text-blue-200/80 space-y-1 list-decimal list-inside">
+                          <li>Log in to your Binance account</li>
+                          <li>Go to API Management in settings</li>
+                          <li>Create new API key</li>
+                          <li>Enable "Enable Futures" permission</li>
+                          <li>Optionally restrict to your IP address</li>
+                        </ol>
+                        <a 
+                          href="https://www.binance.com/en/my/settings/api-management" 
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 text-cyan-400 hover:text-cyan-300 mt-2"
+                        >
+                          Open Binance API Settings <ExternalLink className="w-3 h-3" />
+                        </a>
+                      </>
+                    ) : (
+                      <>
+                        <ol className="text-blue-200/80 space-y-1 list-decimal list-inside">
+                          <li>Log in to your Bybit account</li>
+                          <li>Go to API Management in settings</li>
+                          <li>Create new API key with "Contract" permissions</li>
+                          <li>Enable "Trade" permission only (read is automatic)</li>
+                        </ol>
+                        <a 
+                          href="https://www.bybit.com/app/user/api-management" 
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 text-cyan-400 hover:text-cyan-300 mt-2"
+                        >
+                          Open Bybit API Settings <ExternalLink className="w-3 h-3" />
+                        </a>
+                      </>
+                    )}
                   </div>
                 </div>
               </div>
@@ -363,7 +403,7 @@ export default function ConnectExchangePage() {
                       value={formData.name}
                       onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                       className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:border-cyan-500 focus:outline-none"
-                      placeholder="My Bybit Account"
+                      placeholder={selectedExchange === 'binance' ? 'My Binance Account' : 'My Bybit Account'}
                       required
                     />
                   </div>
