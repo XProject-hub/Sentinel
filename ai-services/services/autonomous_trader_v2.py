@@ -4492,6 +4492,9 @@ class AutonomousTraderV2:
         is_breakout = getattr(opp, 'is_breakout', False) or abs(getattr(opp, 'price_change_24h', 0)) >= 5
         is_bounce = getattr(opp, 'is_bounce_trade', False)
         
+        # Get master analysis early - needed for quality gate checks
+        master_analysis = getattr(opp, 'master_analysis', None)
+        
         quality_confirmations = 0
         
         # Quality requirements based on preset/trade type
