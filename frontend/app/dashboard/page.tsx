@@ -35,7 +35,7 @@ import {
 import Logo from '@/components/Logo'
 import ConnectExchangePrompt from '@/components/ConnectExchangePrompt'
 import MaintenanceNotification from '@/components/MaintenanceNotification'
-import { XAxis, YAxis, Tooltip, ResponsiveContainer, Area, AreaChart } from 'recharts'
+import { XAxis, YAxis, Tooltip, ResponsiveContainer, Area, AreaChart, Line, LineChart as RechartsLineChart } from 'recharts'
 
 interface Position {
   symbol: string
@@ -160,6 +160,7 @@ export default function DashboardPage() {
   const [pnlHistory, setPnlHistory] = useState<{time: string, pnl: number}[]>([])
   const [last100Pnl, setLast100Pnl] = useState<number>(0)
   const [userId, setUserId] = useState<string>('default')
+  const [priceCharts, setPriceCharts] = useState<{[symbol: string]: {close: number}[]}>({})
   
   const consoleRef = useRef<HTMLDivElement>(null)
 
@@ -251,7 +252,24 @@ export default function DashboardPage() {
 
       if (positionsRes.ok) {
         const data = await positionsRes.json()
-        setPositions(data.data?.positions || [])
+        const newPositions = data.data?.positions || []
+        setPositions(newPositions)
+        
+        // Fetch sparkline data for all position symbols
+        if (newPositions.length > 0) {
+          const symbols = newPositions.map((p: Position) => p.symbol).join(',')
+          try {
+            const klinesRes = await fetch(`/ai/exchange/klines-batch?symbols=${symbols}&interval=5&limit=20&user_id=${uid}`)
+            if (klinesRes.ok) {
+              const klinesData = await klinesRes.json()
+              if (klinesData.success) {
+                setPriceCharts(klinesData.data || {})
+              }
+            }
+          } catch (e) {
+            console.warn('Failed to fetch sparkline data:', e)
+          }
+        }
       }
 
       if (statusRes.ok) {
@@ -729,6 +747,7 @@ export default function DashboardPage() {
                   <thead className="sticky top-0 bg-[#060a13] z-10">
                     <tr className="border-b border-white/5">
                       <th className="text-left text-[10px] font-medium text-gray-500 px-3 py-2">PAIR</th>
+                      <th className="text-center text-[10px] font-medium text-gray-500 px-1 py-2" style={{width: '80px'}}>CHART</th>
                       <th className="text-left text-[10px] font-medium text-gray-500 px-3 py-2">SIDE</th>
                       <th className="text-right text-[10px] font-medium text-gray-500 px-3 py-2">SIZE / MARGIN</th>
                       <th className="text-right text-[10px] font-medium text-gray-500 px-3 py-2">ENTRY</th>
@@ -794,6 +813,27 @@ export default function DashboardPage() {
                                 </span>
                               )}
                             </div>
+                          </td>
+                          {/* Mini Sparkline Chart */}
+                          <td className="px-1 py-1" style={{width: '80px'}}>
+                            {priceCharts[pos.symbol] && priceCharts[pos.symbol].length > 1 ? (
+                              <ResponsiveContainer width={70} height={28}>
+                                <RechartsLineChart data={priceCharts[pos.symbol]}>
+                                  <Line 
+                                    type="monotone" 
+                                    dataKey="close" 
+                                    stroke={finalPnlEUR >= 0 ? '#10b981' : '#ef4444'}
+                                    strokeWidth={1.5}
+                                    dot={false}
+                                    isAnimationActive={false}
+                                  />
+                                </RechartsLineChart>
+                              </ResponsiveContainer>
+                            ) : (
+                              <div className="w-[70px] h-[28px] flex items-center justify-center">
+                                <div className="w-8 h-1 bg-gray-700 rounded animate-pulse"></div>
+                              </div>
+                            )}
                           </td>
                           <td className="px-3 py-2">
                             <span className={`px-1.5 py-0.5 rounded text-[9px] font-medium ${

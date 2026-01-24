@@ -1197,6 +1197,82 @@ async def get_positions(user_id: str = "default"):
     }
 
 
+@router.get("/klines/{symbol}")
+async def get_klines(symbol: str, interval: str = "5", limit: int = 30, user_id: str = "default"):
+    """Get kline/candlestick data for sparkline charts"""
+    
+    client = await get_user_client(user_id, "bybit")
+    if not client:
+        return {"success": False, "error": "No exchange connected"}
+    
+    try:
+        result = await client.get_klines(symbol=symbol, interval=interval, limit=limit)
+        
+        if not result.get("success"):
+            return {"success": False, "error": "Failed to fetch klines"}
+        
+        kline_list = result.get("data", {}).get("list", [])
+        
+        # Parse klines: [timestamp, open, high, low, close, volume, turnover]
+        # Reverse to chronological order (Bybit returns newest first)
+        prices = []
+        for kline in reversed(kline_list):
+            prices.append({
+                "time": int(kline[0]),
+                "open": float(kline[1]),
+                "high": float(kline[2]),
+                "low": float(kline[3]),
+                "close": float(kline[4]),
+                "volume": float(kline[5])
+            })
+        
+        return {
+            "success": True,
+            "data": {
+                "symbol": symbol,
+                "interval": interval,
+                "prices": prices
+            }
+        }
+    except Exception as e:
+        logger.error(f"Error fetching klines for {symbol}: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@router.get("/klines-batch")
+async def get_klines_batch(symbols: str, interval: str = "5", limit: int = 20, user_id: str = "default"):
+    """Get klines for multiple symbols at once (comma-separated)"""
+    
+    client = await get_user_client(user_id, "bybit")
+    if not client:
+        return {"success": False, "error": "No exchange connected"}
+    
+    symbol_list = [s.strip() for s in symbols.split(",") if s.strip()]
+    results = {}
+    
+    for symbol in symbol_list[:20]:  # Limit to 20 symbols
+        try:
+            result = await client.get_klines(symbol=symbol, interval=interval, limit=limit)
+            
+            if result.get("success"):
+                kline_list = result.get("data", {}).get("list", [])
+                prices = []
+                for kline in reversed(kline_list):
+                    prices.append({
+                        "time": int(kline[0]),
+                        "close": float(kline[4])  # Just close price for sparklines
+                    })
+                results[symbol] = prices
+        except Exception as e:
+            logger.warning(f"Failed to get klines for {symbol}: {e}")
+            results[symbol] = []
+    
+    return {
+        "success": True,
+        "data": results
+    }
+
+
 @router.get("/pnl")
 async def get_pnl_history(days: int = 7, limit: int = 200):
     """
