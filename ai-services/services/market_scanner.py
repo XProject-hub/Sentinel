@@ -217,10 +217,11 @@ class MarketScanner:
         # Step 3: Get regime for all viable symbols (batch)
         regimes = await self._batch_detect_regimes(viable_symbols)
         
-        # Step 4: Filter by regime - skip 'avoid' regimes
+        # Step 4: Filter by regime - skip 'AVOID' regimes
+        # Regime detector returns 'BUY', 'SELL', 'HOLD' - only 'AVOID' blocks trading
         tradeable_symbols = [
             s for s in viable_symbols
-            if regimes.get(s, {}).get('action', 'avoid') != 'avoid'
+            if str(regimes.get(s, {}).get('action', 'HOLD')).upper() != 'AVOID'
         ]
         logger.info(f"Tradeable after regime filter: {len(tradeable_symbols)}")
         
@@ -327,8 +328,10 @@ class MarketScanner:
                 
                 # Determine if should trade
                 # Note: Allow trading if regime is unknown (new symbol/startup)
-                regime_action = regime.get('action', 'hold')
-                regime_allows = regime_action in ['aggressive', 'normal', 'reduced', 'hold']
+                # Regime detector returns: 'BUY', 'SELL', 'HOLD' (uppercase)
+                regime_action = regime.get('action', 'HOLD').upper()
+                # Only 'avoid' blocks trading - BUY/SELL/HOLD all allow trading
+                regime_allows = regime_action != 'AVOID'
                 
                 # Also allow if regime is unknown but edge is strong
                 if regime.get('regime') == 'unknown' and edge_data.edge > 0.20:
@@ -354,7 +357,7 @@ class MarketScanner:
                     opportunity_score=opp_score,
                     edge_data=edge_data,
                     regime=regime.get('regime', 'unknown'),
-                    regime_action=regime.get('action', 'avoid'),
+                    regime_action=regime.get('action', 'HOLD'),  # Default to HOLD, not avoid
                     current_price=float(ticker.get('lastPrice', 0)),
                     price_change_1h=float(ticker.get('price1hPcnt', 0)) * 100,
                     price_change_24h=float(ticker.get('price24hPcnt', 0)) * 100,

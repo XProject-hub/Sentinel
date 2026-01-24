@@ -294,7 +294,8 @@ class PositionSizer:
             )
             
         # 6. Check regime - BUT allow excellent R:R trades through!
-        if regime_action == 'avoid':
+        # regime_action can be 'BUY', 'SELL', 'HOLD', or 'AVOID' (uppercase from regime detector)
+        if str(regime_action).upper() == 'AVOID':
             # OVERRIDE: If R:R is excellent (>= 2.5:1), allow the trade anyway
             # The math works in our favor even in bad regimes
             if risk_reward >= 2.5 and edge_score > 0:

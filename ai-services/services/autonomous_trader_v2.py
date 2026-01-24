@@ -2825,8 +2825,17 @@ class AutonomousTraderV2:
                 logger.info(f"SCORE OK {opp.symbol}: {score}/100 >= {min_score} | {score_str}")
                 return True, f"Score {score}/100 OK"
             else:
-                # Find the weakest component
-                lowest = min(score_breakdown, key=lambda x: int(x.split('=')[-1]) if '=' in x else 0)
+                # Find the weakest component - extract numeric value from strings like "+5(oversold)" or "25"
+                def extract_score(s):
+                    if '=' not in s:
+                        return 0
+                    val = s.split('=')[-1]
+                    # Extract just the numeric part (handles "+5(oversold)", "-10", "25", etc.)
+                    import re
+                    match = re.search(r'[+-]?\d+', val)
+                    return int(match.group()) if match else 0
+                
+                lowest = min(score_breakdown, key=extract_score)
                 logger.info(f"SCORE LOW {opp.symbol}: {score}/100 < {min_score} | {score_str}")
                 return False, f"Score {score} < {min_score} (weak: {lowest})"
             
@@ -4439,7 +4448,8 @@ class AutonomousTraderV2:
             logger.debug(f"Capital allocator skipped: {e}")
             
         # 7. Regime check - BUT allow excellent R:R trades through!
-        if opp.regime_action == 'avoid':
+        # regime_action can be 'BUY', 'SELL', 'HOLD', or 'AVOID' (uppercase from regime detector)
+        if str(getattr(opp, 'regime_action', '')).upper() == 'AVOID':
             # Check if this trade has excellent R:R from master detector
             master = getattr(opp, 'master_analysis', None)
             if master:
@@ -4559,9 +4569,9 @@ class AutonomousTraderV2:
         elif master_analysis:
             # Use master detector results
             win_probability = 0.55 + (master_analysis['score'] / 200)  # Score 60 = 0.85 win prob
-            risk_reward = 1.5  # Default R/R
+            risk_reward = master_analysis.get('risk_reward_ratio', 1.5)  # Use actual R:R from master detector!
             kelly_fraction = calculated_kelly
-            logger.info(f"Using MASTER DETECTOR sizing: win_prob={win_probability:.2f}, kelly={kelly_fraction:.3f}")
+            logger.info(f"Using MASTER DETECTOR sizing: win_prob={win_probability:.2f}, kelly={kelly_fraction:.3f}, R:R={risk_reward:.1f}:1")
         else:
             # Default fallback
             win_probability = 0.55
