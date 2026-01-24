@@ -574,7 +574,7 @@ class AutonomousTraderV2:
                 'use_smart_exit': True,      # Use new smart trailing
                 'use_master_detector': True, # Use full master detector
                 'require_positive_rr': True, # Require R:R > 1.0
-                'min_master_score': 55,      # NEW: Minimum master detector score
+                'min_master_score': 40,      # Lowered from 55 - bounce/reversal use own thresholds
                 'use_mean_reversion': False,
                 'regime_required': [],
                 'winrate_expected': '60-70%',
@@ -1904,6 +1904,10 @@ class AutonomousTraderV2:
             # ═══════════════════════════════════════════════════════════════
             trend_score = 0
             
+            # BOUNCE TRADE DETECTION: If price dumped >8% and we're going LONG, this is a bounce trade
+            # For bounce trades, being below EMAs is EXPECTED (we're buying the fear)
+            is_likely_bounce = (price_change_24h < -8 and direction == 'long')
+            
             # EMA alignment
             if direction == 'long':
                 # Bullish: price > EMA9 > EMA21
@@ -1917,7 +1921,13 @@ class AutonomousTraderV2:
                     trend_score += 4
                     result['reasons'].append("Above slow EMA")
                 else:
-                    result['warnings'].append("Price below both EMAs - risky long")
+                    # For bounce trades, being below EMAs is EXPECTED - don't penalize!
+                    if is_likely_bounce:
+                        trend_score += 5  # Small bonus for bounce trades (contrarian)
+                        result['reasons'].append("Bounce trade: Below EMAs but buying the dip")
+                        result['entry_type'] = 'bounce'  # Mark as bounce
+                    else:
+                        result['warnings'].append("Price below both EMAs - risky long")
                 
                 # EMA crossover (bullish)
                 prev_ema_9 = self._calculate_ema(closes_5m[:-1], 9)
@@ -1938,7 +1948,13 @@ class AutonomousTraderV2:
                     trend_score += 4
                     result['reasons'].append("Below slow EMA")
                 else:
-                    result['warnings'].append("Price above both EMAs - risky short")
+                    # For mean-reversion shorts after pump, being above EMAs is expected
+                    is_likely_pump_short = (price_change_24h > 8 and direction == 'short')
+                    if is_likely_pump_short:
+                        trend_score += 5
+                        result['reasons'].append("Pump short: Above EMAs but shorting the top")
+                    else:
+                        result['warnings'].append("Price above both EMAs - risky short")
                 
                 # EMA crossover (bearish)
                 prev_ema_9 = self._calculate_ema(closes_5m[:-1], 9)
@@ -2208,9 +2224,16 @@ class AutonomousTraderV2:
             
             min_score = min_score_thresholds.get(result['entry_type'], 55)
             
-            # Use preset's min_master_score if higher (SMART preset uses 55+)
+            # Use preset's min_master_score, BUT give bounce/reversal trades an exception
+            # (they're contrarian trades with lower natural scores)
             preset_min_score = getattr(self, 'min_master_score', 45)
-            if preset_min_score > min_score:
+            
+            # For bounce and reversal trades, use the LOWER of entry_type threshold and preset
+            # (these trades are contrarian and shouldn't be held to trend-following standards)
+            if result['entry_type'] in ['bounce', 'reversal']:
+                # Use entry_type threshold (lower) for contrarian trades
+                result['reasons'].append(f"Contrarian trade - using {result['entry_type']} threshold: {min_score}")
+            elif preset_min_score > min_score:
                 min_score = preset_min_score
                 result['reasons'].append(f"Using preset min_score: {min_score}")
             
@@ -2222,14 +2245,18 @@ class AutonomousTraderV2:
             check_rr = getattr(self, 'require_positive_rr', True)
             check_ev = getattr(self, 'require_positive_ev', False)
             
+            # SMART preset requires higher R:R (1.5+) for quality trades
+            # Other presets just need R:R > 1.0
+            min_rr = 1.5 if check_ev else 1.0  # SMART has require_positive_ev=True
+            
             # REJECT if negative EV (only if flag is ON)
             if check_ev and expected_value <= 0:
                 result['should_enter'] = False
                 result['warnings'].append(f"NEGATIVE EV ({expected_value:.3f}%) - NO TRADE!")
             # REJECT if R:R is bad (only if flag is ON)
-            elif check_rr and risk_reward < 1.0:
+            elif check_rr and risk_reward < min_rr:
                 result['should_enter'] = False
-                result['warnings'].append(f"BAD R:R ({risk_reward:.2f}:1) - risk exceeds reward!")
+                result['warnings'].append(f"R:R too low ({risk_reward:.2f}:1 < {min_rr:.1f}) - need better entry!")
             # REJECT if edge is negative
             elif edge <= 0:
                 result['should_enter'] = False
@@ -2506,11 +2533,20 @@ class AutonomousTraderV2:
                     reason = f"MASTER: Score {master_result['score']}, Edge {master_result['edge']:.3f}, Type: {master_result['entry_type']}"
                     return True, reason
                 
-                # If master detector rejected but it's a breakout, use legacy scoring as fallback
-                if not is_breakout:
-                    # For non-breakouts, trust master detector rejection
+                # If master detector rejected but it's a breakout OR bounce trade, use legacy scoring as fallback
+                # Bounce trades and breakouts get a second chance with legacy scoring
+                is_bounce = getattr(opp, 'is_bounce_trade', False) or master_result.get('entry_type') == 'bounce'
+                
+                if not is_breakout and not is_bounce:
+                    # For normal momentum trades, trust master detector rejection
                     warning = master_result['warnings'][0] if master_result['warnings'] else "Master detector rejected"
                     return False, warning
+                
+                # For bounce trades with good R:R, allow them even if score is low
+                # (they're contrarian by nature - buying the fear)
+                if is_bounce and master_result.get('risk_reward', 0) >= 2.0 and master_result.get('expected_value', 0) > 0:
+                    logger.info(f"BOUNCE OVERRIDE: {opp.symbol} - R:R {master_result.get('risk_reward', 0):.1f} + EV {master_result.get('expected_value', 0):.2f}% allows entry despite low score")
+                    return True, f"Bounce trade: R:R={master_result.get('risk_reward', 0):.1f}:1, EV={master_result.get('expected_value', 0):.2f}%"
             
             # ═══════════════════════════════════════════════════════════════
             # LEGACY SCORING (used when master detector OFF or for breakout fallback)
