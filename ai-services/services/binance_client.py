@@ -301,39 +301,45 @@ class BinanceClient:
         
         Args:
             symbol: Trading pair (e.g., 'BTCUSDT')
-            interval: Kline interval. 1m,3m,5m,15m,30m,1h,2h,4h,6h,8h,12h,1d,3d,1w,1M
+            interval: Kline interval. Accepts Bybit format ('5', '15', '60') or Binance format ('5m', '15m', '1h')
             limit: Limit for data size (max 1500)
             category: "spot" or "linear" (default: spot for SPOT users)
             
         Returns:
-            Dict with kline data in Bybit-compatible format
+            Dict with kline data in Bybit-compatible format (array format for indexing)
         """
         try:
+            # Convert Bybit interval format to Binance format
+            # Bybit uses: 1, 3, 5, 15, 30, 60, 120, 240, 360, 720, D, W, M
+            # Binance uses: 1m, 3m, 5m, 15m, 30m, 1h, 2h, 4h, 6h, 8h, 12h, 1d, 3d, 1w, 1M
+            interval_map = {
+                '1': '1m', '3': '3m', '5': '5m', '15': '15m', '30': '30m',
+                '60': '1h', '120': '2h', '240': '4h', '360': '6h', '720': '12h',
+                'D': '1d', 'W': '1w', 'M': '1M',
+                # Also accept Binance format directly
+                '1m': '1m', '3m': '3m', '5m': '5m', '15m': '15m', '30m': '30m',
+                '1h': '1h', '2h': '2h', '4h': '4h', '6h': '6h', '12h': '12h',
+                '1d': '1d', '1w': '1w', '1M': '1M',
+            }
+            binance_interval = interval_map.get(interval, interval)
+            
             # Use SPOT API (public, no auth needed) - works for all users
             base_url = "https://api.binance.com"
             endpoint = "/api/v3/klines"
             
-            url = f"{base_url}{endpoint}?symbol={symbol}&interval={interval}&limit={min(limit, 1500)}"
+            url = f"{base_url}{endpoint}?symbol={symbol}&interval={binance_interval}&limit={min(limit, 1500)}"
             
             response = await self.http_client.get(url)
             data = response.json()
             
             if isinstance(data, list) and len(data) > 0:
-                # Convert Binance klines format to Bybit-compatible format
-                # Binance: [openTime, open, high, low, close, volume, closeTime, quoteAssetVolume, trades, takerBuyBase, takerBuyQuote, ignore]
-                klines = []
-                for k in data:
-                    klines.append({
-                        "startTime": str(k[0]),
-                        "openPrice": k[1],
-                        "highPrice": k[2],
-                        "lowPrice": k[3],
-                        "closePrice": k[4],
-                        "volume": k[5],
-                        "turnover": k[7],  # quoteAssetVolume
-                    })
-                return {"success": True, "data": {"list": klines}}
-            elif "code" in data:
+                # Return raw Binance klines format - compatible with Bybit format for array indexing
+                # Both use: [openTime, open, high, low, close, volume, ...]
+                # Code expects: k[0]=time, k[1]=open, k[2]=high, k[3]=low, k[4]=close, k[5]=volume
+                # Binance returns exactly this format, so return as-is
+                return {"success": True, "data": {"list": data}}
+            elif isinstance(data, dict) and "code" in data:
+                logger.debug(f"Binance klines API error for {symbol}: {data.get('msg', 'Unknown')}")
                 return {"success": False, "error": data.get("msg", "Unknown error"), "code": data.get("code")}
             else:
                 return {"success": False, "error": "No kline data returned"}
