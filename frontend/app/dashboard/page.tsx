@@ -51,6 +51,14 @@ interface Position {
   isBreakout?: boolean  // Flag for breakout positions (+2 extra slots)
 }
 
+interface CoinBalance {
+  coin: string
+  balance: number
+  usdValue: number
+  free?: number
+  locked?: number
+}
+
 interface WalletData {
   totalEquity: number
   totalEquityUSDT: number
@@ -60,6 +68,8 @@ interface WalletData {
   dailyPnL: number
   weeklyPnL: number
   unrealizedPnL: number
+  coins?: CoinBalance[]
+  exchange?: string
 }
 
 interface TradingStatus {
@@ -512,6 +522,16 @@ export default function DashboardPage() {
   const totalPnl = totalPnlUSDT * USDT_TO_EUR
   const isTrading = tradingStatus?.is_autonomous_trading && !tradingStatus?.is_paused
   const winRate = traderStats?.win_rate || 0
+  
+  // Determine primary asset to display (for Binance users with BTC, etc.)
+  const coins = wallet?.coins || []
+  const exchange = wallet?.exchange || 'bybit'
+  const primaryCoin = coins.length > 0 
+    ? coins.reduce((max, coin) => coin.usdValue > max.usdValue ? coin : max, coins[0])
+    : null
+  const balanceDisplay = primaryCoin 
+    ? `${primaryCoin.balance.toFixed(primaryCoin.coin === 'BTC' ? 6 : primaryCoin.coin === 'ETH' ? 4 : 2)} ${primaryCoin.coin}`
+    : `${balanceUSDT.toFixed(2)} USDT`
 
   return (
     <div className="min-h-screen bg-[#060a13]">
@@ -631,12 +651,20 @@ export default function DashboardPage() {
             <div className="flex items-center gap-1.5 sm:gap-2 mb-1 sm:mb-2">
               <Wallet className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-cyan-400" />
               <span className="text-[10px] sm:text-xs text-gray-500">Balance</span>
+              {exchange === 'binance' && (
+                <span className="text-[8px] px-1.5 py-0.5 bg-yellow-500/20 text-yellow-400 rounded">BINANCE</span>
+              )}
             </div>
-            <div className="text-base sm:text-xl font-bold text-white">{balanceUSDT.toFixed(2)} USDT</div>
+            <div className="text-base sm:text-xl font-bold text-white">{balanceDisplay}</div>
             <div className="flex items-center gap-1 text-xs sm:text-sm text-gray-400 mt-0.5 sm:mt-1">
               <Euro className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
-              <span>{balanceEUR.toFixed(2)} EUR</span>
+              <span>≈ €{balanceEUR.toFixed(2)} EUR</span>
             </div>
+            {coins.length > 1 && (
+              <div className="text-[9px] text-gray-500 mt-1">
+                +{coins.length - 1} more asset{coins.length > 2 ? 's' : ''}
+              </div>
+            )}
           </div>
 
           {/* Daily P&L */}
