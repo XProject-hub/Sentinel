@@ -109,11 +109,7 @@ def download_binance_klines(symbol: str, interval: str, start_date: str, end_dat
         combined = combined.drop_duplicates(subset=['open_time'])
         combined = combined.sort_values('open_time')
         
-        # Save as parquet (efficient format)
-        output_file = output_dir / f"{symbol}_{interval}_combined.parquet"
-        combined.to_parquet(output_file, index=False)
-        
-        # Also save as CSV for compatibility
+        # Save as CSV (universal format)
         csv_file = output_dir / f"{symbol}_{interval}_combined.csv"
         combined.to_csv(csv_file, index=False)
         
@@ -167,9 +163,6 @@ def download_bybit_klines(symbol: str, interval: str = "D", limit: int = 1000):
             # Save
             output_dir = DATA_DIR / "bybit" / symbol
             output_dir.mkdir(parents=True, exist_ok=True)
-            
-            output_file = output_dir / f"{symbol}_{interval}.parquet"
-            df.to_parquet(output_file, index=False)
             
             csv_file = output_dir / f"{symbol}_{interval}.csv"
             df.to_csv(csv_file, index=False)

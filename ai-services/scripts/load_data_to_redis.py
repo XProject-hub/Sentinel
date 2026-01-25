@@ -37,18 +37,14 @@ async def load_klines_to_redis(r: redis.Redis):
                 
                 for tf_dir in symbol_dir.iterdir():
                     if tf_dir.is_dir():
-                        # Find combined file
-                        parquet_files = list(tf_dir.glob("*_combined.parquet"))
+                        # Find combined file (CSV only)
                         csv_files = list(tf_dir.glob("*_combined.csv"))
                         
-                        data_file = parquet_files[0] if parquet_files else (csv_files[0] if csv_files else None)
+                        data_file = csv_files[0] if csv_files else None
                         
                         if data_file:
                             try:
-                                if data_file.suffix == '.parquet':
-                                    df = pd.read_parquet(data_file)
-                                else:
-                                    df = pd.read_csv(data_file)
+                                df = pd.read_csv(data_file)
                                 
                                 # Store summary stats for AI
                                 stats = {
@@ -88,15 +84,11 @@ async def load_klines_to_redis(r: redis.Redis):
             if symbol_dir.is_dir():
                 symbol = symbol_dir.name
                 
-                parquet_files = list(symbol_dir.glob("*.parquet"))
                 csv_files = list(symbol_dir.glob("*.csv"))
                 
-                for data_file in parquet_files + csv_files:
+                for data_file in csv_files:
                     try:
-                        if data_file.suffix == '.parquet':
-                            df = pd.read_parquet(data_file)
-                        else:
-                            df = pd.read_csv(data_file)
+                        df = pd.read_csv(data_file)
                         
                         tf = data_file.stem.split('_')[-1]
                         
