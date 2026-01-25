@@ -521,6 +521,162 @@ class BinanceClient:
                 "success": False,
                 "error": str(e)
             }
+    
+    # ============================================
+    # SPOT TRADING
+    # ============================================
+    
+    async def _spot_request(
+        self, 
+        method: str, 
+        endpoint: str, 
+        params: Optional[Dict] = None,
+        auth: bool = False
+    ) -> Dict:
+        """Make Spot API request (different base URL)"""
+        # Spot uses api.binance.com instead of fapi.binance.com
+        if self.testnet:
+            spot_url = "https://testnet.binance.vision"
+        else:
+            spot_url = "https://api.binance.com"
+            
+        url = f"{spot_url}{endpoint}"
+        params = params or {}
+        
+        try:
+            headers = self._get_headers() if auth else {}
+            
+            if auth:
+                server_time = await self._get_server_time()
+                params["timestamp"] = server_time
+                params["recvWindow"] = self.recv_window
+                
+                query_string = urlencode(params)
+                signature = self._generate_signature(query_string)
+                params["signature"] = signature
+            
+            if method == "GET":
+                if params:
+                    query_string = urlencode(params)
+                    url = f"{url}?{query_string}"
+                response = await self.http_client.get(url, headers=headers)
+            else:
+                response = await self.http_client.request(
+                    method,
+                    url,
+                    headers=headers,
+                    data=params
+                )
+            
+            if not response.text or response.text.strip() == "":
+                return {"success": False, "error": "Empty response from Binance Spot API"}
+            
+            try:
+                data = response.json()
+            except Exception as json_err:
+                return {"success": False, "error": f"Invalid response: {str(json_err)}"}
+            
+            if "code" in data and data["code"] != 200:
+                return {"success": False, "error": data.get("msg", "Unknown error"), "code": data["code"]}
+                
+            return {"success": True, "data": data}
+            
+        except Exception as e:
+            logger.error(f"Binance Spot request error: {e}")
+            return {"success": False, "error": str(e)}
+    
+    async def place_spot_order(
+        self,
+        symbol: str,
+        side: str,  # BUY, SELL
+        order_type: str,  # MARKET, LIMIT
+        quantity: Optional[str] = None,
+        quote_quantity: Optional[str] = None,  # For MARKET BUY with USDT amount
+        price: Optional[str] = None,
+        time_in_force: str = "GTC",
+    ) -> Dict:
+        """
+        Place a SPOT order (no leverage, actual asset purchase)
+        
+        Args:
+            symbol: Trading pair (e.g., 'BTCUSDT')
+            side: 'BUY' or 'SELL'
+            order_type: 'MARKET' or 'LIMIT'
+            quantity: Quantity of base asset (e.g., BTC)
+            quote_quantity: For MARKET BUY - amount of quote asset (e.g., USDT) to spend
+            price: Price for limit orders
+            time_in_force: Order time in force
+            
+        Returns:
+            Dict with order result
+        """
+        params = {
+            "symbol": symbol,
+            "side": side.upper(),
+            "type": order_type.upper(),
+        }
+        
+        if quantity:
+            params["quantity"] = quantity
+        elif quote_quantity and order_type.upper() == "MARKET" and side.upper() == "BUY":
+            params["quoteOrderQty"] = quote_quantity
+        
+        if price and order_type.upper() == "LIMIT":
+            params["price"] = price
+            params["timeInForce"] = time_in_force
+        
+        logger.info(f"Placing Binance SPOT {side} order: {symbol}")
+        return await self._spot_request("POST", "/api/v3/order", params, auth=True)
+    
+    async def get_spot_balance(self) -> Dict:
+        """Get spot account balance"""
+        result = await self._spot_request("GET", "/api/v3/account", {}, auth=True)
+        if result.get("success") and result.get("data"):
+            balances = result["data"].get("balances", [])
+            # Filter to only show non-zero balances
+            non_zero = [b for b in balances if float(b.get("free", 0)) > 0 or float(b.get("locked", 0)) > 0]
+            return {"success": True, "data": non_zero}
+        return result
+    
+    async def get_spot_orders(self, symbol: Optional[str] = None) -> Dict:
+        """Get open spot orders"""
+        params = {}
+        if symbol:
+            params["symbol"] = symbol
+        return await self._spot_request("GET", "/api/v3/openOrders", params, auth=True)
+    
+    async def cancel_spot_order(
+        self,
+        symbol: str,
+        order_id: Optional[int] = None,
+        client_order_id: Optional[str] = None,
+    ) -> Dict:
+        """Cancel a spot order"""
+        params = {"symbol": symbol}
+        if order_id:
+            params["orderId"] = order_id
+        if client_order_id:
+            params["origClientOrderId"] = client_order_id
+            
+        return await self._spot_request("DELETE", "/api/v3/order", params, auth=True)
+    
+    async def get_spot_asset_info(self, symbol: str) -> Dict:
+        """Get spot asset balance for a specific coin"""
+        result = await self.get_spot_balance()
+        if result.get("success") and result.get("data"):
+            base_asset = symbol.replace("USDT", "").replace("USDC", "")
+            for balance in result["data"]:
+                if balance.get("asset") == base_asset:
+                    return {
+                        "success": True,
+                        "data": {
+                            "coin": balance.get("asset"),
+                            "available": float(balance.get("free", 0)),
+                            "locked": float(balance.get("locked", 0)),
+                            "total": float(balance.get("free", 0)) + float(balance.get("locked", 0))
+                        }
+                    }
+        return {"success": False, "error": "Asset not found"}
             
     async def close(self):
         """Close HTTP client"""

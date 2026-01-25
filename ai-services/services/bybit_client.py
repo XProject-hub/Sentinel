@@ -684,6 +684,102 @@ class BybitV5Client:
                 "success": False,
                 "error": str(e)
             }
+    
+    # ============================================
+    # SPOT TRADING (category="spot")
+    # ============================================
+    
+    async def place_spot_order(
+        self,
+        symbol: str,
+        side: str,  # Buy, Sell
+        order_type: str,  # Market, Limit
+        qty: str,
+        price: Optional[str] = None,
+        time_in_force: str = "GTC",
+    ) -> Dict:
+        """
+        Place a SPOT order (no leverage, actual asset purchase)
+        
+        Args:
+            symbol: Trading pair (e.g., 'BTCUSDT')
+            side: 'Buy' or 'Sell'
+            order_type: 'Market' or 'Limit'
+            qty: Quantity to buy/sell
+            price: Price for limit orders
+            time_in_force: Order time in force (GTC, IOC, FOK)
+            
+        Returns:
+            Dict with order result
+        """
+        params = {
+            "category": "spot",
+            "symbol": symbol,
+            "side": side,
+            "orderType": order_type,
+            "qty": qty,
+            "timeInForce": time_in_force,
+        }
+        
+        if price and order_type == "Limit":
+            params["price"] = price
+        
+        # For spot market orders, use quoteOrderQty if buying with USDT amount
+        if order_type == "Market" and side == "Buy":
+            # When buying, qty can be the USDT amount
+            params["marketUnit"] = "quoteCoin"  # Buy with USDT amount
+            
+        logger.info(f"Placing SPOT {side} order: {symbol} qty={qty}")
+        return await self._request("POST", "/v5/order/create", params, auth=True)
+    
+    async def get_spot_balance(self) -> Dict:
+        """Get spot wallet balance"""
+        return await self.get_wallet_balance(account_type="UNIFIED")
+    
+    async def get_spot_orders(self, symbol: Optional[str] = None) -> Dict:
+        """Get open spot orders"""
+        params = {"category": "spot"}
+        if symbol:
+            params["symbol"] = symbol
+        return await self._request("GET", "/v5/order/realtime", params, auth=True)
+    
+    async def cancel_spot_order(
+        self,
+        symbol: str,
+        order_id: Optional[str] = None,
+        order_link_id: Optional[str] = None,
+    ) -> Dict:
+        """Cancel a spot order"""
+        params = {
+            "category": "spot",
+            "symbol": symbol
+        }
+        if order_id:
+            params["orderId"] = order_id
+        if order_link_id:
+            params["orderLinkId"] = order_link_id
+            
+        return await self._request("POST", "/v5/order/cancel", params, auth=True)
+    
+    async def get_spot_asset_info(self, symbol: str) -> Dict:
+        """Get spot asset balance for a specific coin"""
+        result = await self.get_spot_balance()
+        if result.get("success") and result.get("data"):
+            coins = result["data"].get("list", [{}])[0].get("coin", [])
+            # Extract base asset from symbol (e.g., BTC from BTCUSDT)
+            base_asset = symbol.replace("USDT", "").replace("USDC", "")
+            for coin in coins:
+                if coin.get("coin") == base_asset:
+                    return {
+                        "success": True,
+                        "data": {
+                            "coin": coin.get("coin"),
+                            "available": float(coin.get("availableToWithdraw", 0)),
+                            "total": float(coin.get("walletBalance", 0)),
+                            "usd_value": float(coin.get("usdValue", 0))
+                        }
+                    }
+        return {"success": False, "error": "Asset not found"}
             
     async def close(self):
         """Close HTTP client"""

@@ -1130,8 +1130,9 @@ async def get_positions(user_id: str = "default"):
     if not result.get("success"):
         return result
     
-    # Get breakout positions from Redis
+    # Get breakout positions and trade mode info from Redis
     breakout_symbols = set()
+    trade_mode_info = {}  # symbol -> {mode, mode_display, is_spot}
     try:
         r = await get_redis()
         breakout_data = await r.hgetall("positions:breakout")
@@ -1140,8 +1141,18 @@ async def get_positions(user_id: str = "default"):
                 breakout_symbols.add(symbol.decode())
             else:
                 breakout_symbols.add(symbol)
+        
+        # Get trade mode info for positions
+        mode_data = await r.hgetall(f"positions:trade_mode:{user_id}")
+        for symbol, mode_json in mode_data.items():
+            try:
+                symbol_str = symbol.decode() if isinstance(symbol, bytes) else symbol
+                mode_json_str = mode_json.decode() if isinstance(mode_json, bytes) else mode_json
+                trade_mode_info[symbol_str] = json.loads(mode_json_str)
+            except:
+                pass
     except Exception as e:
-        logger.warning(f"Failed to get breakout positions: {e}")
+        logger.warning(f"Failed to get position metadata: {e}")
         
     # Parse positions
     positions = []
@@ -1169,6 +1180,9 @@ async def get_positions(user_id: str = "default"):
             # Note: Entry fee was already deducted when position was opened
             estimated_net_pnl = unrealized_pnl_gross - estimated_exit_fee
             
+            # Get trade mode info for this symbol
+            mode_info = trade_mode_info.get(symbol, {})
+            
             positions.append({
                 "symbol": symbol,
                 "side": pos.get("side"),
@@ -1186,6 +1200,11 @@ async def get_positions(user_id: str = "default"):
                 "createdTime": pos.get("createdTime"),
                 "updatedTime": pos.get("updatedTime"),
                 "isBreakout": symbol in breakout_symbols,  # Flag for breakout positions
+                # Trade mode info (AI selected)
+                "tradeMode": mode_info.get("mode", "futures_long"),
+                "tradeModeDisplay": mode_info.get("mode_display", f"Futures {pos.get('leverage', 1)}x"),
+                "isSpot": mode_info.get("is_spot", False),
+                "exchange": mode_info.get("exchange", "bybit"),
             })
     
     # Sort by createdTime (oldest first) for stable display order

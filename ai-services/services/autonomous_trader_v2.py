@@ -44,6 +44,7 @@ from services.crypto_sentiment import crypto_sentiment
 from services.price_predictor import price_predictor
 from services.capital_allocator import capital_allocator, MarketOpportunity
 from services.whale_tracker import whale_tracker
+from services.trade_mode_selector import trade_mode_selector, TradeMode, TradeModeDecision
 
 # V4 HuggingFace Safety Models (GATES, not signals!)
 try:
@@ -100,6 +101,12 @@ class ActivePosition:
     is_breakout: bool = False
     partial_exit_done: bool = False  # 50% already taken
     original_size: float = 0.0  # Track original size for partial exits
+    
+    # Trade mode - AI selected (SPOT, FUTURES_LONG, FUTURES_SHORT)
+    trade_mode: str = "futures_long"  # Default to futures
+    trade_mode_display: str = "Futures Long"  # Human readable for dashboard
+    is_spot: bool = False  # Quick check for spot trades
+    exchange: str = "bybit"  # Exchange used (bybit, binance)
 
 
 class AutonomousTraderV2:
@@ -1645,9 +1652,10 @@ class AutonomousTraderV2:
                         if position.symbol in self.active_positions[user_id]:
                             del self.active_positions[user_id][position.symbol]
                     
-                    # Remove breakout flag from Redis
+                    # Remove breakout flag and trade mode from Redis
                     if self.redis_client:
                         await self.redis_client.hdel("positions:breakout", position.symbol)
+                        await self.redis_client.hdel(f"positions:trade_mode:{user_id}", position.symbol)
                 else:
                     # Trade not stored - DON'T set cooldown, DON'T remove from tracking
                     # _sync_positions will detect it's gone from exchange and log as external close
@@ -4822,7 +4830,47 @@ class AutonomousTraderV2:
             except Exception as lev_err:
                 logger.debug(f"Leverage set error for {opp.symbol}: {lev_err}")
             
-            logger.info(f"EXECUTING: {side} {opp.symbol} | Qty: {qty_str} | Leverage: {leverage}x | "
+            # ═══════════════════════════════════════════════════════════════
+            # AI TRADE MODE SELECTION - Spot vs Futures
+            # ═══════════════════════════════════════════════════════════════
+            user_settings = self.user_settings.get(user_id, {})
+            user_risk_mode = user_settings.get('risk_mode', 'normal')
+            
+            # Get regime info for mode selection
+            regime_volatility = getattr(opp, 'volatility', 2.0)  # Default moderate volatility
+            trend_strength = getattr(opp, 'trend_strength', 0.5) if hasattr(opp, 'trend_strength') else 0.5
+            funding_rate = getattr(opp, 'funding_rate', 0.0)
+            
+            # AI selects the best trading mode
+            trade_mode_decision = await trade_mode_selector.select_mode(
+                symbol=opp.symbol,
+                direction=opp.direction,
+                regime=opp.regime,
+                volatility=regime_volatility,
+                trend_strength=trend_strength,
+                confidence=opp.confidence,
+                funding_rate=funding_rate,
+                user_risk_mode=user_risk_mode.lower(),
+                price_change_24h=opp.price_change_24h,
+                volume_ratio=getattr(opp, 'volume_ratio', 1.0)
+            )
+            
+            selected_mode = trade_mode_decision.mode
+            is_spot_trade = (selected_mode == TradeMode.SPOT)
+            
+            # Override leverage for spot trades
+            if is_spot_trade:
+                leverage = 1
+                mode_str = "SPOT"
+            else:
+                # Use AI-suggested leverage or calculated leverage
+                ai_leverage = trade_mode_decision.leverage
+                leverage = ai_leverage if ai_leverage > 0 else leverage
+                mode_str = f"FUTURES {leverage}x"
+            
+            logger.info(f"AI MODE: {opp.symbol} -> {trade_mode_decision.mode.value} ({mode_str}) | Reasons: {', '.join(trade_mode_decision.reasons[:2])}")
+            
+            logger.info(f"EXECUTING: {side} {opp.symbol} | Mode: {mode_str} | Qty: {qty_str} | "
                        f"Edge: {opp.edge_score:.2f} | Confidence: {opp.confidence:.1f}%")
             
             # Get instrument info to verify minimum qty and round to qty_step
@@ -4887,24 +4935,47 @@ class AutonomousTraderV2:
             except Exception as pos_err:
                 logger.debug(f"Position check error: {pos_err}")
             
-            result = await client.place_order(
-                category="linear",  # Explicitly set category
-                symbol=opp.symbol,
-                side=side,
-                order_type='Market',
-                qty=qty_str  # Pass as string!
-            )
-            
-            # Log full result for debugging
-            logger.info(f"Order result for {opp.symbol}: {result}")
+            # ═══════════════════════════════════════════════════════════════
+            # PLACE ORDER - Spot or Futures based on AI decision
+            # ═══════════════════════════════════════════════════════════════
+            if is_spot_trade:
+                # SPOT ORDER - No leverage, actual asset purchase
+                # For spot, we need to calculate USDT amount for market buy
+                if side == 'Buy':
+                    # When buying, use quote quantity (USDT amount)
+                    result = await client.place_spot_order(
+                        symbol=opp.symbol,
+                        side=side,
+                        order_type='Market',
+                        qty=str(position_value)  # USDT amount for spot buy
+                    )
+                else:
+                    # When selling, need to have the asset already
+                    result = await client.place_spot_order(
+                        symbol=opp.symbol,
+                        side=side,
+                        order_type='Market',
+                        qty=qty_str
+                    )
+                logger.info(f"SPOT Order result for {opp.symbol}: {result}")
+            else:
+                # FUTURES ORDER - With leverage
+                result = await client.place_order(
+                    category="linear",
+                    symbol=opp.symbol,
+                    side=side,
+                    order_type='Market',
+                    qty=qty_str
+                )
+                logger.info(f"FUTURES Order result for {opp.symbol}: {result}")
             
             if result.get('success'):
                 logger.info(f"ORDER SUCCESS: {opp.symbol} {side} {qty}")
                 
                 # Log to console for dashboard - PER USER
-                leverage_display = f" | {leverage}x" if leverage > 1 else ""
+                mode_display = trade_mode_decision.get_display_name()
                 await self._log_to_console(
-                    f"OPENED {opp.symbol} {side} | ${position_value:.0f}{leverage_display} | Edge: {opp.edge_score:.2f} | Conf: {opp.confidence:.0f}%",
+                    f"OPENED {opp.symbol} {side} | {mode_display} | ${position_value:.0f} | Edge: {opp.edge_score:.2f} | Conf: {opp.confidence:.0f}%",
                     "TRADE",
                     user_id
                 )
@@ -4940,7 +5011,12 @@ class AutonomousTraderV2:
                     position_value=position_value,
                     kelly_fraction=pos_size.kelly_fraction if pos_size else 0.5,
                     leverage=leverage,
-                    is_breakout=is_breakout  # Track if this was a breakout trade
+                    is_breakout=is_breakout,  # Track if this was a breakout trade
+                    # Trade mode info for dashboard
+                    trade_mode=trade_mode_decision.mode.value,
+                    trade_mode_display=trade_mode_decision.get_display_name(),
+                    is_spot=is_spot_trade,
+                    exchange="bybit"  # Default to bybit for now
                 )
                 
                 # Register in position sizer (PER USER!)
@@ -4949,6 +5025,19 @@ class AutonomousTraderV2:
                 # Store breakout flag in Redis for dashboard display
                 if is_breakout and self.redis_client:
                     await self.redis_client.hset("positions:breakout", opp.symbol, "1")
+                
+                # Store trade mode info in Redis for dashboard display
+                if self.redis_client:
+                    trade_mode_data = json.dumps({
+                        "mode": trade_mode_decision.mode.value,
+                        "mode_display": trade_mode_decision.get_display_name(),
+                        "is_spot": is_spot_trade,
+                        "exchange": "bybit",
+                        "leverage": leverage,
+                        "reasons": trade_mode_decision.reasons[:3],
+                        "risk_level": trade_mode_decision.risk_level
+                    })
+                    await self.redis_client.hset(f"positions:trade_mode:{user_id}", opp.symbol, trade_mode_data)
                 
                 # Store trade event (per user)
                 await self._store_trade_event(user_id, opp.symbol, 'opened', 0, opp.direction)
