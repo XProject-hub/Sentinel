@@ -44,7 +44,23 @@ async def load_klines_to_redis(r: redis.Redis):
                         
                         if data_file:
                             try:
+                                # Read CSV - first row is header
                                 df = pd.read_csv(data_file)
+                                
+                                # Skip if empty
+                                if len(df) == 0:
+                                    continue
+                                
+                                # Convert numeric columns
+                                for col in ['open_time', 'open', 'high', 'low', 'close', 'volume']:
+                                    if col in df.columns:
+                                        df[col] = pd.to_numeric(df[col], errors='coerce')
+                                
+                                # Drop any rows with NaN (including header if it got duplicated)
+                                df = df.dropna(subset=['open_time', 'close'])
+                                
+                                if len(df) == 0:
+                                    continue
                                 
                                 # Store summary stats for AI
                                 stats = {
@@ -53,8 +69,8 @@ async def load_klines_to_redis(r: redis.Redis):
                                     'candles': len(df),
                                     'start_time': int(df['open_time'].min()),
                                     'end_time': int(df['open_time'].max()),
-                                    'avg_volume': float(df['volume'].mean()),
-                                    'volatility': float(df['high'].astype(float).sub(df['low'].astype(float)).div(df['close'].astype(float)).mean() * 100),
+                                    'avg_volume': float(df['volume'].mean()) if 'volume' in df.columns else 0,
+                                    'volatility': float(df['high'].sub(df['low']).div(df['close']).mean() * 100) if all(c in df.columns for c in ['high', 'low', 'close']) else 0,
                                     'source': 'binance'
                                 }
                                 
@@ -90,6 +106,16 @@ async def load_klines_to_redis(r: redis.Redis):
                     try:
                         df = pd.read_csv(data_file)
                         
+                        # Convert numeric columns
+                        for col in ['open_time', 'open', 'high', 'low', 'close', 'volume']:
+                            if col in df.columns:
+                                df[col] = pd.to_numeric(df[col], errors='coerce')
+                        
+                        df = df.dropna()
+                        
+                        if len(df) == 0:
+                            continue
+                        
                         tf = data_file.stem.split('_')[-1]
                         
                         stats = {
@@ -102,6 +128,14 @@ async def load_klines_to_redis(r: redis.Redis):
                         await r.hset(
                             f"ai:historical:{symbol}:{tf}",
                             mapping={k: str(v) for k, v in stats.items()}
+                        )
+                        
+                        # Also store klines for AI access
+                        recent = df.tail(500).to_dict('records')
+                        await r.set(
+                            f"ai:klines:{symbol}:{tf}",
+                            json.dumps(recent),
+                            ex=86400 * 7
                         )
                         
                         loaded += 1
