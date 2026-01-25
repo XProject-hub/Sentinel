@@ -760,9 +760,22 @@ class AutonomousTraderV2:
                 selected_preset = 'micro'
                 ai_reason = "Normal conditions"
             
-            # Apply the selected preset (sets TP, SL, trailing, entry thresholds)
+            # SAVE user's EXIT settings before applying preset
+            # AI Full Auto only changes ENTRY strategy, not user's EXIT rules!
+            saved_tp = self.take_profit
+            saved_sl = self.emergency_stop_loss
+            saved_trail = self.trail_from_peak
+            saved_min_trail = self.min_profit_to_trail
+            
+            # Apply the selected preset (sets entry thresholds, AI filters)
             self._apply_strategy_preset(selected_preset)
             self.auto_selected_preset = selected_preset
+            
+            # RESTORE user's EXIT settings - AI Full Auto respects user's choices!
+            self.take_profit = saved_tp
+            self.emergency_stop_loss = saved_sl
+            self.trail_from_peak = saved_trail
+            self.min_profit_to_trail = saved_min_trail
             
             # ============================================================
             # AI DECISION: OPTIMIZE POSITIONS COUNT
@@ -801,8 +814,8 @@ class AutonomousTraderV2:
             return selected_preset
             
         except Exception as e:
-            logger.warning(f"Auto strategy selection failed: {e}, using MICRO defaults")
-            self._apply_strategy_preset('micro')
+            logger.warning(f"Auto strategy selection failed: {e}, keeping current settings")
+            # DON'T apply preset on error - keep user's current settings!
             self.max_open_positions = 10
             return 'micro'
         
