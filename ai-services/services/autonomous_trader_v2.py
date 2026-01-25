@@ -142,6 +142,10 @@ class AutonomousTraderV2:
         # Exchange type per user: "bybit" or "binance"
         self.user_exchanges: Dict[str, str] = {}
         
+        # Binance account type per user: "spot" or "futures"
+        # Bybit users always have futures, so this is mainly for Binance
+        self.user_account_types: Dict[str, str] = {}
+        
         # User wallet assets: {user_id: [{coin, balance, usdValue}, ...]}
         self.user_assets: Dict[str, List[Dict]] = {}
         
@@ -913,11 +917,36 @@ class AutonomousTraderV2:
                 self.user_exchanges[user_id] = exchange
                 self.active_positions[user_id] = {}
                 
+                # Store account type (spot/futures) - mainly for Binance
+                account_type = result.get('account_type', 'futures')  # Default to futures for Bybit
+                has_futures = result.get('has_futures', True)  # Bybit always has futures
+                
+                # For Binance, also check Redis for stored account_type
+                if exchange == "binance" and self.redis_client:
+                    try:
+                        stored_data = await self.redis_client.hgetall(f"user:{user_id}:exchange:binance")
+                        if stored_data:
+                            stored_type = stored_data.get(b'account_type', b'spot').decode()
+                            stored_futures = stored_data.get(b'has_futures', b'0').decode() == '1'
+                            if stored_futures:
+                                account_type = 'futures'
+                            else:
+                                account_type = stored_type
+                            logger.info(f"Binance user {user_id}: stored account_type={account_type}, has_futures={stored_futures}")
+                            
+                            # Update client's account_type to match stored value
+                            if hasattr(client, 'set_account_type'):
+                                client.set_account_type(account_type)
+                    except Exception as e:
+                        logger.debug(f"Could not load stored account type for {user_id}: {e}")
+                
+                self.user_account_types[user_id] = account_type
+                logger.info(f"User {user_id} connected to {exchange.upper()} (account_type={account_type})")
+                
                 # Load user-specific stats from Redis
                 if self.redis_client:
                     await self._load_user_stats(user_id)
                 
-                logger.info(f"User {user_id} connected to {exchange.upper()} for trading")
                 return True
             else:
                 await client.close()
@@ -3827,6 +3856,14 @@ class AutonomousTraderV2:
                     if opp.symbol in self._cooldown_symbols or opp.symbol in self._failed_order_symbols:
                         continue
                     
+                    # Skip SHORT opportunities for Binance SPOT users (SPOT cannot short!)
+                    # (Futures users CAN short)
+                    exchange_type = self.user_exchanges.get(user_id, "bybit")
+                    account_type = self.user_account_types.get(user_id, "futures")
+                    if exchange_type == "binance" and account_type == "spot" and opp.direction == 'short':
+                        logger.debug(f"MEAN_REV {opp.symbol} skipped - Binance SPOT cannot SHORT")
+                        continue
+                    
                     logger.info(f"MEAN_REV v2 TRADE: {opp.symbol} | Dip: {opp.price_change_24h:.1f}% | Reversal confirmed")
                     await self._log_to_console(f"MEAN_REV BUY: {opp.symbol} | Dip {opp.price_change_24h:.1f}% | RSI+Green confirmed", "TRADE", user_id)
                     
@@ -3869,6 +3906,22 @@ class AutonomousTraderV2:
                 # Skip if on cooldown
                 if opp.symbol in self._cooldown_symbols or opp.symbol in self._failed_order_symbols:
                     continue
+                
+                # Skip SHORT opportunities for Binance SPOT users (SPOT cannot short!)
+                # (Futures users CAN short)
+                exchange_type = self.user_exchanges.get(user_id, "bybit")
+                account_type = self.user_account_types.get(user_id, "futures")
+                if exchange_type == "binance" and account_type == "spot" and opp.direction == 'short':
+                    logger.debug(f"MOMENTUM {opp.symbol} skipped - Binance SPOT cannot SHORT")
+                    continue
+                
+                # Skip symbols on permanent blocklist (previously failed with "not permitted")
+                if self.redis_client:
+                    blocklist_key = f"user:{user_id}:blocked_symbols"
+                    is_blocked = await self.redis_client.sismember(blocklist_key, opp.symbol)
+                    if is_blocked:
+                        logger.debug(f"MOMENTUM {opp.symbol} skipped - on permanent blocklist")
+                        continue
                 
                 logger.info(f"MOMENTUM TRADE: {opp.symbol} {opp.direction.upper()} | Edge: {opp.edge_score:.1f}% | Conf: {opp.confidence}")
                 await self._log_to_console(f"MOMENTUM {opp.direction.upper()}: {opp.symbol} | Edge {opp.edge_score:.1f}%", "TRADE", user_id)
@@ -3932,6 +3985,23 @@ class AutonomousTraderV2:
                     else:
                         # Cooldown expired, remove from dict
                         del self._failed_order_symbols[opp.symbol]
+                
+                # Skip SHORT opportunities for Binance SPOT users (SPOT cannot short!)
+                # (Futures users CAN short)
+                exchange_type = self.user_exchanges.get(user_id, "bybit")
+                account_type = self.user_account_types.get(user_id, "futures")
+                if exchange_type == "binance" and account_type == "spot" and opp.direction == 'short':
+                    logger.info(f"BREAKOUT {opp.symbol} skipped - Binance SPOT cannot SHORT")
+                    await self._log_to_console(f"SKIP {opp.symbol} SHORT: Binance SPOT only supports LONG", "WARNING", user_id)
+                    continue
+                
+                # Skip symbols on permanent blocklist (previously failed with "not permitted")
+                if self.redis_client:
+                    blocklist_key = f"user:{user_id}:blocked_symbols"
+                    is_blocked = await self.redis_client.sismember(blocklist_key, opp.symbol)
+                    if is_blocked:
+                        logger.debug(f"BREAKOUT {opp.symbol} skipped - on permanent blocklist")
+                        continue
                 
                 # === MOMENTUM CHECK FOR BREAKOUTS ===
                 # Ensure we're trading WITH momentum, not catching falling knives
@@ -4953,6 +5023,16 @@ class AutonomousTraderV2:
                              opp: TradingOpportunity, wallet: Dict):
         """Execute a trade"""
         try:
+            # ═══════════════════════════════════════════════════════════════
+            # CHECK PERMANENT BLOCKLIST - Skip symbols that previously failed with "not permitted"
+            # ═══════════════════════════════════════════════════════════════
+            if self.redis_client:
+                blocklist_key = f"user:{user_id}:blocked_symbols"
+                is_blocked = await self.redis_client.sismember(blocklist_key, opp.symbol)
+                if is_blocked:
+                    logger.debug(f"SKIP {opp.symbol}: On permanent blocklist for user {user_id}")
+                    return False
+            
             edge_data = opp.edge_data
             # Try to get position size from edge_data or directly from opportunity
             pos_size: PositionSize = None
@@ -5079,6 +5159,23 @@ class AutonomousTraderV2:
             # Determine side
             side = 'Buy' if opp.direction == 'long' else 'Sell'
             
+            # ═══════════════════════════════════════════════════════════════
+            # BINANCE SPOT SHORT CHECK - Cannot short on SPOT!
+            # (Only applies if account_type is "spot" - Futures users CAN short)
+            # ═══════════════════════════════════════════════════════════════
+            exchange_type = self.user_exchanges.get(user_id, "bybit")
+            account_type = self.user_account_types.get(user_id, "futures")  # Default to futures
+            
+            if exchange_type == "binance" and account_type == "spot" and opp.direction == 'short':
+                # Binance SPOT users cannot short - skip this opportunity
+                logger.warning(f"SKIP {opp.symbol}: Binance SPOT cannot SHORT - only LONG trades allowed")
+                await self._log_to_console(
+                    f"SKIP {opp.symbol}: SPOT cannot SHORT (Binance only supports BUY)",
+                    "WARNING",
+                    user_id
+                )
+                return False
+            
             # Leverage already set above for breakouts or from pos_size
             
             # Set leverage on Bybit before placing order
@@ -5203,19 +5300,23 @@ class AutonomousTraderV2:
             
             # ═══════════════════════════════════════════════════════════════
             # PLACE ORDER - Spot or Futures based on AI decision
-            # Detect exchange type and use correct API calls
+            # exchange_type already set above (for Binance SHORT check)
             # ═══════════════════════════════════════════════════════════════
-            exchange_type = self.user_exchanges.get(user_id, "bybit")
             logger.info(f"TRADE MODE: {opp.symbol} -> {trade_mode_decision.mode.value} | Exchange: {exchange_type.upper()} | Scores: spot={getattr(trade_mode_decision, 'spot_score', 'N/A')} vs futures={getattr(trade_mode_decision, 'futures_score', 'N/A')}")
             
             if exchange_type == "binance":
                 # ═══════════════════════════════════════════════════════════
-                # BINANCE ORDERS - Different API format
+                # BINANCE ORDERS - Use FUTURES or SPOT based on account_type
                 # ═══════════════════════════════════════════════════════════
                 binance_side = side.upper()  # Binance uses 'BUY'/'SELL'
+                binance_account_type = self.user_account_types.get(user_id, "futures")
                 
-                if is_spot_trade:
-                    # BINANCE SPOT ORDER
+                # For Binance: Use Futures API if account has futures, otherwise SPOT
+                use_futures = (binance_account_type == "futures")
+                
+                if not use_futures and is_spot_trade:
+                    # BINANCE SPOT ORDER (only if account is spot-only)
+                    logger.info(f"Placing Binance SPOT order: {binance_side} {opp.symbol}")
                     if binance_side == 'BUY':
                         # For market buy, use quote_quantity (USDT amount to spend)
                         result = await client.place_spot_order(
@@ -5234,24 +5335,56 @@ class AutonomousTraderV2:
                         )
                     logger.info(f"BINANCE SPOT Order result for {opp.symbol}: {result}")
                 else:
-                    # BINANCE FUTURES ORDER - Not yet implemented for Binance
-                    # For now, fall back to spot for Binance users
-                    logger.warning(f"Binance futures not yet supported, using SPOT for {opp.symbol}")
-                    if binance_side == 'BUY':
-                        result = await client.place_spot_order(
-                            symbol=opp.symbol,
-                            side=binance_side,
-                            order_type='MARKET',
-                            quote_quantity=str(round(position_value, 2))
-                        )
-                    else:
-                        result = await client.place_spot_order(
-                            symbol=opp.symbol,
-                            side=binance_side,
-                            order_type='MARKET',
-                            quantity=qty_str
-                        )
-                    logger.info(f"BINANCE SPOT (fallback) Order result for {opp.symbol}: {result}")
+                    # ═══════════════════════════════════════════════════════════
+                    # BINANCE FUTURES ORDER - Using fapi.binance.com
+                    # ═══════════════════════════════════════════════════════════
+                    logger.info(f"Placing Binance FUTURES order: {binance_side} {opp.symbol} qty={qty_str}")
+                    
+                    # Set leverage before placing order
+                    try:
+                        leverage_result = await client.set_leverage(opp.symbol, str(leverage))
+                        if leverage_result.get('success'):
+                            logger.debug(f"Binance leverage set to {leverage}x for {opp.symbol}")
+                        else:
+                            logger.debug(f"Binance leverage set failed (may already be set): {leverage_result.get('error', '')}")
+                    except Exception as lev_err:
+                        logger.debug(f"Binance leverage error (continuing): {lev_err}")
+                    
+                    # Place Futures order
+                    result = await client.place_order(
+                        symbol=opp.symbol,
+                        side=binance_side,
+                        order_type='MARKET',
+                        qty=qty_str,
+                        position_side="BOTH"  # One-way mode (not hedge mode)
+                    )
+                    logger.info(f"BINANCE FUTURES Order result for {opp.symbol}: {result}")
+                    
+                    # If FUTURES fails with "not permitted", try SPOT as fallback
+                    if not result.get('success'):
+                        error_msg = str(result.get('error', '')).lower()
+                        error_code = result.get('code', '')
+                        
+                        # Check if it's a Futures permission error - try SPOT
+                        if 'not permitted' in error_msg or 'futures' in error_msg or error_code in [-2015, -4061]:
+                            logger.warning(f"Binance FUTURES failed for {opp.symbol}, trying SPOT...")
+                            await self._log_to_console(f"FUTURES unavailable, trying SPOT: {opp.symbol}", "INFO", user_id)
+                            
+                            if binance_side == 'BUY':
+                                result = await client.place_spot_order(
+                                    symbol=opp.symbol,
+                                    side=binance_side,
+                                    order_type='MARKET',
+                                    quote_quantity=str(round(position_value, 2))
+                                )
+                            else:
+                                result = await client.place_spot_order(
+                                    symbol=opp.symbol,
+                                    side=binance_side,
+                                    order_type='MARKET',
+                                    quantity=qty_str
+                                )
+                            logger.info(f"BINANCE SPOT (fallback) Order result for {opp.symbol}: {result}")
             else:
                 # ═══════════════════════════════════════════════════════════
                 # BYBIT ORDERS - Original logic
@@ -5409,9 +5542,25 @@ class AutonomousTraderV2:
                 
                 await self._log_to_console(f"ORDER FAILED: {opp.symbol} - {error_msg[:50]}", "ERROR", user_id)
                 
-                # ADD COOLDOWN for failed orders - don't retry for 5 minutes
-                self._failed_order_symbols[opp.symbol] = datetime.utcnow()
-                logger.info(f"Added {opp.symbol} to failed order cooldown for {self.failed_order_cooldown}s")
+                # Check for PERMANENT errors - these symbols will NEVER work for this user
+                error_lower = error_msg.lower()
+                is_permanent_error = (
+                    'not permitted' in error_lower or
+                    'symbol is not' in error_lower or
+                    'trading is disabled' in error_lower or
+                    error_code in [-2010, -1121, -1102]  # Binance: not permitted, invalid symbol
+                )
+                
+                if is_permanent_error and self.redis_client:
+                    # Add to PERMANENT blocklist in Redis
+                    blocklist_key = f"user:{user_id}:blocked_symbols"
+                    await self.redis_client.sadd(blocklist_key, opp.symbol)
+                    logger.warning(f"PERMANENT BLOCK: {opp.symbol} added to blocklist for user {user_id} (not permitted)")
+                    await self._log_to_console(f"BLOCKED FOREVER: {opp.symbol} - Not permitted on this account", "WARNING", user_id)
+                else:
+                    # ADD COOLDOWN for failed orders - don't retry for 5 minutes
+                    self._failed_order_symbols[opp.symbol] = datetime.utcnow()
+                    logger.info(f"Added {opp.symbol} to failed order cooldown for {self.failed_order_cooldown}s")
                 
         except Exception as e:
             logger.error(f"Execute trade error for {opp.symbol}: {e}")

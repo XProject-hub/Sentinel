@@ -38,10 +38,12 @@ class BinanceClient:
         api_key: str, 
         api_secret: str, 
         testnet: bool = False,
+        account_type: str = "spot",  # "spot" or "futures"
     ):
         self.api_key = api_key
         self.api_secret = api_secret
         self.testnet = testnet
+        self.account_type = account_type  # Will be updated by test_connection
         
         # Use futures endpoint by default (matching Bybit's focus on perpetuals)
         if testnet:
@@ -52,6 +54,15 @@ class BinanceClient:
         self.recv_window = 5000
         self.http_client = httpx.AsyncClient(timeout=30.0)
         self.request_counter = 0
+    
+    def set_account_type(self, account_type: str):
+        """Set account type after connection test"""
+        self.account_type = account_type
+        logger.info(f"BinanceClient account type set to: {account_type}")
+    
+    def get_category(self) -> str:
+        """Get the category for API calls based on account type"""
+        return "linear" if self.account_type == "futures" else "spot"
         
     def _generate_signature(self, query_string: str) -> str:
         """Generate HMAC SHA256 signature for Binance API"""
@@ -221,21 +232,31 @@ class BinanceClient:
     # MARKET DATA (Public)
     # ============================================
     
-    async def get_tickers(self, symbol: Optional[str] = None, category: str = "spot") -> Dict:
-        """Get real-time tickers - uses SPOT API for SPOT users"""
+    async def get_tickers(self, symbol: Optional[str] = None, category: Optional[str] = None) -> Dict:
+        """
+        Get real-time tickers - uses appropriate API based on category
+        
+        Args:
+            symbol: Optional specific symbol
+            category: "spot" or "linear" (futures). If None, uses account_type
+        """
         params = {}
         
-        # Use SPOT ticker endpoint (public, no auth needed)
-        # This works for users without Futures permissions
-        if category == "spot" or True:  # Always use SPOT for Binance users
-            endpoint = "/api/v3/ticker/24hr"
-            base_url = "https://api.binance.com"
+        # Use account type if category not specified
+        if category is None:
+            category = self.get_category()
+        
+        # Use appropriate endpoint based on category
+        if category == "linear" or category == "futures":
+            # Futures endpoint
+            endpoint = "/fapi/v1/ticker/24hr"
+            base_url = "https://fapi.binance.com"
             if symbol:
                 params["symbol"] = symbol
         else:
-            # Futures endpoint (requires Futures permissions)
-            endpoint = "/fapi/v1/ticker/24hr"
-            base_url = self.base_url
+            # SPOT endpoint (default)
+            endpoint = "/api/v3/ticker/24hr"
+            base_url = "https://api.binance.com"
             if symbol:
                 params["symbol"] = symbol
         
@@ -253,12 +274,16 @@ class BinanceClient:
                 # Map Binance field names to Bybit-like format
                 mapped_tickers = []
                 for t in data:
+                    symbol_name = t.get("symbol", "")
+                    # Only include USDT pairs
+                    if not symbol_name.endswith("USDT"):
+                        continue
                     mapped_tickers.append({
-                        "symbol": t.get("symbol", ""),
+                        "symbol": symbol_name,
                         "lastPrice": t.get("lastPrice", "0"),
                         "price24hPcnt": str(float(t.get("priceChangePercent", "0")) / 100),  # Convert % to decimal
                         "turnover24h": t.get("quoteVolume", "0"),
-                        "volume24h": t.get("volume", "0"),
+                        "volume24h": t.get("volume", "0") if category == "spot" else t.get("quoteVolume", "0"),
                         "bid1Price": t.get("bidPrice", "0"),
                         "ask1Price": t.get("askPrice", "0"),
                         "highPrice24h": t.get("highPrice", "0"),
@@ -295,20 +320,24 @@ class BinanceClient:
             logger.error(f"Binance get_orderbook error for {symbol}: {e}")
             return {"success": False, "error": str(e)}
     
-    async def get_klines(self, symbol: str, interval: str = "5m", limit: int = 100, category: str = "spot") -> Dict:
+    async def get_klines(self, symbol: str, interval: str = "5m", limit: int = 100, category: Optional[str] = None) -> Dict:
         """
-        Get kline/candlestick data - uses SPOT API for SPOT users
+        Get kline/candlestick data - uses appropriate API based on category
         
         Args:
             symbol: Trading pair (e.g., 'BTCUSDT')
             interval: Kline interval. Accepts Bybit format ('5', '15', '60') or Binance format ('5m', '15m', '1h')
             limit: Limit for data size (max 1500)
-            category: "spot" or "linear" (default: spot for SPOT users)
+            category: "spot" or "linear"/"futures". If None, uses account_type
             
         Returns:
             Dict with kline data in Bybit-compatible format (array format for indexing)
         """
         try:
+            # Use account type if category not specified
+            if category is None:
+                category = self.get_category()
+            
             # Convert Bybit interval format to Binance format
             # Bybit uses: 1, 3, 5, 15, 30, 60, 120, 240, 360, 720, D, W, M
             # Binance uses: 1m, 3m, 5m, 15m, 30m, 1h, 2h, 4h, 6h, 8h, 12h, 1d, 3d, 1w, 1M
@@ -323,9 +352,13 @@ class BinanceClient:
             }
             binance_interval = interval_map.get(interval, interval)
             
-            # Use SPOT API (public, no auth needed) - works for all users
-            base_url = "https://api.binance.com"
-            endpoint = "/api/v3/klines"
+            # Use appropriate API based on category
+            if category == "linear" or category == "futures":
+                base_url = "https://fapi.binance.com"
+                endpoint = "/fapi/v1/klines"
+            else:
+                base_url = "https://api.binance.com"
+                endpoint = "/api/v3/klines"
             
             url = f"{base_url}{endpoint}?symbol={symbol}&interval={binance_interval}&limit={min(limit, 1500)}"
             
@@ -381,28 +414,75 @@ class BinanceClient:
         }
         return await self._request("GET", "/fapi/v1/trades", params)
     
-    async def get_all_symbols(self) -> List[str]:
+    async def get_all_symbols(self, category: Optional[str] = None) -> List[str]:
         """
-        Get ALL available trading symbols from Binance Futures
+        Get ALL available trading symbols from Binance
+        
+        Args:
+            category: "spot" or "linear"/"futures". If None, uses account_type
         """
         try:
-            response = await self._request("GET", "/fapi/v1/exchangeInfo", {})
+            if category is None:
+                category = self.get_category()
             
-            if response.get("success") and response.get("data"):
-                symbols = []
-                for item in response["data"].get("symbols", []):
-                    symbol = item.get("symbol", "")
-                    status = item.get("status", "")
-                    # Only get active USDT trading pairs
-                    if status == "TRADING" and symbol.endswith("USDT"):
-                        symbols.append(symbol)
+            if category == "linear" or category == "futures":
+                # Futures symbols
+                response = await self._request("GET", "/fapi/v1/exchangeInfo", {})
                 
-                logger.info(f"Fetched {len(symbols)} active USDT-M futures trading pairs from Binance")
-                return symbols
+                if response.get("success") and response.get("data"):
+                    symbols = []
+                    for item in response["data"].get("symbols", []):
+                        symbol = item.get("symbol", "")
+                        status = item.get("status", "")
+                        # Only get active USDT trading pairs
+                        if status == "TRADING" and symbol.endswith("USDT"):
+                            symbols.append(symbol)
+                    
+                    logger.info(f"Fetched {len(symbols)} active USDT-M futures trading pairs from Binance")
+                    return symbols
+            else:
+                # SPOT symbols
+                try:
+                    url = "https://api.binance.com/api/v3/exchangeInfo"
+                    response = await self.http_client.get(url)
+                    data = response.json()
+                    
+                    if "symbols" in data:
+                        symbols = []
+                        for item in data["symbols"]:
+                            symbol = item.get("symbol", "")
+                            status = item.get("status", "")
+                            # Only get TRADING USDT pairs that allow SPOT trading
+                            if (status == "TRADING" and 
+                                symbol.endswith("USDT") and
+                                item.get("isSpotTradingAllowed", False)):
+                                symbols.append(symbol)
+                        
+                        logger.info(f"Fetched {len(symbols)} active SPOT USDT trading pairs from Binance")
+                        return symbols
+                except Exception as e:
+                    logger.error(f"Error fetching SPOT symbols: {e}")
+            
             return []
         except Exception as e:
             logger.error(f"Failed to fetch symbols: {e}")
             return []
+    
+    async def get_tradeable_symbols(self, category: Optional[str] = None) -> List[str]:
+        """
+        Get tradeable symbols with additional filtering for known problem symbols
+        """
+        if category is None:
+            category = self.get_category()
+        symbols = await self.get_all_symbols(category)
+        
+        # Known problematic symbols (low liquidity, delisted, restricted)
+        blacklist = {
+            'USDCUSDT', 'TUSDUSDT', 'BUSDUSDT', 'DAIUSDT',  # Stablecoins
+            'USDDUSDT', 'FDUSDUSDT', 'EURUSDT',  # More stablecoins
+        }
+        
+        return [s for s in symbols if s not in blacklist]
     
     async def get_instrument_info(self, symbol: str) -> Dict:
         """Get detailed instrument info (min qty, tick size, etc.)"""
@@ -575,7 +655,7 @@ class BinanceClient:
     # ============================================
     
     async def test_connection(self) -> Dict:
-        """Test API connection and authentication - tries SPOT first, then FUTURES"""
+        """Test API connection and authentication - checks BOTH SPOT and FUTURES"""
         try:
             logger.info(f"Testing Binance connection with API key: {self.api_key[:8]}...")
             
@@ -594,26 +674,49 @@ class BinanceClient:
                     "error": f"Network error: {str(net_err)}"
                 }
             
-            # Try SPOT account first (more common)
+            # Test BOTH SPOT and FUTURES to detect all available account types
+            has_spot = False
+            has_futures = False
+            spot_data = None
+            futures_data = None
+            
+            # Try SPOT account
             spot_result = await self.get_spot_balance()
             if spot_result.get("success"):
-                logger.info("Binance SPOT connection test successful")
-                return {
-                    "success": True,
-                    "message": "Connection successful (Spot)",
-                    "account_type": "spot",
-                    "data": spot_result.get("data")
-                }
+                has_spot = True
+                spot_data = spot_result.get("data")
+                logger.info("Binance SPOT access confirmed")
             
             # Try FUTURES account
             futures_result = await self.get_wallet_balance()
             if futures_result.get("success"):
-                logger.info("Binance FUTURES connection test successful")
+                has_futures = True
+                futures_data = futures_result.get("data")
+                logger.info("Binance FUTURES access confirmed")
+            
+            # Determine account type - PREFER FUTURES if both available
+            if has_futures:
+                # Futures takes priority (allows leverage and shorting)
+                self.set_account_type("futures")
+                logger.info("Binance connection: FUTURES available (preferred)")
                 return {
                     "success": True,
-                    "message": "Connection successful (Futures)",
+                    "message": "Connection successful (Futures)" + (" + Spot" if has_spot else ""),
                     "account_type": "futures",
-                    "data": futures_result.get("data")
+                    "has_spot": has_spot,
+                    "has_futures": has_futures,
+                    "data": futures_data
+                }
+            elif has_spot:
+                self.set_account_type("spot")
+                logger.info("Binance connection: SPOT only")
+                return {
+                    "success": True,
+                    "message": "Connection successful (Spot only - no Futures)",
+                    "account_type": "spot",
+                    "has_spot": has_spot,
+                    "has_futures": has_futures,
+                    "data": spot_data
                 }
             
             # Both failed - provide helpful error message

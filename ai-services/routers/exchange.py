@@ -199,33 +199,45 @@ async def set_user_credentials(request: UserCredentialsRequest):
     
     try:
         r = await get_redis()
+        exchange = request.exchange.lower()
         
-        # Store encrypted credentials in Redis
+        # Create appropriate client based on exchange
+        if exchange == "binance":
+            client = BinanceClient(
+                api_key=request.api_key,
+                api_secret=request.api_secret,
+                testnet=request.is_testnet
+            )
+        else:  # bybit (default)
+            client = BybitV5Client(
+                api_key=request.api_key,
+                api_secret=request.api_secret,
+                testnet=request.is_testnet
+            )
+        
+        # Test connection to detect account type (especially for Binance)
+        test_result = await client.test_connection()
+        account_type = test_result.get("account_type", "spot")  # Default to spot
+        has_spot = test_result.get("has_spot", True)
+        has_futures = test_result.get("has_futures", False)
+        
+        # Store encrypted credentials in Redis with account type info
         key = f"user:{request.user_id}:exchange:{request.exchange}"
         await r.hset(key, mapping={
             "api_key": simple_encrypt(request.api_key),
             "api_secret": simple_encrypt(request.api_secret),
             "is_testnet": "1" if request.is_testnet else "0",
             "is_active": "1" if request.is_active else "0",
+            "account_type": account_type,  # "spot" or "futures"
+            "has_spot": "1" if has_spot else "0",
+            "has_futures": "1" if has_futures else "0",
             "updated_at": datetime.utcnow().isoformat(),
         })
         
-        # If active, create connection for API calls
+        logger.info(f"Detected {exchange} account_type={account_type} for user {request.user_id}")
+        
+        # If active, store connection for API calls
         if request.is_active:
-            # Create appropriate client based on exchange
-            exchange = request.exchange.lower()
-            if exchange == "binance":
-                client = BinanceClient(
-                    api_key=request.api_key,
-                    api_secret=request.api_secret,
-                    testnet=request.is_testnet
-                )
-            else:  # bybit (default)
-                client = BybitV5Client(
-                    api_key=request.api_key,
-                    api_secret=request.api_secret,
-                    testnet=request.is_testnet
-                )
             user_exchange_connections[f"{request.user_id}:{request.exchange}"] = client
             
             # Connect user to autonomous trader (but DON'T start trading automatically for NEW users)
@@ -469,19 +481,29 @@ async def connect_exchange(credentials: ExchangeCredentials):
             })
         
         # New format (for get_user_client)
+        # For Binance, also store the detected account_type (spot/futures)
+        account_type = result.get("account_type", "spot")  # Default to spot if not detected
+        has_spot = result.get("has_spot", True)
+        has_futures = result.get("has_futures", False)
+        
         await r.hset(f"user:default:exchange:{exchange}", mapping={
             "api_key": simple_encrypt(credentials.apiKey),
             "api_secret": simple_encrypt(credentials.apiSecret),
             "is_testnet": "1" if credentials.testnet else "0",
             "is_active": "1",
+            "account_type": account_type,  # "spot" or "futures"
+            "has_spot": "1" if has_spot else "0",
+            "has_futures": "1" if has_futures else "0",
             "updated_at": datetime.utcnow().isoformat(),
         })
         
-        logger.info(f"{exchange.capitalize()} credentials saved to Redis - will persist across restarts")
+        logger.info(f"{exchange.capitalize()} credentials saved to Redis (account_type={account_type}) - will persist across restarts")
         
         return {
             "success": True,
-            "message": f"{exchange.capitalize()} connected successfully - credentials saved"
+            "message": f"{exchange.capitalize()} connected successfully - credentials saved",
+            "account_type": account_type,
+            "has_futures": has_futures
         }
         
     except Exception as e:
