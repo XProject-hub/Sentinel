@@ -1419,19 +1419,55 @@ class AutonomousTraderV2:
         # Remove closed positions and LOG THEM!
         if user_id in self.active_positions:
             for symbol in list(self.active_positions[user_id].keys()):
-                if symbol not in exchange_positions:
-                    # SKIP if this symbol is on cooldown (means bot already closed it!)
-                    if symbol in self._cooldown_symbols:
-                        cooldown_time = self._cooldown_symbols[symbol]
-                        elapsed = (datetime.utcnow() - cooldown_time).total_seconds()
-                        if elapsed < self.cooldown_seconds:
-                            # Bot closed this position - just remove from tracking, don't log as external
-                            del self.active_positions[user_id][symbol]
-                            logger.debug(f"{symbol} removed from tracking (bot closed {elapsed:.0f}s ago)")
-                            continue
+                tracked_pos = self.active_positions[user_id][symbol]
+                is_spot_position = getattr(tracked_pos, 'is_spot', False)
+                
+                # For SPOT positions, check wallet instead of futures positions
+                if is_spot_position:
+                    # Check if we still hold this coin in wallet
+                    spot_still_held = False
+                    try:
+                        # Extract base coin from symbol (e.g., BTCUSDT -> BTC, BLASTUSDT -> BLAST)
+                        base_coin = symbol.replace('USDT', '').replace('USDC', '').replace('USD', '')
+                        
+                        # Check wallet for this coin (user_assets is a list of dicts)
+                        user_assets_list = self.user_assets.get(user_id, [])
+                        for asset in user_assets_list:
+                            asset_coin = asset.get('coin', '')
+                            asset_balance = float(asset.get('balance', 0))
+                            if asset_coin == base_coin and asset_balance > 0.0001:
+                                spot_still_held = True
+                                # Update position size from wallet
+                                tracked_pos.size = asset_balance
+                                logger.debug(f"SPOT {symbol} still held: {asset_balance} {base_coin}")
+                                break
+                    except Exception as e:
+                        logger.debug(f"Could not check wallet for {symbol}: {e}")
+                        spot_still_held = True  # Assume still held if check fails
                     
-                    # Get position info before deleting
-                    closed_pos = self.active_positions[user_id][symbol]
+                    if spot_still_held:
+                        # SPOT position still exists, don't remove
+                        continue
+                    else:
+                        logger.info(f"SPOT {symbol} no longer in wallet - marking as closed")
+                
+                # For FUTURES, check exchange_positions
+                elif symbol in exchange_positions:
+                    continue  # FUTURES position still open
+                
+                # Position is closed (SPOT sold or FUTURES closed)
+                # SKIP if this symbol is on cooldown (means bot already closed it!)
+                if symbol in self._cooldown_symbols:
+                    cooldown_time = self._cooldown_symbols[symbol]
+                    elapsed = (datetime.utcnow() - cooldown_time).total_seconds()
+                    if elapsed < self.cooldown_seconds:
+                        # Bot closed this position - just remove from tracking, don't log as external
+                        del self.active_positions[user_id][symbol]
+                        logger.debug(f"{symbol} removed from tracking (bot closed {elapsed:.0f}s ago)")
+                        continue
+                
+                # Get position info before deleting
+                closed_pos = self.active_positions[user_id][symbol]
                     
                     # Try to get ACTUAL P&L from Bybit closed PnL API
                     actual_pnl = 0.0
