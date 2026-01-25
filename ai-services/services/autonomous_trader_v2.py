@@ -3395,78 +3395,113 @@ class AutonomousTraderV2:
                     logger.info(f"🔄 BOUNCE TRADE: {symbol} dumped {price_change:.1f}% but at LOW ({position_in_range:.0%}) - going LONG!")
                 
                 # =========================================================
-                # BULLISH BREAKOUT - EARLIER ENTRY AT 5%!
+                # BULLISH BREAKOUT - WITH PULLBACK REQUIREMENT!
                 # =========================================================
+                # KEY INSIGHT: Don't enter at the TOP of a pump!
+                # Only enter if price has PULLED BACK from the high.
+                # This gives us better entry = more profit room!
                 elif price_change >= 5:
-                    # Position check: don't buy at the very top
-                    if position_in_range > 0.90:
-                        logger.info(f"{symbol}: SKIP LONG - already at 24h TOP ({position_in_range:.0%})")
+                    # Calculate pullback from 24h high
+                    pullback_from_high = ((high_24h - last_price) / high_24h * 100) if high_24h > 0 else 0
+                    
+                    # CRITICAL: Require pullback for better entries!
+                    # position_in_range > 0.90 means price is within 10% of 24h high = NO PULLBACK
+                    if position_in_range > 0.92:
+                        logger.info(f"{symbol}: SKIP - at 24h TOP ({position_in_range:.0%}), no pullback yet")
+                        continue
+                    elif position_in_range > 0.85 and pullback_from_high < 1.5:
+                        logger.info(f"{symbol}: SKIP - needs more pullback ({pullback_from_high:.1f}% from high)")
                         continue
                     elif position_in_range > 0.80:
                         size_multiplier = 0.4  # Reduced size near top
                     elif position_in_range > 0.70:
                         size_multiplier = 0.7  # Slightly reduced
+                    elif position_in_range < 0.60:
+                        # BEST ENTRY: Price pulled back significantly within uptrend!
+                        size_multiplier = 1.0
+                        logger.info(f"✅ IDEAL ENTRY: {symbol} +{price_change:.1f}% but pulled back to {position_in_range:.0%} of range")
                     
                     is_breakout = True
                     direction = 'long'
                     
+                    # Stricter limits - don't chase extended moves
                     if price_change >= 50:
-                        breakout_strength = 50  # Very late, low confidence
+                        logger.info(f"{symbol}: SKIP - +{price_change:.1f}% is too extended")
+                        continue  # SKIP extreme moves entirely
+                    elif price_change >= 30:
+                        breakout_strength = 40  # Very low confidence
                         size_multiplier = min(size_multiplier, 0.2)
-                        logger.warning(f"⚠️ EXTREME breakout {symbol} +{price_change:.1f}% - minimal size")
-                    elif price_change >= 25:
-                        breakout_strength = 65
-                        size_multiplier = min(size_multiplier, 0.4)
+                        logger.warning(f"⚠️ EXTENDED move {symbol} +{price_change:.1f}% - minimal size if any")
+                    elif price_change >= 20:
+                        breakout_strength = 60
+                        size_multiplier = min(size_multiplier, 0.3)
                     elif price_change >= 15:
-                        breakout_strength = 80
-                        size_multiplier = min(size_multiplier, 0.6)
+                        breakout_strength = 70
+                        size_multiplier = min(size_multiplier, 0.5)
                     elif price_change >= 10:
-                        # SWEET SPOT: +10-15% is ideal
-                        breakout_strength = 95
-                        # Keep size_multiplier from position check
+                        # Decent entry if pullback exists
+                        breakout_strength = 85 if pullback_from_high >= 2 else 70
+                        size_multiplier = min(size_multiplier, 0.7)
                     else:
-                        # EARLY ENTRY: +5-10% - catching it early!
-                        breakout_strength = 100  # Highest confidence for early entries
-                        size_multiplier = min(size_multiplier, 1.0)
-                        logger.info(f"🚀 EARLY LONG: {symbol} +{price_change:.1f}% - catching early!")
+                        # +5-10% - ONLY good if we have pullback
+                        if pullback_from_high >= 1.5 or position_in_range < 0.70:
+                            breakout_strength = 95
+                            logger.info(f"🚀 PULLBACK ENTRY: {symbol} +{price_change:.1f}%, {pullback_from_high:.1f}% off high")
+                        else:
+                            breakout_strength = 75  # Lower confidence without pullback
+                            logger.info(f"⚡ EARLY LONG: {symbol} +{price_change:.1f}% - watching for pullback")
                     
                 # =========================================================
-                # BEARISH BREAKOUT (SHORT) - EARLIER ENTRY AT -5%!
+                # BEARISH BREAKOUT (SHORT) - WITH BOUNCE REQUIREMENT!
                 # =========================================================
+                # KEY: Don't short at the BOTTOM of a dump!
+                # Only short if price has BOUNCED UP from the low (dead cat bounce)
                 elif price_change <= -5:
+                    # Calculate bounce from 24h low
+                    bounce_from_low = ((last_price - low_24h) / low_24h * 100) if low_24h > 0 else 0
+                    
                     # Position check: don't short at the very bottom
-                    if position_in_range < 0.15:
-                        # Skip - dump is done, should bounce (handled above)
-                        logger.info(f"{symbol}: SKIP SHORT - already at 24h BOTTOM ({position_in_range:.0%})")
+                    if position_in_range < 0.10:
+                        logger.info(f"{symbol}: SKIP SHORT - at 24h BOTTOM ({position_in_range:.0%})")
+                        continue
+                    elif position_in_range < 0.20 and bounce_from_low < 2:
+                        logger.info(f"{symbol}: SKIP SHORT - needs bounce from low ({bounce_from_low:.1f}%)")
                         continue
                     elif position_in_range < 0.30:
-                        # Near bottom - risky for shorts
                         size_multiplier = 0.3
                     elif position_in_range < 0.40:
                         size_multiplier = 0.6
+                    elif position_in_range > 0.50:
+                        # BEST SHORT: Price bounced up but still in downtrend
+                        size_multiplier = 1.0
+                        logger.info(f"✅ IDEAL SHORT: {symbol} {price_change:.1f}% but bounced to {position_in_range:.0%}")
                     
                     is_breakout = True
                     direction = 'short'
                     
                     abs_change = abs(price_change)
-                    if abs_change >= 50:
+                    # Skip extreme dumps - they usually bounce
+                    if abs_change >= 40:
+                        logger.info(f"{symbol}: SKIP SHORT - {price_change:.1f}% dump too extreme, bounce likely")
+                        continue
+                    elif abs_change >= 25:
                         breakout_strength = 50
                         size_multiplier = min(size_multiplier, 0.2)
-                        logger.warning(f"⚠️ EXTREME dump {symbol} {price_change:.1f}% - minimal size")
-                    elif abs_change >= 25:
-                        breakout_strength = 65
-                        size_multiplier = min(size_multiplier, 0.4)
                     elif abs_change >= 15:
-                        breakout_strength = 80
-                        size_multiplier = min(size_multiplier, 0.6)
+                        breakout_strength = 70
+                        size_multiplier = min(size_multiplier, 0.4)
                     elif abs_change >= 10:
-                        # Good short entry
-                        breakout_strength = 95
+                        # Decent short if we have a bounce
+                        breakout_strength = 80 if bounce_from_low >= 2 else 60
+                        size_multiplier = min(size_multiplier, 0.6)
                     else:
-                        # EARLY SHORT: -5% to -10% - catching the dump early!
-                        breakout_strength = 100
-                        size_multiplier = min(size_multiplier, 1.0)
-                        logger.info(f"📉 EARLY SHORT: {symbol} {price_change:.1f}% - catching early!")
+                        # -5% to -10% - need confirmation
+                        if bounce_from_low >= 1.5 or position_in_range > 0.40:
+                            breakout_strength = 90
+                            logger.info(f"📉 BOUNCE SHORT: {symbol} {price_change:.1f}%, {bounce_from_low:.1f}% off low")
+                        else:
+                            breakout_strength = 65
+                            logger.info(f"📉 EARLY SHORT: {symbol} {price_change:.1f}% - watching for bounce")
                 
                 if is_breakout:
                     # Determine trade type for logging
