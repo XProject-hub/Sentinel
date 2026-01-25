@@ -780,6 +780,38 @@ class BybitV5Client:
                         }
                     }
         return {"success": False, "error": "Asset not found"}
+    
+    async def get_spot_trade_history(self, symbol: Optional[str] = None, limit: int = 50) -> Dict:
+        """Get spot trade execution history to calculate P&L for closed SPOT trades"""
+        params = {
+            "category": "spot",
+            "limit": limit
+        }
+        if symbol:
+            params["symbol"] = symbol
+        
+        result = await self._request("GET", "/v5/execution/list", params, auth=True)
+        
+        if result.get("success") and result.get("data"):
+            executions = result["data"].get("list", [])
+            return {
+                "success": True,
+                "data": {
+                    "list": executions
+                }
+            }
+        return result
+    
+    async def get_spot_order_history(self, symbol: Optional[str] = None, limit: int = 50) -> Dict:
+        """Get spot order history"""
+        params = {
+            "category": "spot",
+            "limit": limit
+        }
+        if symbol:
+            params["symbol"] = symbol
+        
+        return await self._request("GET", "/v5/order/history", params, auth=True)
             
     async def close(self):
         """Close HTTP client"""
