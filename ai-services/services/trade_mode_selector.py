@@ -142,60 +142,86 @@ class TradeModeSelector:
         
         # === RULE 2: For LONG positions, choose SPOT vs FUTURES ===
         
-        # Factors favoring SPOT:
-        spot_score = 0
+        # Base scores - SPOT has safety advantage
+        spot_score = 20  # Base safety score for SPOT
         futures_score = 0
+        reasons.append("Base safety score for spot")
         
         # Strong uptrend with low volatility = SPOT
         if regime == 'BULL' and volatility < 2.0:
-            spot_score += 30
+            spot_score += 25
             reasons.append("Strong bull trend with low volatility")
+        elif regime == 'BULL':
+            spot_score += 15  # Bull market favors spot even with volatility
+            reasons.append("Bull market favors spot")
         
-        # High volatility = FUTURES (can exit quickly)
-        if volatility > 3.0:
-            futures_score += 25
+        # Moderate volatility (1-3%) = SPOT is safer
+        if 1.0 <= volatility <= 3.0:
+            spot_score += 10
+            reasons.append(f"Moderate volatility ({volatility:.1f}%) - spot is safer")
+        
+        # Very high volatility = FUTURES (can exit quickly with leverage)
+        if volatility > 4.0:
+            futures_score += 20
             reasons.append(f"High volatility ({volatility:.1f}) - futures for quick exits")
         
-        # Strong trend = FUTURES with leverage
-        if trend_strength > 0.7:
-            futures_score += 20
-            reasons.append(f"Strong trend ({trend_strength:.0%}) - leverage opportunity")
-        
-        # Ranging market = SPOT safer
-        if regime == 'RANGE':
-            spot_score += 15
-            reasons.append("Ranging market - spot is safer")
-        
-        # High confidence = can use leverage
-        if confidence > 80:
+        # Strong trend = can use leverage, but not always
+        if trend_strength > 0.8:
             futures_score += 15
-            reasons.append(f"High confidence ({confidence:.0f}%) supports leverage")
-        elif confidence < 60:
-            spot_score += 20
-            reasons.append(f"Lower confidence ({confidence:.0f}%) - spot is safer")
+            reasons.append(f"Very strong trend ({trend_strength:.0%}) - leverage opportunity")
+        elif trend_strength > 0.6:
+            spot_score += 5  # Moderate trend = spot is fine
         
-        # Large price move already happened = careful
+        # Ranging market = SPOT is much safer
+        if regime == 'RANGE':
+            spot_score += 25
+            reasons.append("Ranging market - spot is much safer")
+        
+        # BEAR market = be careful, prefer SPOT for longs
+        if regime == 'BEAR':
+            spot_score += 20
+            reasons.append("Bear market - spot reduces risk")
+        
+        # Confidence scoring - more balanced
+        if confidence > 90:
+            futures_score += 10
+            reasons.append(f"Very high confidence ({confidence:.0f}%) supports leverage")
+        elif confidence > 75:
+            # Neutral - both are fine
+            pass
+        else:
+            spot_score += 15
+            reasons.append(f"Moderate confidence ({confidence:.0f}%) - spot is safer")
+        
+        # Large price move already happened = SPOT is safer
         if abs(price_change_24h) > 10:
-            spot_score += 10
-            warnings.append(f"Large 24h move ({price_change_24h:+.1f}%) - potential reversal")
+            spot_score += 15
+            warnings.append(f"Large 24h move ({price_change_24h:+.1f}%) - spot reduces reversal risk")
+        elif abs(price_change_24h) > 5:
+            spot_score += 5
         
         # Funding rate consideration
-        if funding_rate > 0.05:  # Very high funding
-            spot_score += 15
-            warnings.append(f"High funding rate ({funding_rate:.3%}) - longs pay shorts")
+        if funding_rate > 0.03:  # High funding
+            spot_score += 20
+            warnings.append(f"High funding rate ({funding_rate:.3%}) - spot avoids funding fees")
+        elif funding_rate > 0.01:
+            spot_score += 10
         elif funding_rate < -0.02:  # Negative funding
             futures_score += 10
             reasons.append(f"Negative funding ({funding_rate:.3%}) - longs get paid")
         
-        # User risk mode adjustment
+        # User risk mode adjustment - REBALANCED
         if user_risk_mode == 'safe':
-            spot_score += 25
-            reasons.append("Safe mode prefers spot")
+            spot_score += 30  # Strong preference for spot
+            reasons.append("Safe mode strongly prefers spot")
+        elif user_risk_mode == 'normal':
+            spot_score += 10  # Slight preference for spot in normal mode
+            reasons.append("Normal mode slightly prefers spot for safety")
         elif user_risk_mode == 'aggressive':
-            futures_score += 20
+            futures_score += 25
             reasons.append("Aggressive mode prefers leverage")
         
-        # Volume confirmation
+        # Volume confirmation - high volume can support both
         if volume_ratio > 2.0:
             futures_score += 10
             reasons.append(f"High volume ({volume_ratio:.1f}x avg) confirms move")
