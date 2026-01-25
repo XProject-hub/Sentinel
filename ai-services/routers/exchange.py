@@ -364,7 +364,20 @@ async def get_user_client(user_id: str, exchange: str = "bybit") -> Optional[Exc
                 testnet=is_testnet,
                 account_type=account_type
             )
-            logger.info(f"Created BinanceClient for {user_id} with account_type={account_type}")
+            
+            # For Futures, verify connection works
+            if account_type == "futures":
+                test_result = await client.test_connection()
+                if test_result.get("success"):
+                    # Update account_type from test result if different
+                    detected_type = test_result.get("account_type", account_type)
+                    if detected_type != account_type:
+                        client.set_account_type(detected_type)
+                        logger.info(f"BinanceClient account_type updated to {detected_type}")
+                else:
+                    logger.warning(f"Binance connection test failed: {test_result.get('error')}")
+                    
+            logger.info(f"Created BinanceClient for {user_id} with account_type={client.account_type}")
         else:  # bybit (default)
             client = BybitV5Client(
                 api_key=api_key,
@@ -742,11 +755,20 @@ async def get_balance(user_id: str = "default"):
             
             if result.get("success") and result.get("data"):
                 account_type_found = "futures"
-                data = result.get("data", {})
-                # Futures balance is in USDT
-                for asset in data.get("assets", []):
-                    wallet_balance = float(asset.get("walletBalance", 0))
-                    unrealized_pnl = float(asset.get("unrealizedProfit", 0))
+                data = result.get("data", [])
+                
+                # Binance Futures /fapi/v2/balance returns array directly, not object with "assets" key
+                # Handle both formats for safety
+                assets_list = data if isinstance(data, list) else data.get("assets", [])
+                
+                logger.debug(f"Binance FUTURES balance data type: {type(data)}, count: {len(assets_list) if assets_list else 0}")
+                
+                for asset in assets_list:
+                    # Binance uses "balance" or "walletBalance" depending on endpoint
+                    wallet_balance = float(asset.get("walletBalance", asset.get("balance", 0)))
+                    unrealized_pnl = float(asset.get("unrealizedProfit", asset.get("crossUnPnl", 0)))
+                    available = float(asset.get("availableBalance", asset.get("crossWalletBalance", wallet_balance)))
+                    
                     if wallet_balance > 0 or unrealized_pnl != 0:
                         asset_name = asset.get("asset", "USDT")
                         coins.append({
@@ -755,8 +777,8 @@ async def get_balance(user_id: str = "default"):
                             "equity": wallet_balance + unrealized_pnl,
                             "usdValue": wallet_balance + unrealized_pnl,  # Futures is in USDT
                             "unrealizedPnl": unrealized_pnl,
-                            "free": float(asset.get("availableBalance", wallet_balance)),
-                            "locked": float(asset.get("marginBalance", 0))
+                            "free": available,
+                            "locked": wallet_balance - available if wallet_balance > available else 0
                         })
                         total_equity += wallet_balance + unrealized_pnl
                 
