@@ -171,6 +171,7 @@ export default function DashboardPage() {
   const [last100Pnl, setLast100Pnl] = useState<number>(0)
   const [userId, setUserId] = useState<string>('default')
   const [priceCharts, setPriceCharts] = useState<{[symbol: string]: {close: number}[]}>({})
+  const [showAssetsPopup, setShowAssetsPopup] = useState(false)
   
   const consoleRef = useRef<HTMLDivElement>(null)
 
@@ -661,8 +662,37 @@ export default function DashboardPage() {
               <span>≈ €{balanceEUR.toFixed(2)} EUR</span>
             </div>
             {coins.length > 1 && (
-              <div className="text-[9px] text-gray-500 mt-1">
-                +{coins.length - 1} more asset{coins.length > 2 ? 's' : ''}
+              <div className="relative">
+                <button 
+                  onClick={() => setShowAssetsPopup(!showAssetsPopup)}
+                  className="text-[9px] text-cyan-400 mt-1 hover:text-cyan-300 cursor-pointer underline"
+                >
+                  +{coins.length - 1} more asset{coins.length > 2 ? 's' : ''} ▼
+                </button>
+                {showAssetsPopup && (
+                  <div className="absolute top-6 left-0 z-50 bg-gray-900 border border-white/10 rounded-lg p-3 shadow-xl min-w-[200px]">
+                    <div className="text-[10px] text-gray-400 mb-2 font-semibold">All Assets:</div>
+                    {coins.map((coin, idx) => (
+                      <div key={idx} className="flex justify-between items-center py-1.5 border-b border-white/5 last:border-0">
+                        <span className="text-white text-xs font-medium">{coin.coin}</span>
+                        <div className="text-right">
+                          <div className="text-white text-xs">{coin.balance.toFixed(coin.coin === 'USDT' ? 2 : 4)}</div>
+                          <div className="text-gray-500 text-[9px]">≈ ${coin.usdValue.toFixed(2)}</div>
+                        </div>
+                      </div>
+                    ))}
+                    <div className="mt-2 pt-2 border-t border-white/10 flex justify-between">
+                      <span className="text-gray-400 text-[10px]">Total:</span>
+                      <span className="text-emerald-400 text-xs font-bold">${coins.reduce((sum, c) => sum + c.usdValue, 0).toFixed(2)}</span>
+                    </div>
+                    <button 
+                      onClick={() => setShowAssetsPopup(false)}
+                      className="mt-2 w-full text-[9px] text-gray-500 hover:text-white"
+                    >
+                      Close
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </div>
