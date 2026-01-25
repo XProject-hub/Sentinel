@@ -5187,6 +5187,33 @@ class AutonomousTraderV2:
                             qty=qty_str
                         )
                     logger.info(f"BYBIT SPOT Order result for {opp.symbol}: {result}")
+                    
+                    # FALLBACK: If SPOT fails with "Invalid symbol", try FUTURES with 1x leverage
+                    if not result.get('success'):
+                        error_msg = str(result.get('error', '')).lower()
+                        error_code = result.get('code', '')
+                        # Check for invalid symbol or similar errors
+                        if 'invalid' in error_msg or 'symbol' in error_msg or error_code in [10001, 110007]:
+                            logger.warning(f"SPOT not available for {opp.symbol}, falling back to FUTURES 1x")
+                            await self._log_to_console(f"SPOT unavailable for {opp.symbol}, using FUTURES 1x", "INFO", user_id)
+                            
+                            # Set leverage to 1x for safety
+                            try:
+                                await client.set_leverage(opp.symbol, "1", category="linear")
+                            except:
+                                pass
+                            
+                            # Try FUTURES order instead
+                            result = await client.place_order(
+                                category="linear",
+                                symbol=opp.symbol,
+                                side=side,
+                                order_type='Market',
+                                qty=qty_str
+                            )
+                            logger.info(f"BYBIT FUTURES 1x FALLBACK Order result for {opp.symbol}: {result}")
+                            is_spot_trade = False  # Update for position tracking
+                            leverage = 1
                 else:
                     # BYBIT FUTURES ORDER - With leverage
                     result = await client.place_order(
