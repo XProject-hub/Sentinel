@@ -145,7 +145,16 @@ class BybitV5Client:
                     content=param_str,  # Use content instead of json to ensure exact match
                 )
                 
-            data = response.json()
+            # Check for empty or non-JSON response
+            try:
+                if not response.text or len(response.text.strip()) == 0:
+                    logger.error(f"Bybit API returned empty response for {endpoint}")
+                    return {"success": False, "error": "Empty response from Bybit API - check network connection"}
+                data = response.json()
+            except Exception as json_err:
+                logger.error(f"Failed to parse Bybit response: {json_err}")
+                logger.error(f"Response text: {response.text[:500] if response.text else 'EMPTY'}")
+                return {"success": False, "error": f"Invalid response from Bybit API: {str(json_err)[:100]}"}
             
             if data.get("retCode") != 0:
                 error_msg = data.get('retMsg', 'Unknown error')
