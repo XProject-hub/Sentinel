@@ -41,6 +41,8 @@ class TradeModeDecision:
     warnings: List[str]
     expected_hold_time: str  # "minutes", "hours", "days"
     risk_level: str  # "low", "medium", "high"
+    spot_score: int = 0  # Score for spot trading
+    futures_score: int = 0  # Score for futures trading
     
     def to_dict(self) -> Dict:
         return {
@@ -130,9 +132,11 @@ class TradeModeSelector:
                 reasons=reasons,
                 warnings=warnings,
                 expected_hold_time=self._estimate_hold_time(volatility, regime),
-                risk_level=self._assess_risk(leverage, volatility)
+                risk_level=self._assess_risk(leverage, volatility),
+                spot_score=0,  # Can't short on spot
+                futures_score=100  # Short requires futures
             )
-            logger.info(f"✅ DECISION: {symbol} → FUTURES SHORT {leverage}x | Risk: {decision.risk_level}")
+            logger.info(f"🎯 TRADE MODE DECISION: {symbol} → FUTURES SHORT {leverage}x | Risk: {decision.risk_level}")
             logger.info(f"   Reasons: {', '.join(reasons)}")
             return decision
         
@@ -197,7 +201,7 @@ class TradeModeSelector:
             reasons.append(f"High volume ({volume_ratio:.1f}x avg) confirms move")
         
         # === DECISION ===
-        logger.info(f"   📊 Scores: SPOT={spot_score} vs FUTURES={futures_score}")
+        logger.info(f"🎯 TRADE MODE DECISION: {symbol} | SPOT={spot_score} vs FUTURES={futures_score}")
         
         if spot_score > futures_score:
             decision = TradeModeDecision(
@@ -207,9 +211,11 @@ class TradeModeSelector:
                 reasons=reasons,
                 warnings=warnings,
                 expected_hold_time=self._estimate_hold_time(volatility, regime, is_spot=True),
-                risk_level="low"
+                risk_level="low",
+                spot_score=spot_score,
+                futures_score=futures_score
             )
-            logger.info(f"✅ DECISION: {symbol} → SPOT (no leverage) | Risk: low")
+            logger.info(f"✅ DECISION: {symbol} → SPOT (no leverage) | Scores: {spot_score}>{futures_score} | Risk: low")
             logger.info(f"   Reasons: {', '.join(reasons)}")
             return decision
         else:
@@ -223,9 +229,11 @@ class TradeModeSelector:
                 reasons=reasons,
                 warnings=warnings,
                 expected_hold_time=self._estimate_hold_time(volatility, regime),
-                risk_level=self._assess_risk(leverage, volatility)
+                risk_level=self._assess_risk(leverage, volatility),
+                spot_score=spot_score,
+                futures_score=futures_score
             )
-            logger.info(f"✅ DECISION: {symbol} → FUTURES LONG {leverage}x | Risk: {decision.risk_level}")
+            logger.info(f"✅ DECISION: {symbol} → FUTURES LONG {leverage}x | Scores: {futures_score}>{spot_score} | Risk: {decision.risk_level}")
             logger.info(f"   Reasons: {', '.join(reasons)}")
             return decision
     

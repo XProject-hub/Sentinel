@@ -5072,37 +5072,88 @@ class AutonomousTraderV2:
             
             # ═══════════════════════════════════════════════════════════════
             # PLACE ORDER - Spot or Futures based on AI decision
+            # Detect exchange type and use correct API calls
             # ═══════════════════════════════════════════════════════════════
-            if is_spot_trade:
-                # SPOT ORDER - No leverage, actual asset purchase
-                # For spot, we need to calculate USDT amount for market buy
-                if side == 'Buy':
-                    # When buying, use quote quantity (USDT amount)
-                    result = await client.place_spot_order(
-                        symbol=opp.symbol,
-                        side=side,
-                        order_type='Market',
-                        qty=str(position_value)  # USDT amount for spot buy
-                    )
+            exchange_type = self.user_exchanges.get(user_id, "bybit")
+            logger.info(f"TRADE MODE: {opp.symbol} -> {trade_mode_decision.mode.value} | Exchange: {exchange_type.upper()} | Scores: spot={getattr(trade_mode_decision, 'spot_score', 'N/A')} vs futures={getattr(trade_mode_decision, 'futures_score', 'N/A')}")
+            
+            if exchange_type == "binance":
+                # ═══════════════════════════════════════════════════════════
+                # BINANCE ORDERS - Different API format
+                # ═══════════════════════════════════════════════════════════
+                binance_side = side.upper()  # Binance uses 'BUY'/'SELL'
+                
+                if is_spot_trade:
+                    # BINANCE SPOT ORDER
+                    if binance_side == 'BUY':
+                        # For market buy, use quote_quantity (USDT amount to spend)
+                        result = await client.place_spot_order(
+                            symbol=opp.symbol,
+                            side=binance_side,
+                            order_type='MARKET',
+                            quote_quantity=str(round(position_value, 2))
+                        )
+                    else:
+                        # For sell, use quantity (amount of asset to sell)
+                        result = await client.place_spot_order(
+                            symbol=opp.symbol,
+                            side=binance_side,
+                            order_type='MARKET',
+                            quantity=qty_str
+                        )
+                    logger.info(f"BINANCE SPOT Order result for {opp.symbol}: {result}")
                 else:
-                    # When selling, need to have the asset already
-                    result = await client.place_spot_order(
+                    # BINANCE FUTURES ORDER - Not yet implemented for Binance
+                    # For now, fall back to spot for Binance users
+                    logger.warning(f"Binance futures not yet supported, using SPOT for {opp.symbol}")
+                    if binance_side == 'BUY':
+                        result = await client.place_spot_order(
+                            symbol=opp.symbol,
+                            side=binance_side,
+                            order_type='MARKET',
+                            quote_quantity=str(round(position_value, 2))
+                        )
+                    else:
+                        result = await client.place_spot_order(
+                            symbol=opp.symbol,
+                            side=binance_side,
+                            order_type='MARKET',
+                            quantity=qty_str
+                        )
+                    logger.info(f"BINANCE SPOT (fallback) Order result for {opp.symbol}: {result}")
+            else:
+                # ═══════════════════════════════════════════════════════════
+                # BYBIT ORDERS - Original logic
+                # ═══════════════════════════════════════════════════════════
+                if is_spot_trade:
+                    # BYBIT SPOT ORDER - No leverage, actual asset purchase
+                    if side == 'Buy':
+                        # When buying, use quote quantity (USDT amount)
+                        result = await client.place_spot_order(
+                            symbol=opp.symbol,
+                            side=side,
+                            order_type='Market',
+                            qty=str(position_value)  # USDT amount for spot buy
+                        )
+                    else:
+                        # When selling, need to have the asset already
+                        result = await client.place_spot_order(
+                            symbol=opp.symbol,
+                            side=side,
+                            order_type='Market',
+                            qty=qty_str
+                        )
+                    logger.info(f"BYBIT SPOT Order result for {opp.symbol}: {result}")
+                else:
+                    # BYBIT FUTURES ORDER - With leverage
+                    result = await client.place_order(
+                        category="linear",
                         symbol=opp.symbol,
                         side=side,
                         order_type='Market',
                         qty=qty_str
                     )
-                logger.info(f"SPOT Order result for {opp.symbol}: {result}")
-            else:
-                # FUTURES ORDER - With leverage
-                result = await client.place_order(
-                    category="linear",
-                    symbol=opp.symbol,
-                    side=side,
-                    order_type='Market',
-                    qty=qty_str
-                )
-                logger.info(f"FUTURES Order result for {opp.symbol}: {result}")
+                    logger.info(f"BYBIT FUTURES Order result for {opp.symbol}: {result}")
             
             if result.get('success'):
                 logger.info(f"ORDER SUCCESS: {opp.symbol} {side} {qty}")
