@@ -1689,24 +1689,37 @@ class AutonomousTraderV2:
         except Exception as e:
             logger.error(f"Exit check error for {position.symbol}: {e}")
             
-    async def _close_position(self, user_id: str, client: BybitV5Client,
+    async def _close_position(self, user_id: str, client,
                               position: ActivePosition, pnl_percent: float, reason: str):
-        """Close a position"""
+        """Close a position - supports both SPOT and FUTURES"""
         try:
-            logger.info(f" EXECUTING CLOSE: {position.symbol} | Side: {position.side} | Size: {position.size} | Reason: {reason}")
+            is_spot = getattr(position, 'is_spot', False)
+            logger.info(f" EXECUTING CLOSE: {position.symbol} | Side: {position.side} | Size: {position.size} | SPOT: {is_spot} | Reason: {reason}")
             
             # Determine close side (opposite of position)
             close_side = 'Sell' if position.side == 'Buy' else 'Buy'
             
-            # FIXED: qty must be string, add category parameter
-            result = await client.place_order(
-                category="linear",  # Crypto perpetuals
-                symbol=position.symbol,
-                side=close_side,
-                order_type='Market',
-                qty=str(position.size),  # Must be string!
-                reduce_only=True
-            )
+            if is_spot:
+                # SPOT CLOSE: Sell the coins we hold
+                # For spot, we sell the actual coins, not a contract
+                logger.info(f"Closing SPOT position: {position.symbol} - Selling {position.size} coins")
+                result = await client.place_spot_order(
+                    symbol=position.symbol,
+                    side='Sell',  # Always sell to close a spot long
+                    order_type='Market',
+                    qty=str(position.size)  # Sell the coins we hold
+                )
+                logger.info(f"SPOT SELL order result for {position.symbol}: {result}")
+            else:
+                # FUTURES CLOSE: Use linear perpetual
+                result = await client.place_order(
+                    category="linear",  # Crypto perpetuals
+                    symbol=position.symbol,
+                    side=close_side,
+                    order_type='Market',
+                    qty=str(position.size),  # Must be string!
+                    reduce_only=True
+                )
             
             logger.info(f"Order result for {position.symbol}: {result}")
             
