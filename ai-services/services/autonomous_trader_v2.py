@@ -5978,11 +5978,11 @@ class AutonomousTraderV2:
                         is_testnet = creds_decoded.get('is_testnet') == '1'
                         
                         if api_key and api_secret:
-                            # Connect user
-                            success = await self.connect_user(user_id, api_key, api_secret, is_testnet)
+                            # Connect user with correct exchange type
+                            success = await self.connect_user(user_id, api_key, api_secret, is_testnet, exchange=exchange)
                             if success:
                                 connected_count += 1
-                                logger.info(f"Auto-connected user {user_id} from Redis")
+                                logger.info(f"Auto-connected user {user_id} from Redis ({exchange.upper()})")
                             
                 except Exception as e:
                     logger.warning(f"Failed to load user from key {key}: {e}")
