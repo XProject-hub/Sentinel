@@ -220,29 +220,115 @@ class LearningEngine:
                 await asyncio.sleep(60)
 
     async def _learn_from_historical_data(self):
-        """Pre-train on historical market data from Bybit"""
+        """Pre-train on historical market data from Redis + Bybit API"""
         try:
+            symbols_analyzed = 0
+            candles_processed = 0
+            
+            # === PART 1: Learn from loaded historical data in Redis ===
+            if self.redis_client:
+                try:
+                    # Find all loaded historical datasets
+                    historical_keys = await self.redis_client.keys('ai:klines:*')
+                    
+                    for key in historical_keys[:10]:  # Process up to 10 datasets per iteration
+                        try:
+                            key_str = key.decode() if isinstance(key, bytes) else key
+                            klines_raw = await self.redis_client.get(key_str)
+                            
+                            if klines_raw:
+                                klines_data = json.loads(klines_raw)
+                                
+                                if isinstance(klines_data, list) and len(klines_data) >= 50:
+                                    # Extract symbol from key (ai:klines:BTCUSDT:1h)
+                                    parts = key_str.split(':')
+                                    symbol = parts[2] if len(parts) > 2 else 'UNKNOWN'
+                                    
+                                    # Convert to analysis format
+                                    # Redis data format: {open_time, open, high, low, close, volume, ...}
+                                    closes = [float(k.get('close', 0)) for k in klines_data if k.get('close')]
+                                    highs = [float(k.get('high', 0)) for k in klines_data if k.get('high')]
+                                    lows = [float(k.get('low', 0)) for k in klines_data if k.get('low')]
+                                    volumes = [float(k.get('volume', 0)) for k in klines_data if k.get('volume')]
+                                    
+                                    if len(closes) >= 50:
+                                        await self._analyze_historical_closes(symbol, closes, highs, lows, volumes)
+                                        symbols_analyzed += 1
+                                        candles_processed += len(closes)
+                        except Exception as e:
+                            logger.debug(f"Error processing historical key: {e}")
+                            continue
+                            
+                    if symbols_analyzed > 0:
+                        logger.info(f"Learned from {symbols_analyzed} historical datasets ({candles_processed:,} candles)")
+                        
+                except Exception as e:
+                    logger.debug(f"Redis historical read error: {e}")
+            
+            # === PART 2: Also fetch live data from Bybit API ===
             symbols = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'XRPUSDT', 'DOGEUSDT']
             
             for symbol in symbols:
-                # Fetch historical klines
-                url = f"https://api.bybit.com/v5/market/kline?category=linear&symbol={symbol}&interval=60&limit=200"
-                response = await self.http_client.get(url)
-                
-                if response.status_code == 200:
-                    data = response.json()
-                    klines = data.get('result', {}).get('list', [])
+                try:
+                    # Fetch historical klines
+                    url = f"https://api.bybit.com/v5/market/kline?category=linear&symbol={symbol}&interval=60&limit=200"
+                    response = await self.http_client.get(url, timeout=10)
                     
-                    if len(klines) < 50:
-                        continue
+                    if response.status_code == 200:
+                        data = response.json()
+                        klines = data.get('result', {}).get('list', [])
                         
-                    # Analyze historical patterns
-                    await self._analyze_historical_klines(symbol, klines)
+                        if len(klines) >= 50:
+                            # Analyze historical patterns
+                            await self._analyze_historical_klines(symbol, klines)
+                            symbols_analyzed += 1
+                except Exception as e:
+                    logger.debug(f"Bybit API error for {symbol}: {e}")
+                    continue
                     
-            logger.info(f"Historical learning complete: analyzed {len(symbols)} symbols")
+            logger.info(f"Historical learning complete: analyzed {symbols_analyzed} symbols")
             
         except Exception as e:
             logger.error(f"Historical learning error: {e}")
+    
+    async def _analyze_historical_closes(self, symbol: str, closes: List, highs: List, lows: List, volumes: List):
+        """Analyze historical data directly from closes/highs/lows/volumes arrays"""
+        try:
+            if len(closes) < 50:
+                return
+                
+            # Calculate indicators
+            rsi = self._calculate_rsi(closes)
+            macd, signal = self._calculate_macd(closes)
+            volatility = self._calculate_volatility(closes)
+            
+            # Detect patterns and learn from outcomes
+            patterns_found = 0
+            for i in range(30, min(len(closes) - 10, 200)):  # Limit to avoid long processing
+                pattern_state = self._detect_pattern_at_index(
+                    closes[:i+1], highs[:i+1], lows[:i+1], volumes[:i+1],
+                    rsi[:i+1] if i < len(rsi) else rsi,
+                    macd[:i+1] if i < len(macd) else macd,
+                    signal[:i+1] if i < len(signal) else signal
+                )
+                
+                if pattern_state:
+                    # Determine outcome (price movement after pattern)
+                    future_price = closes[min(i + 10, len(closes) - 1)]
+                    current_price = closes[i]
+                    price_change = (future_price - current_price) / current_price * 100
+                    
+                    outcome = 'up' if price_change > 0.5 else ('down' if price_change < -0.5 else 'sideways')
+                    
+                    # Update pattern memory
+                    await self._update_pattern_memory(pattern_state, outcome)
+                    patterns_found += 1
+            
+            if patterns_found > 0:
+                logger.debug(f"Learned {patterns_found} patterns from {symbol} historical data")
+                
+        except Exception as e:
+            logger.debug(f"Historical closes analysis error: {e}")
 
     async def _analyze_historical_klines(self, symbol: str, klines: List):
         """Analyze historical klines for patterns and outcomes"""

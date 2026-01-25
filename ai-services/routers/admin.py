@@ -491,7 +491,7 @@ async def get_users():
 
 @router.get("/ai-stats")
 async def get_ai_stats():
-    """Get AI learning statistics from Redis - uses actual trader data"""
+    """Get AI learning statistics from Redis - uses actual trader data + historical data"""
     try:
         r = await redis.from_url(settings.REDIS_URL)
         
@@ -502,6 +502,47 @@ async def get_ai_stats():
         winning_trades = int(trader_stats.get('winning_trades', 0))
         opportunities_scanned = int(trader_stats.get('opportunities_scanned', 0))
         total_pnl = float(trader_stats.get('total_pnl', 0))
+        
+        # === GET HISTORICAL DATA COUNTS ===
+        historical_candles = 0
+        historical_symbols = 0
+        historical_funding = 0
+        historical_sentiment = 0
+        
+        # Count historical klines data
+        historical_keys = await r.keys('ai:historical:*')
+        for key in historical_keys:
+            try:
+                data = await r.hgetall(key)
+                if data:
+                    candles = data.get(b'candles') or data.get('candles')
+                    if candles:
+                        historical_candles += int(candles)
+                    historical_symbols += 1
+            except:
+                pass
+        
+        # Count funding data
+        funding_keys = await r.keys('ai:funding:*')
+        for key in funding_keys:
+            try:
+                data = await r.hgetall(key)
+                if data:
+                    records = data.get(b'records') or data.get('records')
+                    if records:
+                        historical_funding += int(records)
+            except:
+                pass
+        
+        # Count sentiment data
+        sentiment_data = await r.hgetall('ai:sentiment:fear_greed')
+        if sentiment_data:
+            records = sentiment_data.get(b'records') or sentiment_data.get('records')
+            if records:
+                historical_sentiment = int(records)
+        
+        # Store historical totals for display
+        total_historical = historical_candles + historical_funding + historical_sentiment
         
         # Get sizer state (Kelly calibration)
         sizer_raw = await r.get('sizer:state')
@@ -654,6 +695,17 @@ async def get_ai_stats():
         q_level, q_progress = get_level_and_progress(q_state_count, q_learning_thresholds)
         scanner_level, scanner_progress = get_level_and_progress(opportunities_scanned, opportunity_scanner_thresholds)
         
+        # Historical data thresholds
+        historical_thresholds = {
+            'ready': 10000,       # 10k candles
+            'junior': 50000,      # 50k candles
+            'amateur': 200000,    # 200k candles
+            'professional': 500000,  # 500k candles
+            'expert': 1000000     # 1M candles for expert
+        }
+        
+        historical_level, historical_progress = get_level_and_progress(total_historical, historical_thresholds)
+        
         # Build models array based on REAL data with REALISTIC levels
         models = [
             {
@@ -665,10 +717,18 @@ async def get_ai_stats():
                 "description": f"Win rate: {win_rate}% | Need {trade_history_thresholds['expert']:,} for Expert"
             },
             {
+                "name": "Historical Training Data",
+                "progress": historical_progress,
+                "dataPoints": total_historical,
+                "status": historical_level,
+                "lastUpdate": "Loaded from files",
+                "description": f"{historical_symbols} symbols | {historical_candles:,} candles | Need {historical_thresholds['expert']:,} for Expert"
+            },
+            {
                 "name": "Edge Estimation",
                 "progress": edge_progress,
-                "dataPoints": edge_count,
-                "status": edge_level,
+                "dataPoints": edge_count + (historical_candles // 100),  # Historical data helps edge
+                "status": edge_level if historical_candles < 10000 else max(edge_level, 'ready'),
                 "lastUpdate": "Real-time",
                 "description": f"Symbol calibration | Need {edge_estimation_thresholds['expert']:,} for Expert"
             },
@@ -682,9 +742,9 @@ async def get_ai_stats():
             },
             {
                 "name": "Regime Detection",
-                "progress": regime_progress,
-                "dataPoints": regime_count,
-                "status": regime_level,
+                "progress": regime_progress if historical_candles < 10000 else max(regime_progress, 20),
+                "dataPoints": regime_count + (historical_candles // 500),  # Historical helps regime
+                "status": regime_level if historical_candles < 10000 else max(regime_level, 'ready'),
                 "lastUpdate": "Real-time",
                 "description": f"Market analysis | Need {regime_detection_thresholds['expert']:,} for Expert"
             },
@@ -716,6 +776,13 @@ async def get_ai_stats():
                 "opportunitiesScanned": opportunities_scanned,
                 "trainingDataPoints": training_count,
                 "totalPnl": total_pnl
+            },
+            "historical": {
+                "totalCandles": historical_candles,
+                "totalSymbols": historical_symbols,
+                "fundingRecords": historical_funding,
+                "sentimentDays": historical_sentiment,
+                "totalDataPoints": total_historical
             }
         }
     except Exception as e:
