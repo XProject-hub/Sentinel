@@ -485,34 +485,62 @@ class BinanceClient:
     # ============================================
     
     async def test_connection(self) -> Dict:
-        """Test API connection and authentication"""
+        """Test API connection and authentication - tries SPOT first, then FUTURES"""
         try:
             logger.info(f"Testing Binance connection with API key: {self.api_key[:8]}...")
             
-            # First test with a simple public endpoint
-            public_test = await self.get_tickers(symbol="BTCUSDT")
-            if not public_test.get("success"):
-                logger.error(f"Public API test failed: {public_test.get('error')}")
+            # First test with a simple public endpoint (Spot API)
+            try:
+                public_url = "https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT"
+                response = await self.http_client.get(public_url)
+                if response.status_code != 200:
+                    return {
+                        "success": False,
+                        "error": "Cannot reach Binance API - check network"
+                    }
+            except Exception as net_err:
                 return {
                     "success": False,
-                    "error": f"Network error: {public_test.get('error')}"
+                    "error": f"Network error: {str(net_err)}"
                 }
             
-            # Then test authenticated endpoint
-            result = await self.get_wallet_balance()
-            
-            if result.get("success"):
-                logger.info("Binance connection test successful")
+            # Try SPOT account first (more common)
+            spot_result = await self.get_spot_balance()
+            if spot_result.get("success"):
+                logger.info("Binance SPOT connection test successful")
                 return {
                     "success": True,
-                    "message": "Connection successful",
-                    "data": result.get("data")
+                    "message": "Connection successful (Spot)",
+                    "account_type": "spot",
+                    "data": spot_result.get("data")
                 }
             
-            logger.error(f"Binance auth failed: {result.get('error')}")
+            # Try FUTURES account
+            futures_result = await self.get_wallet_balance()
+            if futures_result.get("success"):
+                logger.info("Binance FUTURES connection test successful")
+                return {
+                    "success": True,
+                    "message": "Connection successful (Futures)",
+                    "account_type": "futures",
+                    "data": futures_result.get("data")
+                }
+            
+            # Both failed - provide helpful error message
+            spot_error = spot_result.get("error", "")
+            futures_error = futures_result.get("error", "")
+            
+            if "IP" in spot_error or "IP" in futures_error:
+                error_msg = f"IP not whitelisted. Add server IP to your Binance API key settings."
+            elif "-2015" in str(spot_result.get("code", "")) or "-2015" in str(futures_result.get("code", "")):
+                error_msg = "Invalid API key, IP, or permissions. Check your API key settings on Binance."
+            else:
+                error_msg = f"Spot: {spot_error} | Futures: {futures_error}"
+            
+            logger.error(f"Binance auth failed: {error_msg}")
             return {
                 "success": False,
-                "error": result.get("error", "Authentication failed - check API key and secret")
+                "error": error_msg
             }
                 
         except Exception as e:
