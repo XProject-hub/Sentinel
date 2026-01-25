@@ -633,9 +633,9 @@ class AutonomousTraderV2:
             if 'min_edge' in config:
                 self.min_edge = config['min_edge']
             
-            # Position limit from preset (SMART uses fewer positions)
-            if 'max_positions' in config:
-                self.max_open_positions = config['max_positions']
+            # NOTE: max_positions is NOT overridden by preset!
+            # User's maxOpenPositions setting takes priority.
+            # Preset's max_positions is only used as DEFAULT if user hasn't set it.
             
             # Mean reversion mode
             self.use_mean_reversion = config.get('use_mean_reversion', False)
@@ -1094,11 +1094,23 @@ class AutonomousTraderV2:
             self.active_strategy_name = user_set.get('strategy_preset', 'micro').upper()
             
             # ════════════════════════════════════════════════════════════════
-            # CRITICAL: Apply strategy preset to get min_edge, max_positions, etc!
-            # Without this, SMART preset's stricter rules won't be applied!
+            # CRITICAL: Apply strategy preset to get min_edge, exit rules, etc!
+            # But PRESERVE user's position limit settings!
             # ════════════════════════════════════════════════════════════════
             selected_preset = user_set.get('strategy_preset', 'micro').lower()
+            
+            # SAVE user's position settings BEFORE applying preset
+            user_max_positions = self.max_open_positions
+            user_breakout_slots = self.breakout_extra_slots
+            
             self._apply_strategy_preset(selected_preset)
+            
+            # RESTORE user's position settings AFTER applying preset!
+            # User's maxOpenPositions takes PRIORITY over preset defaults!
+            self.max_open_positions = user_max_positions
+            self.breakout_extra_slots = user_breakout_slots
+            
+            logger.info(f"USER POSITION LIMITS: max={self.max_open_positions}, breakout_extra={self.breakout_extra_slots}")
             
             # 0.5 AI FULL AUTO: Let AI override with market-based strategy
             if self.ai_full_auto:
@@ -3718,15 +3730,14 @@ class AutonomousTraderV2:
                     # We're losing badly - be VERY conservative
                     adjusted_min_confidence = max(75, self.min_confidence + 15)
                     adjusted_min_edge = max(0.35, self.min_edge + 0.15)
-                    # REDUCE POSITIONS - fewer but better!
-                    self.max_open_positions = max(3, self.max_open_positions // 2)
-                    logger.info(f"CONSERVATIVE MODE: Win rate {recent_win_rate:.1f}% - conf>{adjusted_min_confidence}, edge>{adjusted_min_edge}, max_pos={self.max_open_positions}")
+                    # NOTE: Do NOT reduce max_open_positions here - user setting is the limit!
+                    # Just tighten entry filters instead
+                    logger.info(f"CONSERVATIVE MODE: Win rate {recent_win_rate:.1f}% - conf>{adjusted_min_confidence}, edge>{adjusted_min_edge}")
                 elif recent_win_rate < 50:
                     # We're losing - be more conservative
                     adjusted_min_confidence = max(70, self.min_confidence + 10)
                     adjusted_min_edge = max(0.25, self.min_edge + 0.10)
-                    # Slightly reduce positions
-                    self.max_open_positions = max(4, int(self.max_open_positions * 0.75))
+                    # NOTE: Do NOT modify max_open_positions - user setting takes priority!
             
             # Rate limiting: Allow up to 3 trades per cycle for more active trading
             normal_trades_this_cycle = 0
