@@ -723,12 +723,44 @@ async def get_balance(user_id: str = "default"):
     
     # Handle based on exchange type
     if exchange_type == "binance":
-        # BINANCE: Get spot balance (supports all assets including BTC)
-        logger.info(f"Fetching balance from Binance SPOT for user {user_id}...")
-        result = await client.get_spot_balance()
-        all_results["SPOT"] = result
+        # BINANCE: Check account type (SPOT or Futures)
+        # First try Futures if user has Futures account
+        account_type = getattr(client, 'account_type', 'spot')
         
-        if result.get("success") and result.get("data"):
+        if account_type == "futures":
+            logger.info(f"Fetching balance from Binance FUTURES for user {user_id}...")
+            result = await client.get_wallet_balance()
+            all_results["FUTURES"] = result
+            
+            if result.get("success") and result.get("data"):
+                account_type_found = "futures"
+                data = result.get("data", {})
+                # Futures balance is in USDT
+                for asset in data.get("assets", []):
+                    wallet_balance = float(asset.get("walletBalance", 0))
+                    unrealized_pnl = float(asset.get("unrealizedProfit", 0))
+                    if wallet_balance > 0 or unrealized_pnl != 0:
+                        asset_name = asset.get("asset", "USDT")
+                        coins.append({
+                            "coin": asset_name,
+                            "balance": wallet_balance,
+                            "equity": wallet_balance + unrealized_pnl,
+                            "usdValue": wallet_balance + unrealized_pnl,  # Futures is in USDT
+                            "unrealizedPnl": unrealized_pnl,
+                            "free": float(asset.get("availableBalance", wallet_balance)),
+                            "locked": float(asset.get("marginBalance", 0))
+                        })
+                        total_equity += wallet_balance + unrealized_pnl
+                
+                logger.info(f"Binance FUTURES balance fetched: ${total_equity:.2f} total, {len(coins)} assets")
+        
+        # Fallback to SPOT or if Futures failed
+        if not account_type_found or account_type == "spot":
+            logger.info(f"Fetching balance from Binance SPOT for user {user_id}...")
+            result = await client.get_spot_balance()
+            all_results["SPOT"] = result
+        
+        if result.get("success") and result.get("data") and not account_type_found:
             account_type_found = "spot"
             # Get current prices to calculate USD value
             # For now, fetch BTC and other major asset prices

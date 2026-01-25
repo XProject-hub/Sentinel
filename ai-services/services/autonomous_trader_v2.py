@@ -196,7 +196,7 @@ class AutonomousTraderV2:
         
         # BTC correlation settings
         self.btc_correlation_check = True  # Check BTC before alt longs
-        self.btc_block_threshold = -2.0    # Block alt longs if BTC < this % (balanced)
+        self.btc_block_threshold = -4.0    # Block alt longs if BTC < this % (more lenient)
         self.btc_required_positive = False # Require BTC positive for trade
         
         # AI score requirements
@@ -425,7 +425,7 @@ class AutonomousTraderV2:
                 'distance_from_low_max': 0.30,
                 'green_red_ratio_min': 1.3,
                 'btc_correlation_check': True,  # BLOCK if BTC < threshold
-                'btc_block_threshold': -2.0,  # Allow trades when BTC slightly down (was -0.4)
+                'btc_block_threshold': -4.0,  # Allow trades in moderate corrections (was -2.0)
                 
                 # AI SCORE
                 'min_confidence': 65,
@@ -577,7 +577,7 @@ class AutonomousTraderV2:
                 'distance_from_low_max': 0.35,  # Better entry points
                 'green_red_ratio_min': 1.4,  # Need candle confirmation
                 'btc_correlation_check': True,
-                'btc_block_threshold': -2.5,  # Block if BTC dumping
+                'btc_block_threshold': -4.5,  # Block if BTC dumping hard (was -2.5)
                 
                 # AI SCORE - HIGH CONVICTION ONLY
                 'min_confidence': 70,      # HIGHER! Was 60
