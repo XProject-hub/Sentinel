@@ -346,20 +346,26 @@ async def get_users():
             # Check if trading is paused (use redis_user_id)
             is_paused = await r.exists(f'trading:paused:{redis_user_id}')
             
-            # Check if exchange connected (use redis_user_id)
+            # Check if exchange connected (use redis_user_id) - check BOTH Bybit AND Binance
             exchange_connected = user.get('exchange_connected', False)
+            connected_exchange = None
+            
             if is_admin:
-                has_creds = await r.exists(f'user:{redis_user_id}:exchange:bybit') or await r.exists('exchange:credentials:default')
-                exchange_connected = bool(has_creds)
+                has_bybit = await r.exists(f'user:{redis_user_id}:exchange:bybit') or await r.exists('exchange:credentials:default')
+                has_binance = await r.exists(f'user:{redis_user_id}:exchange:binance')
+                exchange_connected = bool(has_bybit or has_binance)
+                connected_exchange = 'Bybit' if has_bybit else ('Binance' if has_binance else None)
             else:
-                has_creds = await r.exists(f'user:{redis_user_id}:exchange:bybit')
-                exchange_connected = exchange_connected or bool(has_creds)
+                has_bybit = await r.exists(f'user:{redis_user_id}:exchange:bybit')
+                has_binance = await r.exists(f'user:{redis_user_id}:exchange:binance')
+                exchange_connected = exchange_connected or bool(has_bybit or has_binance)
+                connected_exchange = 'Bybit' if has_bybit else ('Binance' if has_binance else None)
             
             users.append({
                 'id': user_id,
                 'email': user['email'],
                 'name': user['name'] or user['email'].split('@')[0],
-                'exchange': 'Bybit' if exchange_connected else None,
+                'exchange': connected_exchange,
                 'exchangeConnected': exchange_connected,
                 'isActive': exchange_connected and not is_paused,
                 'isPaused': bool(is_paused),
