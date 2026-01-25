@@ -1347,16 +1347,30 @@ class AutonomousTraderV2:
             'exchange': exchange
         }
         
-    async def _sync_positions(self, user_id: str, client: BybitV5Client):
-        """Sync active positions with exchange"""
-        result = await client.get_positions()
-        
-        if not result.get('success'):
-            logger.warning(f"Failed to get positions: {result}")
-            return
-            
+    async def _sync_positions(self, user_id: str, client):
+        """Sync active positions with exchange - supports both Bybit and Binance"""
+        exchange = self.user_exchanges.get(user_id, "bybit")
         exchange_positions = set()
-        positions_list = result.get('data', {}).get('list', [])
+        positions_list = []
+        
+        if exchange == "binance":
+            # BINANCE: Only has SPOT, no Futures "positions" API
+            # For Binance SPOT users, we track positions internally from when bot opened them
+            # Don't call get_positions() - it would fail with permission error
+            # SPOT positions are tracked via active_positions and wallet balance
+            logger.debug(f"Binance user {user_id}: Skipping futures position sync (SPOT only)")
+            # Skip futures sync for Binance - positions are managed internally
+            positions_list = []
+        else:
+            # BYBIT: Has unified account with positions API
+            result = await client.get_positions()
+            
+            if not result.get('success'):
+                logger.warning(f"Failed to get positions: {result}")
+                return
+                
+            positions_list = result.get('data', {}).get('list', [])
+        
         logger.debug(f" Exchange returned {len(positions_list)} positions")
         
         for pos in positions_list:

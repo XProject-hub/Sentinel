@@ -221,15 +221,58 @@ class BinanceClient:
     # MARKET DATA (Public)
     # ============================================
     
-    async def get_tickers(self, symbol: Optional[str] = None) -> Dict:
-        """Get real-time tickers"""
+    async def get_tickers(self, symbol: Optional[str] = None, category: str = "spot") -> Dict:
+        """Get real-time tickers - uses SPOT API for SPOT users"""
         params = {}
-        if symbol:
-            params["symbol"] = symbol
-            endpoint = "/fapi/v1/ticker/24hr"
+        
+        # Use SPOT ticker endpoint (public, no auth needed)
+        # This works for users without Futures permissions
+        if category == "spot" or True:  # Always use SPOT for Binance users
+            endpoint = "/api/v3/ticker/24hr"
+            base_url = "https://api.binance.com"
+            if symbol:
+                params["symbol"] = symbol
         else:
+            # Futures endpoint (requires Futures permissions)
             endpoint = "/fapi/v1/ticker/24hr"
-        return await self._request("GET", endpoint, params)
+            base_url = self.base_url
+            if symbol:
+                params["symbol"] = symbol
+        
+        try:
+            url = f"{base_url}{endpoint}"
+            if params:
+                query = "&".join(f"{k}={v}" for k, v in params.items())
+                url = f"{url}?{query}"
+            
+            response = await self.http_client.get(url)
+            data = response.json()
+            
+            # Binance returns array directly - wrap it in Bybit-compatible format
+            if isinstance(data, list):
+                # Map Binance field names to Bybit-like format
+                mapped_tickers = []
+                for t in data:
+                    mapped_tickers.append({
+                        "symbol": t.get("symbol", ""),
+                        "lastPrice": t.get("lastPrice", "0"),
+                        "price24hPcnt": str(float(t.get("priceChangePercent", "0")) / 100),  # Convert % to decimal
+                        "turnover24h": t.get("quoteVolume", "0"),
+                        "volume24h": t.get("volume", "0"),
+                        "bid1Price": t.get("bidPrice", "0"),
+                        "ask1Price": t.get("askPrice", "0"),
+                        "highPrice24h": t.get("highPrice", "0"),
+                        "lowPrice24h": t.get("lowPrice", "0"),
+                    })
+                return {"success": True, "data": {"list": mapped_tickers}}
+            elif "code" in data:
+                return {"success": False, "error": data.get("msg", "Unknown error"), "code": data.get("code")}
+            else:
+                return {"success": True, "data": {"list": [data]}}
+                
+        except Exception as e:
+            logger.error(f"Binance get_tickers error: {e}")
+            return {"success": False, "error": str(e)}
         
     async def get_orderbook(self, symbol: str, limit: int = 100) -> Dict:
         """Get orderbook depth"""
