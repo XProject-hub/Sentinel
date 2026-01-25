@@ -2654,15 +2654,37 @@ class AutonomousTraderV2:
             # Simple EV calculation based on historical win rate and R:R
             # EV = P(win) * AvgWin - P(loss) * AvgLoss
             
-            # Use our actual settings for calculation
-            potential_win = self.take_profit if self.take_profit > 0 else 0.8  # Default 0.8%
-            potential_loss = self.emergency_stop_loss
-            
-            # Estimate win probability based on confidence and edge
-            estimated_win_rate = min(opp.confidence / 100, 0.85)  # Cap at 85%
-            
-            # Calculate EV
-            ev = (estimated_win_rate * potential_win) - ((1 - estimated_win_rate) * potential_loss)
+            # Check if master detector already calculated EV for this opportunity
+            # If so, trust the master detector's EV calculation (it's more accurate)
+            master_analysis = getattr(opp, 'master_analysis', None)
+            master_ev = master_analysis.get('expected_value') if master_analysis else None
+            if master_ev is not None and master_ev > 0:
+                # Master detector already approved with positive EV - trust it
+                logger.debug(f"{opp.symbol}: Using master detector EV: {master_ev:.2f}%")
+                ev = master_ev
+            else:
+                # Calculate EV ourselves
+                # Use our actual settings for calculation
+                # IMPORTANT: When TP=0 (trailing stop mode), estimate realistic potential win
+                if self.take_profit > 0:
+                    potential_win = self.take_profit
+                else:
+                    # Trailing stop mode: estimate average win based on trailing settings
+                    # Typical trailing stop captures 1.5-3x the min_profit_to_trail
+                    min_trail = getattr(self, 'min_profit_to_trail', 0.5)
+                    trail_pct = getattr(self, 'trail_percent', 0.5)
+                    # Conservative estimate: we capture about 2x min_profit_to_trail on average
+                    # Or at minimum, the stop loss ratio (for reasonable R:R)
+                    potential_win = max(min_trail * 2, self.emergency_stop_loss * 0.8, 1.0)
+                    logger.debug(f"{opp.symbol}: Trailing mode - estimated win: {potential_win:.2f}%")
+                
+                potential_loss = self.emergency_stop_loss
+                
+                # Estimate win probability based on confidence and edge
+                estimated_win_rate = min(opp.confidence / 100, 0.85)  # Cap at 85%
+                
+                # Calculate EV
+                ev = (estimated_win_rate * potential_win) - ((1 - estimated_win_rate) * potential_loss)
             
             # Only block if preset requires positive EV (MICRO preset does)
             if self.require_positive_ev and ev <= 0:
