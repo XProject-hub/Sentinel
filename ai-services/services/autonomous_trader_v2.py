@@ -1383,13 +1383,22 @@ class AutonomousTraderV2:
         positions_list = []
         
         if exchange == "binance":
-            # BINANCE: Only has SPOT, no Futures "positions" API
-            # For Binance SPOT users, we track positions internally from when bot opened them
-            # Don't call get_positions() - it would fail with permission error
-            # SPOT positions are tracked via active_positions and wallet balance
-            logger.debug(f"Binance user {user_id}: Skipping futures position sync (SPOT only)")
-            # Skip futures sync for Binance - positions are managed internally
-            positions_list = []
+            # BINANCE: Check if user has Futures or SPOT only
+            account_type = self.user_account_types.get(user_id, "spot")
+            
+            if account_type == "futures":
+                # Binance Futures users CAN use get_positions() API
+                result = await client.get_positions()
+                if result.get('success'):
+                    positions_list = result.get('data', {}).get('list', [])
+                    logger.debug(f"Binance FUTURES user {user_id}: Got {len(positions_list)} positions")
+                else:
+                    logger.warning(f"Binance FUTURES get_positions failed: {result.get('error', 'Unknown')}")
+                    positions_list = []
+            else:
+                # SPOT users: positions are tracked internally, no API call
+                logger.debug(f"Binance SPOT user {user_id}: Positions tracked internally")
+                positions_list = []
         else:
             # BYBIT: Has unified account with positions API
             result = await client.get_positions()

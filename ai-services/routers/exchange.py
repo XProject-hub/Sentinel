@@ -352,11 +352,19 @@ async def get_user_client(user_id: str, exchange: str = "bybit") -> Optional[Exc
         
         # Create appropriate client based on exchange
         if exchange == "binance":
+            # Get account_type from Redis data
+            account_type = data.get(b"account_type", b"spot").decode() if data else "spot"
+            has_futures = data.get(b"has_futures", b"0").decode() == "1" if data else False
+            if has_futures:
+                account_type = "futures"
+            
             client = BinanceClient(
                 api_key=api_key,
                 api_secret=api_secret,
-                testnet=is_testnet
+                testnet=is_testnet,
+                account_type=account_type
             )
+            logger.info(f"Created BinanceClient for {user_id} with account_type={account_type}")
         else:  # bybit (default)
             client = BybitV5Client(
                 api_key=api_key,
