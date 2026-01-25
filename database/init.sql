@@ -36,11 +36,14 @@ CREATE TABLE exchange_connections (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     user_id UUID REFERENCES users(id) ON DELETE CASCADE,
     exchange VARCHAR(50) NOT NULL,
+    name VARCHAR(100),
     api_key_encrypted BYTEA NOT NULL,
     api_secret_encrypted BYTEA NOT NULL,
     passphrase_encrypted BYTEA,
+    is_testnet BOOLEAN DEFAULT false,
     is_active BOOLEAN DEFAULT true,
     permissions JSONB DEFAULT '{"trade": true, "withdraw": false}',
+    region VARCHAR(10),  -- For Bybit regional endpoints: EU, NL, TR, KZ, GE, AE
     last_sync_at TIMESTAMP,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP

@@ -25,6 +25,7 @@ class ExchangeConnection extends Model
         'is_active',
         'last_sync_at',
         'permissions',
+        'region',            // For Bybit regional endpoints: EU, NL, TR, etc.
     ];
 
     protected $hidden = [

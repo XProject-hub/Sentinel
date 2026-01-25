@@ -38,6 +38,7 @@ export default function ConnectExchangePage() {
     api_key: '',
     api_secret: '',
     is_testnet: false,
+    region: '',  // For Bybit: EU, NL, TR, etc. Empty = Global (api.bybit.com)
   })
 
   // Update form name when exchange is selected
@@ -461,6 +462,31 @@ export default function ConnectExchangePage() {
                     </label>
                   </div>
                 </div>
+
+                {/* Region selector for Bybit */}
+                {selectedExchange === 'bybit' && (
+                  <div>
+                    <label className="block text-sm font-medium text-slate-300 mb-2">
+                      Region <span className="text-slate-500">(Optional)</span>
+                    </label>
+                    <select
+                      value={formData.region}
+                      onChange={(e) => setFormData({ ...formData, region: e.target.value })}
+                      className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-xl text-white focus:outline-none focus:border-cyan-500"
+                    >
+                      <option value="">Global (api.bybit.com)</option>
+                      <option value="EU">Europe / EEA (api.bybit.eu)</option>
+                      <option value="NL">Netherlands (api.bybit.nl)</option>
+                      <option value="TR">Turkey (api.bybit-tr.com)</option>
+                      <option value="KZ">Kazakhstan (api.bybit.kz)</option>
+                      <option value="AE">UAE (api.bybit.ae)</option>
+                      <option value="GE">Georgia (api.bybitgeorgia.ge)</option>
+                    </select>
+                    <p className="mt-1 text-xs text-slate-500">
+                      Select your Bybit region if you&apos;re using a regional version (e.g., Bybit EU)
+                    </p>
+                  </div>
+                )}
 
                 <div className="flex gap-3 mt-6">
                   <button

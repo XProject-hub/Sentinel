@@ -62,6 +62,7 @@ class TestConnectionRequest(BaseModel):
     exchange: str
     apiKey: str
     apiSecret: str
+    region: Optional[str] = None  # For Bybit regional endpoints: EU, NL, TR, KZ, GE, AE
 
 
 class UserCredentialsRequest(BaseModel):
@@ -72,6 +73,7 @@ class UserCredentialsRequest(BaseModel):
     api_secret: str
     is_testnet: bool = False
     is_active: bool = True
+    region: Optional[str] = None  # For Bybit regional endpoints: EU, NL, TR, KZ, GE, AE
 
 
 class VerifyCredentialsRequest(BaseModel):
@@ -80,6 +82,7 @@ class VerifyCredentialsRequest(BaseModel):
     api_key: str
     api_secret: str
     is_testnet: bool = False
+    region: Optional[str] = None  # For Bybit regional endpoints: EU, NL, TR, KZ, GE, AE
 
 
 # Store for user-specific exchange connections
@@ -107,11 +110,16 @@ async def verify_credentials(request: VerifyCredentialsRequest):
                 testnet=request.is_testnet
             )
         else:  # bybit (default)
+            # Support regional endpoints (EU, NL, TR, etc.)
+            region = getattr(request, 'region', None)
             client = BybitV5Client(
                 api_key=request.api_key,
                 api_secret=request.api_secret,
-                testnet=request.is_testnet
+                testnet=request.is_testnet,
+                region=region
             )
+            if region:
+                logger.info(f"Using Bybit region: {region}")
         
         # Test connection
         result = await client.test_connection()
@@ -209,11 +217,16 @@ async def set_user_credentials(request: UserCredentialsRequest):
                 testnet=request.is_testnet
             )
         else:  # bybit (default)
+            # Support regional endpoints (EU, NL, TR, etc.)
+            region = getattr(request, 'region', None) or None
             client = BybitV5Client(
                 api_key=request.api_key,
                 api_secret=request.api_secret,
-                testnet=request.is_testnet
+                testnet=request.is_testnet,
+                region=region
             )
+            if region:
+                logger.info(f"Using Bybit region: {region} for user {request.user_id}")
         
         # Test connection to detect account type (especially for Binance)
         test_result = await client.test_connection()
@@ -223,6 +236,7 @@ async def set_user_credentials(request: UserCredentialsRequest):
         
         # Store encrypted credentials in Redis with account type info
         key = f"user:{request.user_id}:exchange:{request.exchange}"
+        region_to_store = getattr(request, 'region', '') or ''
         await r.hset(key, mapping={
             "api_key": simple_encrypt(request.api_key),
             "api_secret": simple_encrypt(request.api_secret),
@@ -231,6 +245,7 @@ async def set_user_credentials(request: UserCredentialsRequest):
             "account_type": account_type,  # "spot" or "futures"
             "has_spot": "1" if has_spot else "0",
             "has_futures": "1" if has_futures else "0",
+            "region": region_to_store,  # Bybit region: EU, NL, TR, etc.
             "updated_at": datetime.utcnow().isoformat(),
         })
         
@@ -398,11 +413,18 @@ async def get_user_client(user_id: str, exchange: str = "bybit") -> Optional[Exc
                     
             logger.info(f"Created BinanceClient for {user_id} with account_type={client.account_type}")
         else:  # bybit (default)
+            # Get region from Redis (for Bybit EU, NL, etc.)
+            region = data.get(b"region", b"").decode() if data else ""
+            region = region if region else None
+            
             client = BybitV5Client(
                 api_key=api_key,
                 api_secret=api_secret,
-                testnet=is_testnet
+                testnet=is_testnet,
+                region=region
             )
+            if region:
+                logger.info(f"Created BybitClient for {user_id} with region={region}")
         
         user_exchange_connections[conn_key] = client
         return client

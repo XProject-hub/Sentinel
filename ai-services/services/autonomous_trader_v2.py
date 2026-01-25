@@ -931,8 +931,19 @@ class AutonomousTraderV2:
                 logger.info(f"Created BinanceClient for {user_id} with account_type={account_type}")
                 result = await client.test_connection()
             else:
-                # Default to Bybit
-                client = BybitV5Client(api_key, api_secret, testnet)
+                # Default to Bybit - check for region from Redis
+                region = None
+                if self.redis_client:
+                    try:
+                        stored_data = await self.redis_client.hgetall(f"user:{user_id}:exchange:bybit")
+                        if stored_data:
+                            region = stored_data.get(b'region', b'').decode() or None
+                            if region:
+                                logger.info(f"Bybit user {user_id}: using region={region}")
+                    except Exception as e:
+                        logger.debug(f"Could not load region for {user_id}: {e}")
+                
+                client = BybitV5Client(api_key, api_secret, testnet, region=region)
                 result = await client.test_connection()
             
             if result.get('success'):

@@ -49,6 +49,7 @@ class ExchangeController extends Controller
                 'api_key' => 'required|string|min:10',
                 'api_secret' => 'required|string|min:10',
                 'is_testnet' => 'boolean',
+                'region' => 'nullable|string|max:10',  // For Bybit: EU, NL, TR, etc.
             ]);
 
             // Check if user already has a connection for this exchange
@@ -68,7 +69,8 @@ class ExchangeController extends Controller
                 $validated['exchange'],
                 $validated['api_key'],
                 $validated['api_secret'],
-                $validated['is_testnet'] ?? false
+                $validated['is_testnet'] ?? false,
+                $validated['region'] ?? null
             );
 
             if (!$verification['valid']) {
@@ -87,6 +89,7 @@ class ExchangeController extends Controller
                 'is_testnet' => $validated['is_testnet'] ?? false,
                 'is_active' => true,
                 'permissions' => $verification['permissions'] ?? [],
+                'region' => $validated['region'] ?? null,  // For Bybit EU, NL, etc.
             ]);
 
             // Sync to AI services (don't fail if this errors)
@@ -319,17 +322,24 @@ class ExchangeController extends Controller
     /**
      * Verify API credentials with the exchange
      */
-    private function verifyCredentials(string $exchange, string $apiKey, string $apiSecret, bool $isTestnet): array
+    private function verifyCredentials(string $exchange, string $apiKey, string $apiSecret, bool $isTestnet, ?string $region = null): array
     {
         try {
+            $payload = [
+                'exchange' => $exchange,
+                'api_key' => $apiKey,
+                'api_secret' => $apiSecret,
+                'is_testnet' => $isTestnet,
+            ];
+            
+            // Add region for Bybit regional endpoints (EU, NL, TR, etc.)
+            if ($region) {
+                $payload['region'] = $region;
+            }
+            
             $response = Http::timeout(15)->post(
                 'http://ai-services:8000/ai/exchange/verify-credentials',
-                [
-                    'exchange' => $exchange,
-                    'api_key' => $apiKey,
-                    'api_secret' => $apiSecret,
-                    'is_testnet' => $isTestnet,
-                ]
+                $payload
             );
 
             if ($response->successful()) {
@@ -365,16 +375,23 @@ class ExchangeController extends Controller
     private function syncToAiServices(string $userId, ExchangeConnection $connection): void
     {
         try {
+            $payload = [
+                'user_id' => $userId,
+                'exchange' => $connection->exchange,
+                'api_key' => $connection->api_key,
+                'api_secret' => $connection->api_secret,
+                'is_testnet' => $connection->is_testnet,
+                'is_active' => $connection->is_active,
+            ];
+            
+            // Add region for Bybit regional endpoints
+            if ($connection->region) {
+                $payload['region'] = $connection->region;
+            }
+            
             Http::timeout(10)->post(
                 'http://ai-services:8000/ai/exchange/set-credentials',
-                [
-                    'user_id' => $userId,
-                    'exchange' => $connection->exchange,
-                    'api_key' => $connection->api_key,
-                    'api_secret' => $connection->api_secret,
-                    'is_testnet' => $connection->is_testnet,
-                    'is_active' => $connection->is_active,
-                ]
+                $payload
             );
         } catch (\Exception $e) {
             Log::error('Failed to sync credentials to AI services', [
