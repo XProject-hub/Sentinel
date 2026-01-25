@@ -99,6 +99,13 @@ class TradeModeSelector:
         Returns:
             TradeModeDecision with mode, leverage, and reasoning
         """
+        logger.info(f"🎯 TRADE MODE SELECTOR: Analyzing {symbol}")
+        logger.info(f"   ├─ Direction: {direction.upper()}")
+        logger.info(f"   ├─ Regime: {regime}, Volatility: {volatility:.2f}")
+        logger.info(f"   ├─ Trend: {trend_strength:.1%}, Confidence: {confidence:.0f}%")
+        logger.info(f"   ├─ Funding: {funding_rate:.4%}, 24h Change: {price_change_24h:+.2f}%")
+        logger.info(f"   └─ Risk Mode: {user_risk_mode}, Volume Ratio: {volume_ratio:.1f}x")
+        
         reasons = []
         warnings = []
         
@@ -116,7 +123,7 @@ class TradeModeSelector:
                 else:
                     warnings.append(f"Negative funding ({funding_rate:.3%}) - shorts pay longs")
             
-            return TradeModeDecision(
+            decision = TradeModeDecision(
                 mode=TradeMode.FUTURES_SHORT,
                 confidence=confidence,
                 leverage=leverage,
@@ -125,6 +132,9 @@ class TradeModeSelector:
                 expected_hold_time=self._estimate_hold_time(volatility, regime),
                 risk_level=self._assess_risk(leverage, volatility)
             )
+            logger.info(f"✅ DECISION: {symbol} → FUTURES SHORT {leverage}x | Risk: {decision.risk_level}")
+            logger.info(f"   Reasons: {', '.join(reasons)}")
+            return decision
         
         # === RULE 2: For LONG positions, choose SPOT vs FUTURES ===
         
@@ -187,8 +197,10 @@ class TradeModeSelector:
             reasons.append(f"High volume ({volume_ratio:.1f}x avg) confirms move")
         
         # === DECISION ===
+        logger.info(f"   📊 Scores: SPOT={spot_score} vs FUTURES={futures_score}")
+        
         if spot_score > futures_score:
-            return TradeModeDecision(
+            decision = TradeModeDecision(
                 mode=TradeMode.SPOT,
                 confidence=confidence,
                 leverage=1,
@@ -197,11 +209,14 @@ class TradeModeSelector:
                 expected_hold_time=self._estimate_hold_time(volatility, regime, is_spot=True),
                 risk_level="low"
             )
+            logger.info(f"✅ DECISION: {symbol} → SPOT (no leverage) | Risk: low")
+            logger.info(f"   Reasons: {', '.join(reasons)}")
+            return decision
         else:
             leverage = self._calculate_leverage(
                 volatility, confidence, trend_strength, user_risk_mode
             )
-            return TradeModeDecision(
+            decision = TradeModeDecision(
                 mode=TradeMode.FUTURES_LONG,
                 confidence=confidence,
                 leverage=leverage,
@@ -210,6 +225,9 @@ class TradeModeSelector:
                 expected_hold_time=self._estimate_hold_time(volatility, regime),
                 risk_level=self._assess_risk(leverage, volatility)
             )
+            logger.info(f"✅ DECISION: {symbol} → FUTURES LONG {leverage}x | Risk: {decision.risk_level}")
+            logger.info(f"   Reasons: {', '.join(reasons)}")
+            return decision
     
     def _calculate_leverage(
         self,
