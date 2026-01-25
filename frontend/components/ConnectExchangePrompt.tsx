@@ -17,6 +17,7 @@ import {
   LogOut
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
+import Image from 'next/image'
 
 export default function ConnectExchangePrompt() {
   const router = useRouter()
@@ -154,8 +155,14 @@ export default function ConnectExchangePrompt() {
                 onClick={() => handleExchangeSelect('bybit')}
                 className="p-6 bg-white/5 rounded-xl border border-white/10 hover:border-orange-500/50 hover:bg-white/10 transition-all group"
               >
-                <div className="w-16 h-16 rounded-xl bg-gradient-to-br from-orange-400 to-orange-600 flex items-center justify-center mx-auto mb-4 group-hover:scale-105 transition-transform">
-                  <span className="text-white font-bold text-xl">BB</span>
+                <div className="w-20 h-20 rounded-xl bg-[#1a1a1a] flex items-center justify-center mx-auto mb-4 group-hover:scale-105 transition-transform overflow-hidden p-2">
+                  <Image
+                    src="/Bybit_logo.jpg"
+                    alt="Bybit"
+                    width={72}
+                    height={72}
+                    className="object-contain"
+                  />
                 </div>
                 <h3 className="font-semibold text-white mb-1">Bybit</h3>
                 <p className="text-xs text-gray-400">Crypto derivatives</p>
@@ -165,8 +172,14 @@ export default function ConnectExchangePrompt() {
                 onClick={() => handleExchangeSelect('binance')}
                 className="p-6 bg-white/5 rounded-xl border border-white/10 hover:border-yellow-500/50 hover:bg-white/10 transition-all group"
               >
-                <div className="w-16 h-16 rounded-xl bg-gradient-to-br from-yellow-400 to-yellow-600 flex items-center justify-center mx-auto mb-4 group-hover:scale-105 transition-transform">
-                  <span className="text-white font-bold text-xl">BN</span>
+                <div className="w-20 h-20 rounded-xl bg-[#1a1a1a] flex items-center justify-center mx-auto mb-4 group-hover:scale-105 transition-transform overflow-hidden p-2">
+                  <Image
+                    src="/Binance_Logo.png"
+                    alt="Binance"
+                    width={72}
+                    height={72}
+                    className="object-contain"
+                  />
                 </div>
                 <h3 className="font-semibold text-white mb-1">Binance</h3>
                 <p className="text-xs text-gray-400">World's largest exchange</p>
@@ -203,14 +216,14 @@ export default function ConnectExchangePrompt() {
               ← Back to exchange selection
             </button>
 
-            <div className={`w-20 h-20 rounded-2xl flex items-center justify-center mx-auto mb-8 ${
-              selectedExchange === 'binance' 
-                ? 'bg-gradient-to-br from-yellow-400 to-yellow-600' 
-                : 'bg-gradient-to-br from-orange-400 to-orange-600'
-            }`}>
-              <span className="text-white font-bold text-2xl">
-                {selectedExchange === 'binance' ? 'BN' : 'BB'}
-              </span>
+            <div className="w-24 h-24 rounded-2xl bg-[#1a1a1a] flex items-center justify-center mx-auto mb-8 overflow-hidden p-3">
+              <Image
+                src={selectedExchange === 'binance' ? '/Binance_Logo.png' : '/Bybit_logo.jpg'}
+                alt={selectedExchange === 'binance' ? 'Binance' : 'Bybit'}
+                width={80}
+                height={80}
+                className="object-contain"
+              />
             </div>
             
             <h1 className="text-3xl font-bold text-white mb-4">
