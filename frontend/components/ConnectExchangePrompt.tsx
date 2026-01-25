@@ -20,7 +20,8 @@ import { useRouter } from 'next/navigation'
 
 export default function ConnectExchangePrompt() {
   const router = useRouter()
-  const [step, setStep] = useState<'info' | 'credentials'>('info')
+  const [step, setStep] = useState<'select' | 'info' | 'credentials'>('select')
+  const [selectedExchange, setSelectedExchange] = useState<'bybit' | 'binance'>('bybit')
   const [showSecret, setShowSecret] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -32,6 +33,16 @@ export default function ConnectExchangePrompt() {
     api_secret: '',
     is_testnet: false,
   })
+  
+  // Update form name when exchange changes
+  const handleExchangeSelect = (exchange: 'bybit' | 'binance') => {
+    setSelectedExchange(exchange)
+    setFormData(prev => ({
+      ...prev,
+      name: exchange === 'binance' ? 'My Binance Account' : 'My Bybit Account'
+    }))
+    setStep('info')
+  }
 
   const handleLogout = () => {
     localStorage.removeItem('token')
@@ -59,7 +70,7 @@ export default function ConnectExchangePrompt() {
         },
         body: JSON.stringify({
           ...formData,
-          exchange: 'bybit'
+          exchange: selectedExchange
         })
       })
 
@@ -121,8 +132,8 @@ export default function ConnectExchangePrompt() {
       </button>
       
       <div className="w-full max-w-xl">
-        {/* Info Step */}
-        {step === 'info' && (
+        {/* Exchange Selection Step */}
+        {step === 'select' && (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -134,7 +145,79 @@ export default function ConnectExchangePrompt() {
             
             <h1 className="text-3xl font-bold text-white mb-4">Connect Your Exchange</h1>
             <p className="text-gray-400 mb-8">
-              Link your Bybit account to start autonomous AI trading
+              Choose your exchange to start autonomous AI trading
+            </p>
+
+            {/* Exchange Options */}
+            <div className="grid grid-cols-2 gap-4 mb-8">
+              <button
+                onClick={() => handleExchangeSelect('bybit')}
+                className="p-6 bg-white/5 rounded-xl border border-white/10 hover:border-orange-500/50 hover:bg-white/10 transition-all group"
+              >
+                <div className="w-16 h-16 rounded-xl bg-gradient-to-br from-orange-400 to-orange-600 flex items-center justify-center mx-auto mb-4 group-hover:scale-105 transition-transform">
+                  <span className="text-white font-bold text-xl">BB</span>
+                </div>
+                <h3 className="font-semibold text-white mb-1">Bybit</h3>
+                <p className="text-xs text-gray-400">Crypto derivatives</p>
+              </button>
+              
+              <button
+                onClick={() => handleExchangeSelect('binance')}
+                className="p-6 bg-white/5 rounded-xl border border-white/10 hover:border-yellow-500/50 hover:bg-white/10 transition-all group"
+              >
+                <div className="w-16 h-16 rounded-xl bg-gradient-to-br from-yellow-400 to-yellow-600 flex items-center justify-center mx-auto mb-4 group-hover:scale-105 transition-transform">
+                  <span className="text-white font-bold text-xl">BN</span>
+                </div>
+                <h3 className="font-semibold text-white mb-1">Binance</h3>
+                <p className="text-xs text-gray-400">World's largest exchange</p>
+              </button>
+            </div>
+
+            {/* Security Features */}
+            <div className="grid grid-cols-3 gap-4 mb-6">
+              {[
+                { icon: Shield, label: 'Encrypted' },
+                { icon: Lock, label: 'Read-Only Safe' },
+                { icon: Zap, label: 'Instant Setup' }
+              ].map((item, i) => (
+                <div key={i} className="p-4 bg-white/5 rounded-xl border border-white/10">
+                  <item.icon className="w-6 h-6 text-cyan-400 mx-auto mb-2" />
+                  <span className="text-xs text-gray-400">{item.label}</span>
+                </div>
+              ))}
+            </div>
+          </motion.div>
+        )}
+
+        {/* Info Step */}
+        {step === 'info' && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="text-center"
+          >
+            <button
+              onClick={() => setStep('select')}
+              className="mb-8 text-gray-400 hover:text-white text-sm flex items-center gap-1"
+            >
+              ← Back to exchange selection
+            </button>
+
+            <div className={`w-20 h-20 rounded-2xl flex items-center justify-center mx-auto mb-8 ${
+              selectedExchange === 'binance' 
+                ? 'bg-gradient-to-br from-yellow-400 to-yellow-600' 
+                : 'bg-gradient-to-br from-orange-400 to-orange-600'
+            }`}>
+              <span className="text-white font-bold text-2xl">
+                {selectedExchange === 'binance' ? 'BN' : 'BB'}
+              </span>
+            </div>
+            
+            <h1 className="text-3xl font-bold text-white mb-4">
+              Connect {selectedExchange === 'binance' ? 'Binance' : 'Bybit'}
+            </h1>
+            <p className="text-gray-400 mb-8">
+              Link your {selectedExchange === 'binance' ? 'Binance' : 'Bybit'} account to start autonomous AI trading
             </p>
 
             {/* Security Features */}
@@ -161,12 +244,15 @@ export default function ConnectExchangePrompt() {
             </button>
 
             <a
-              href="https://www.bybit.com/invite?ref=RG8G6XN"
+              href={selectedExchange === 'binance' 
+                ? "https://www.binance.com/activity/referral-entry/CPA?ref=CPA_00JDZ2VQXU"
+                : "https://www.bybit.com/invite?ref=RG8G6XN"
+              }
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-1 mt-6 text-sm text-gray-500 hover:text-gray-400 transition-colors"
             >
-              Don't have a Bybit account?
+              Don't have a {selectedExchange === 'binance' ? 'Binance' : 'Bybit'} account?
               <ExternalLink className="w-3 h-3" />
             </a>
           </motion.div>
@@ -185,10 +271,35 @@ export default function ConnectExchangePrompt() {
               ← Back
             </button>
 
-            <h1 className="text-2xl font-bold text-white mb-2">Enter API Credentials</h1>
-            <p className="text-gray-400 mb-8">
+            <h1 className="text-2xl font-bold text-white mb-2">
+              Enter {selectedExchange === 'binance' ? 'Binance' : 'Bybit'} API Credentials
+            </h1>
+            <p className="text-gray-400 mb-4">
               Your keys are encrypted and only used for trading
             </p>
+            
+            {/* API Instructions */}
+            <div className="mb-6 p-4 bg-blue-500/10 border border-blue-500/20 rounded-xl">
+              <p className="text-sm text-blue-300 mb-2">
+                {selectedExchange === 'binance' ? (
+                  <>Go to Binance → API Management → Create API Key → Enable Futures</>
+                ) : (
+                  <>Go to Bybit → API Management → Create Key → Enable Contract Trade</>
+                )}
+              </p>
+              <a
+                href={selectedExchange === 'binance'
+                  ? "https://www.binance.com/en/my/settings/api-management"
+                  : "https://www.bybit.com/app/user/api-management"
+                }
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-sm text-cyan-400 hover:text-cyan-300 inline-flex items-center gap-1"
+              >
+                Open {selectedExchange === 'binance' ? 'Binance' : 'Bybit'} API Settings
+                <ExternalLink className="w-3 h-3" />
+              </a>
+            </div>
 
             {error && (
               <div className="mb-6 p-4 bg-red-500/10 border border-red-500/20 rounded-xl flex items-center gap-3">

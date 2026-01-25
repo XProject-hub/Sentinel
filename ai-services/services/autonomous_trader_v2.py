@@ -938,6 +938,9 @@ class AutonomousTraderV2:
         logger.info(f"Trail from peak: {self.trail_from_peak}%, Min profit to trail: {self.min_profit_to_trail}%")
         logger.info("=" * 60)
         
+        # Start background learning task - collects data even without active trading
+        asyncio.create_task(self._background_learning_loop())
+        
         cycle = 0
         consecutive_errors = 0
         
@@ -5755,6 +5758,155 @@ class AutonomousTraderV2:
         )
         
         await self._save_stats()
+    
+    async def _background_learning_loop(self):
+        """
+        Background data collection loop - runs INDEPENDENTLY of active trading.
+        This collects learning data even when no users are connected.
+        
+        Purpose:
+        - Scan market opportunities to increment opportunities_scanned counter
+        - Track simulated trades based on signals to train edge estimator
+        - Build up AI learning data points without requiring actual trading
+        """
+        logger.info("=" * 50)
+        logger.info(" BACKGROUND LEARNING LOOP STARTED")
+        logger.info(" Collecting AI training data independently...")
+        logger.info("=" * 50)
+        
+        # Simulated trades tracker: {symbol: {'direction': 'long/short', 'entry_price': float, 'entry_time': datetime, 'edge': float}}
+        simulated_trades: Dict[str, Dict] = {}
+        
+        learning_cycle = 0
+        
+        while self.is_running:
+            try:
+                learning_cycle += 1
+                
+                # Wait first to let other systems initialize
+                await asyncio.sleep(30)  # Run every 30 seconds
+                
+                if not self.market_scanner:
+                    continue
+                
+                # === STEP 1: SCAN MARKET FOR OPPORTUNITIES ===
+                try:
+                    opportunities = await self.market_scanner.get_tradeable_opportunities()
+                    
+                    if opportunities:
+                        # Update global stats counter
+                        self.stats['opportunities_scanned'] += len(opportunities)
+                        
+                        # Also update Redis directly for dashboard
+                        if self.redis_client:
+                            try:
+                                await self.redis_client.incrby('trader:global:opportunities_scanned', len(opportunities))
+                            except:
+                                pass
+                        
+                        # Log occasionally
+                        if learning_cycle % 10 == 0:
+                            logger.info(f"[LEARNING] Cycle {learning_cycle} | Scanned {len(opportunities)} opportunities | Total: {self.stats['opportunities_scanned']:,}")
+                except Exception as e:
+                    if learning_cycle % 20 == 0:
+                        logger.debug(f"[LEARNING] Market scan failed: {e}")
+                    continue
+                
+                # === STEP 2: TRACK SIMULATED TRADES ===
+                # For the top opportunities, simulate entering a trade
+                for opp in opportunities[:5]:  # Track top 5 opportunities
+                    symbol = opp.symbol
+                    
+                    if symbol not in simulated_trades:
+                        # Enter simulated trade
+                        simulated_trades[symbol] = {
+                            'direction': opp.direction,
+                            'entry_price': opp.current_price,
+                            'entry_time': datetime.utcnow(),
+                            'edge': opp.edge_score,
+                            'confidence': opp.confidence
+                        }
+                
+                # === STEP 3: CHECK SIMULATED TRADE OUTCOMES ===
+                # After 5 minutes, check if the simulated trade would have been profitable
+                symbols_to_remove = []
+                
+                for symbol, trade in list(simulated_trades.items()):
+                    # Check if 5 minutes have passed
+                    elapsed = (datetime.utcnow() - trade['entry_time']).total_seconds()
+                    
+                    if elapsed >= 300:  # 5 minutes
+                        try:
+                            # Get current price from market scanner cache
+                            current_price = 0
+                            for opp in opportunities:
+                                if opp.symbol == symbol:
+                                    current_price = opp.current_price
+                                    break
+                            
+                            if current_price > 0 and trade['entry_price'] > 0:
+                                # Calculate P&L
+                                if trade['direction'] == 'long':
+                                    pnl_percent = ((current_price - trade['entry_price']) / trade['entry_price']) * 100
+                                else:
+                                    pnl_percent = ((trade['entry_price'] - current_price) / trade['entry_price']) * 100
+                                
+                                won = pnl_percent > 0
+                                
+                                # Record outcome in edge estimator
+                                if self.edge_estimator:
+                                    await self.edge_estimator.record_outcome(
+                                        symbol=symbol,
+                                        entry_edge=trade['edge'],
+                                        won=won,
+                                        pnl_percent=pnl_percent
+                                    )
+                                    
+                                    # Log occasionally
+                                    if learning_cycle % 20 == 0:
+                                        result = "WIN" if won else "LOSS"
+                                        logger.info(f"[LEARNING] Simulated trade {symbol} {trade['direction']}: {result} ({pnl_percent:+.2f}%)")
+                            
+                            symbols_to_remove.append(symbol)
+                            
+                        except Exception as e:
+                            logger.debug(f"[LEARNING] Failed to evaluate {symbol}: {e}")
+                            symbols_to_remove.append(symbol)
+                
+                # Remove completed simulated trades
+                for symbol in symbols_to_remove:
+                    simulated_trades.pop(symbol, None)
+                
+                # Keep simulated trades list manageable
+                if len(simulated_trades) > 50:
+                    # Remove oldest trades
+                    sorted_trades = sorted(simulated_trades.items(), key=lambda x: x[1]['entry_time'])
+                    for symbol, _ in sorted_trades[:20]:
+                        simulated_trades.pop(symbol, None)
+                
+                # === STEP 4: SAVE STATS REGULARLY ===
+                if learning_cycle % 10 == 0:
+                    try:
+                        await self._save_stats()
+                    except:
+                        pass
+                    
+                    # Also save edge estimator calibration
+                    if self.edge_estimator and self.redis_client:
+                        try:
+                            calibration = self.edge_estimator.get_calibration_data()
+                            await self.redis_client.set('edge:calibration', json.dumps(calibration.get('global_stats', {})))
+                        except:
+                            pass
+                
+            except asyncio.CancelledError:
+                logger.info("[LEARNING] Background learning loop cancelled")
+                break
+            except Exception as e:
+                logger.error(f"[LEARNING] Background learning error: {e}")
+                await asyncio.sleep(60)  # Wait longer on error
+        
+        logger.info("[LEARNING] Background learning loop stopped")
         
     async def get_status(self) -> Dict:
         """Get current trader status for API"""

@@ -249,6 +249,7 @@ export default function ConnectExchangePage() {
                   className="w-full px-4 py-3 rounded-xl bg-sentinel-bg-secondary border border-sentinel-border focus:border-sentinel-accent-cyan focus:outline-none"
                 >
                   <option value="bybit">Bybit</option>
+                  <option value="binance">Binance</option>
                 </select>
               </div>
 

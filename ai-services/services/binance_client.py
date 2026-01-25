@@ -118,8 +118,17 @@ class BinanceClient:
                     headers=headers,
                     data=params
                 )
-                
-            data = response.json()
+            
+            # Handle empty or non-JSON responses
+            if not response.text or response.text.strip() == "":
+                logger.error(f"Binance returned empty response for {endpoint}")
+                return {"success": False, "error": "Empty response from Binance API"}
+            
+            try:
+                data = response.json()
+            except Exception as json_err:
+                logger.error(f"Binance JSON parse error: {json_err}, Response: {response.text[:200]}")
+                return {"success": False, "error": f"Invalid response from Binance: {str(json_err)}"}
             
             # Binance returns error in different format
             if "code" in data and data["code"] != 200:

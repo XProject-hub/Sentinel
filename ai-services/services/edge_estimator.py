@@ -201,9 +201,22 @@ class EdgeEstimator:
                 self._global_stats['total_profit'] += pnl_percent
             else:
                 self._global_stats['total_loss'] += abs(pnl_percent)
+            
+            # Save to Redis after every 10 outcomes for persistence
+            if self._global_stats['total_trades'] % 10 == 0:
+                await self._save_to_redis()
                 
         except Exception as e:
             logger.error(f"Failed to record outcome: {e}")
+    
+    async def _save_to_redis(self):
+        """Save calibration data to Redis"""
+        try:
+            if self.redis_client:
+                import json
+                await self.redis_client.set('edge:calibration', json.dumps(self._global_stats))
+        except Exception as e:
+            logger.debug(f"Failed to save edge calibration: {e}")
     
     def get_calibration_data(self) -> Dict:
         """Get calibration data for persistence"""

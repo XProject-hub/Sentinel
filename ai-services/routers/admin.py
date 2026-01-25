@@ -533,11 +533,14 @@ async def get_ai_stats():
         # Get edge calibration from edge estimator
         try:
             edge_count = 0
-            # Edge calibration is stored as JSON string
+            # Edge calibration is stored as JSON string with format:
+            # {"total_trades": X, "winning_trades": Y, "total_profit": Z, "total_loss": W}
             edge_calibration_raw = await r.get('edge:calibration')
             if edge_calibration_raw:
                 edge_calibration = json.loads(edge_calibration_raw)
-                edge_count = len(edge_calibration) if isinstance(edge_calibration, dict) else 0
+                if isinstance(edge_calibration, dict):
+                    # The actual data points are the total_trades recorded
+                    edge_count = int(edge_calibration.get('total_trades', 0))
             
             # Also check edge performance for more data
             edge_perf_raw = await r.get('edge:performance')
