@@ -1468,126 +1468,110 @@ class AutonomousTraderV2:
                 
                 # Get position info before deleting
                 closed_pos = self.active_positions[user_id][symbol]
+                
+                # Try to get ACTUAL P&L from exchange API
+                actual_pnl = 0.0
+                pnl_value = 0.0
+                pnl_percent = 0.0  # Initialize to avoid "not defined" error
+                close_reason = "Closed externally (manual or exchange SL/TP)"
+                
+                try:
+                    client = self.user_clients.get(user_id)
+                    is_spot_trade = getattr(closed_pos, 'is_spot', False)
                     
-                    # Try to get ACTUAL P&L from Bybit closed PnL API
-                    actual_pnl = 0.0
-                    pnl_value = 0.0
-                    close_reason = "Closed externally (manual or Bybit SL/TP)"
-                    
-                    try:
-                        client = self.user_clients.get(user_id)
-                        is_spot_trade = getattr(closed_pos, 'is_spot', False)
-                        
-                        if client:
-                            if is_spot_trade:
-                                # SPOT TRADE: Calculate P&L from trade history
-                                logger.info(f"Calculating SPOT P&L for {symbol}...")
-                                try:
-                                    # Get spot trade executions for this symbol
-                                    trades_result = await client.get_spot_trade_history(symbol=symbol, limit=10)
-                                    if trades_result.get("success") and trades_result.get("data", {}).get("list"):
-                                        executions = trades_result["data"]["list"]
-                                        # Find sell executions (we sold our position)
-                                        sell_total = 0.0
-                                        sell_qty = 0.0
-                                        buy_total = 0.0
-                                        buy_qty = 0.0
+                    if client:
+                        if is_spot_trade:
+                            # SPOT TRADE: Calculate P&L from trade history
+                            logger.info(f"Calculating SPOT P&L for {symbol}...")
+                            try:
+                                # Get spot trade executions for this symbol
+                                trades_result = await client.get_spot_trade_history(symbol=symbol, limit=10)
+                                if trades_result.get("success") and trades_result.get("data", {}).get("list"):
+                                    executions = trades_result["data"]["list"]
+                                    # Find sell executions (we sold our position)
+                                    sell_total = 0.0
+                                    sell_qty = 0.0
+                                    
+                                    for exec in executions:
+                                        exec_side = exec.get("side", "")
+                                        exec_qty = float(exec.get("execQty", 0))
+                                        exec_price = float(exec.get("execPrice", 0))
+                                        exec_value = float(exec.get("execValue", exec_qty * exec_price))
+                                        exec_fee = float(exec.get("execFee", 0))
                                         
-                                        for exec in executions:
-                                            exec_side = exec.get("side", "")
-                                            exec_qty = float(exec.get("execQty", 0))
-                                            exec_price = float(exec.get("execPrice", 0))
-                                            exec_value = float(exec.get("execValue", exec_qty * exec_price))
-                                            exec_fee = float(exec.get("execFee", 0))
-                                            
-                                            if exec_side == "Sell":
-                                                sell_total += exec_value - exec_fee
-                                                sell_qty += exec_qty
-                                            elif exec_side == "Buy":
-                                                buy_total += exec_value + exec_fee
-                                                buy_qty += exec_qty
+                                        if exec_side == "Sell":
+                                            sell_total += exec_value - exec_fee
+                                            sell_qty += exec_qty
+                                    
+                                    # Calculate P&L: what we sold for - what we bought for
+                                    if sell_total > 0 and closed_pos.entry_price > 0:
+                                        cost_basis = closed_pos.position_value or (closed_pos.entry_price * sell_qty)
+                                        pnl_value = sell_total - cost_basis
+                                        pnl_percent = (pnl_value / cost_basis) * 100 if cost_basis > 0 else 0
+                                        close_reason = f"SPOT sold (${sell_total:.2f} proceeds)"
+                                        logger.info(f"SPOT P&L for {symbol}: ${pnl_value:.2f} ({pnl_percent:.2f}%) | Sold: ${sell_total:.2f} - Cost: ${cost_basis:.2f}")
+                            except Exception as spot_e:
+                                logger.warning(f"Could not get SPOT trade history for {symbol}: {spot_e}")
+                        else:
+                            # FUTURES TRADE: Use closed PnL API
+                            pnl_result = await client.get_pnl(symbol=symbol, limit=5)
+                            if pnl_result.get("success") and pnl_result.get("data", {}).get("list"):
+                                for pnl_entry in pnl_result["data"]["list"]:
+                                    if pnl_entry.get("symbol") == symbol:
+                                        raw_pnl = float(pnl_entry.get("closedPnl", 0))
+                                        open_fee = float(pnl_entry.get("openFee", 0))
+                                        close_fee = float(pnl_entry.get("closeFee", 0))
+                                        total_fees = open_fee + close_fee
                                         
-                                        # Calculate P&L: what we sold for - what we bought for
-                                        if sell_total > 0 and closed_pos.entry_price > 0:
-                                            # Use entry price from our tracking
-                                            cost_basis = closed_pos.position_value or (closed_pos.entry_price * sell_qty)
-                                            pnl_value = sell_total - cost_basis
-                                            pnl_percent = (pnl_value / cost_basis) * 100 if cost_basis > 0 else 0
-                                            close_reason = f"SPOT sold (${sell_total:.2f} proceeds)"
-                                            logger.info(f"SPOT P&L for {symbol}: ${pnl_value:.2f} ({pnl_percent:.2f}%) | Sold: ${sell_total:.2f} - Cost: ${cost_basis:.2f}")
-                                except Exception as spot_e:
-                                    logger.warning(f"Could not get SPOT trade history for {symbol}: {spot_e}")
-                            else:
-                                # FUTURES TRADE: Use closed PnL API
-                                pnl_result = await client.get_pnl(symbol=symbol, limit=5)
-                                if pnl_result.get("success") and pnl_result.get("data", {}).get("list"):
-                                    # Find the most recent close for this symbol
-                                    for pnl_entry in pnl_result["data"]["list"]:
-                                        if pnl_entry.get("symbol") == symbol:
-                                            # closedPnl does NOT include fees - we must subtract them!
-                                            raw_pnl = float(pnl_entry.get("closedPnl", 0))
-                                            open_fee = float(pnl_entry.get("openFee", 0))
-                                            close_fee = float(pnl_entry.get("closeFee", 0))
-                                            total_fees = open_fee + close_fee
-                                            
-                                            # NET P&L = closedPnl - fees
-                                            actual_pnl = raw_pnl - total_fees
-                                            pnl_value = actual_pnl
-                                            
-                                            # Calculate percentage based on NET P&L
-                                            if closed_pos.position_value and closed_pos.position_value > 0:
-                                                pnl_percent = (actual_pnl / closed_pos.position_value) * 100
-                                            else:
-                                                pnl_percent = 0
-                                            close_reason = f"FUTURES close (net after ${total_fees:.2f} fees)"
-                                            logger.info(f"Got NET P&L for {symbol}: ${actual_pnl:.2f} ({pnl_percent:.2f}%) | Raw: ${raw_pnl:.2f} - Fees: ${total_fees:.2f}")
-                                            break
-                        
-                        # Fallback to estimation if API didn't return data
-                        if pnl_value == 0 and closed_pos.peak_pnl_percent:
-                            if closed_pos.peak_pnl_percent > 0.3:
-                                # Use peak as estimate
-                                pnl_percent = closed_pos.peak_pnl_percent * 0.8
-                                pnl_value = closed_pos.position_value * (pnl_percent / 100) if closed_pos.position_value else 0
-                                close_reason = f"External close (peak was +{closed_pos.peak_pnl_percent:.1f}%)"
-                            else:
-                                # Small or no peak - use last known P&L or zero
-                                pnl_percent = 0
-                                pnl_value = 0
-                                close_reason = "External close (P&L unknown)"
-                    except Exception as e:
-                        logger.warning(f"Could not get actual P&L for {symbol}: {e}")
-                        pnl_percent = 0
-                        pnl_value = 0
-                        close_reason = "External close (P&L fetch failed)"
+                                        actual_pnl = raw_pnl - total_fees
+                                        pnl_value = actual_pnl
+                                        
+                                        if closed_pos.position_value and closed_pos.position_value > 0:
+                                            pnl_percent = (actual_pnl / closed_pos.position_value) * 100
+                                        close_reason = f"FUTURES close (net after ${total_fees:.2f} fees)"
+                                        logger.info(f"Got NET P&L for {symbol}: ${actual_pnl:.2f} ({pnl_percent:.2f}%) | Raw: ${raw_pnl:.2f} - Fees: ${total_fees:.2f}")
+                                        break
                     
-                    # Delete from active positions
-                    del self.active_positions[user_id][symbol]
-                    
-                    # Remove from position_sizer (PER USER!)
-                    await self.position_sizer.close_position(symbol, pnl_value, user_id)
-                    
-                    # LOG TO CONSOLE so user sees it on dashboard!
-                    await self._log_to_console(
-                        f"CLOSED {symbol}: {pnl_percent:+.2f}% (${pnl_value:+.2f}) | {close_reason}",
-                        "TRADE",
-                        user_id
-                    )
-                    
-                    # STORE in trades:completed so it shows in Recent Trades!
-                    await self._store_trade_event(
-                        user_id, symbol, 'closed', pnl_percent, close_reason, closed_pos, pnl_value
-                    )
-                    
-                    # Update user stats (approximate)
-                    user_stats = self._get_user_stats(user_id)
-                    user_stats['total_trades'] += 1
-                    if pnl_value > 0:
-                        user_stats['winning_trades'] += 1
-                    user_stats['total_pnl'] += pnl_value
-                    await self._save_user_stats(user_id)
-                    
-                    logger.info(f"Position {symbol} closed EXTERNALLY | P&L: {pnl_percent:+.2f}% (${pnl_value:+.2f}) | {close_reason}")
+                    # Fallback to estimation if API didn't return data
+                    if pnl_value == 0 and closed_pos.peak_pnl_percent:
+                        if closed_pos.peak_pnl_percent > 0.3:
+                            pnl_percent = closed_pos.peak_pnl_percent * 0.8
+                            pnl_value = closed_pos.position_value * (pnl_percent / 100) if closed_pos.position_value else 0
+                            close_reason = f"External close (peak was +{closed_pos.peak_pnl_percent:.1f}%)"
+                        else:
+                            close_reason = "External close (P&L unknown)"
+                            
+                except Exception as e:
+                    logger.warning(f"Could not get actual P&L for {symbol}: {e}")
+                    close_reason = "External close (P&L fetch failed)"
+                
+                # Delete from active positions
+                del self.active_positions[user_id][symbol]
+                
+                # Remove from position_sizer (PER USER!)
+                await self.position_sizer.close_position(symbol, pnl_value, user_id)
+                
+                # LOG TO CONSOLE so user sees it on dashboard!
+                await self._log_to_console(
+                    f"CLOSED {symbol}: {pnl_percent:+.2f}% (${pnl_value:+.2f}) | {close_reason}",
+                    "TRADE",
+                    user_id
+                )
+                
+                # STORE in trades:completed so it shows in Recent Trades!
+                await self._store_trade_event(
+                    user_id, symbol, 'closed', pnl_percent, close_reason, closed_pos, pnl_value
+                )
+                
+                # Update user stats (approximate)
+                user_stats = self._get_user_stats(user_id)
+                user_stats['total_trades'] += 1
+                if pnl_value > 0:
+                    user_stats['winning_trades'] += 1
+                user_stats['total_pnl'] += pnl_value
+                await self._save_user_stats(user_id)
+                
+                logger.info(f"Position {symbol} closed EXTERNALLY | P&L: {pnl_percent:+.2f}% (${pnl_value:+.2f}) | {close_reason}")
         
         # IMPORTANT: Sync position sizer with exchange to remove any stale positions
         # This ensures position_sizer tracks THIS USER's positions correctly (PER USER!)
