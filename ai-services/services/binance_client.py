@@ -275,31 +275,72 @@ class BinanceClient:
             return {"success": False, "error": str(e)}
         
     async def get_orderbook(self, symbol: str, limit: int = 100) -> Dict:
-        """Get orderbook depth"""
-        params = {
-            "symbol": symbol,
-            "limit": min(limit, 1000)  # Binance max is 1000
-        }
-        return await self._request("GET", "/fapi/v1/depth", params)
+        """Get orderbook depth - uses SPOT API"""
+        try:
+            base_url = "https://api.binance.com"
+            endpoint = "/api/v3/depth"
+            url = f"{base_url}{endpoint}?symbol={symbol}&limit={min(limit, 1000)}"
+            
+            response = await self.http_client.get(url)
+            data = response.json()
+            
+            if "bids" in data and "asks" in data:
+                return {"success": True, "data": data}
+            elif "code" in data:
+                return {"success": False, "error": data.get("msg", "Unknown error"), "code": data.get("code")}
+            else:
+                return {"success": False, "error": "Invalid orderbook data"}
+                
+        except Exception as e:
+            logger.error(f"Binance get_orderbook error for {symbol}: {e}")
+            return {"success": False, "error": str(e)}
     
-    async def get_klines(self, symbol: str, interval: str = "5m", limit: int = 100) -> Dict:
+    async def get_klines(self, symbol: str, interval: str = "5m", limit: int = 100, category: str = "spot") -> Dict:
         """
-        Get kline/candlestick data
+        Get kline/candlestick data - uses SPOT API for SPOT users
         
         Args:
             symbol: Trading pair (e.g., 'BTCUSDT')
             interval: Kline interval. 1m,3m,5m,15m,30m,1h,2h,4h,6h,8h,12h,1d,3d,1w,1M
             limit: Limit for data size (max 1500)
+            category: "spot" or "linear" (default: spot for SPOT users)
             
         Returns:
-            Dict with kline data
+            Dict with kline data in Bybit-compatible format
         """
-        params = {
-            "symbol": symbol,
-            "interval": interval,
-            "limit": min(limit, 1500)
-        }
-        return await self._request("GET", "/fapi/v1/klines", params)
+        try:
+            # Use SPOT API (public, no auth needed) - works for all users
+            base_url = "https://api.binance.com"
+            endpoint = "/api/v3/klines"
+            
+            url = f"{base_url}{endpoint}?symbol={symbol}&interval={interval}&limit={min(limit, 1500)}"
+            
+            response = await self.http_client.get(url)
+            data = response.json()
+            
+            if isinstance(data, list) and len(data) > 0:
+                # Convert Binance klines format to Bybit-compatible format
+                # Binance: [openTime, open, high, low, close, volume, closeTime, quoteAssetVolume, trades, takerBuyBase, takerBuyQuote, ignore]
+                klines = []
+                for k in data:
+                    klines.append({
+                        "startTime": str(k[0]),
+                        "openPrice": k[1],
+                        "highPrice": k[2],
+                        "lowPrice": k[3],
+                        "closePrice": k[4],
+                        "volume": k[5],
+                        "turnover": k[7],  # quoteAssetVolume
+                    })
+                return {"success": True, "data": {"list": klines}}
+            elif "code" in data:
+                return {"success": False, "error": data.get("msg", "Unknown error"), "code": data.get("code")}
+            else:
+                return {"success": False, "error": "No kline data returned"}
+                
+        except Exception as e:
+            logger.error(f"Binance get_klines error for {symbol}: {e}")
+            return {"success": False, "error": str(e)}
         
     async def get_funding_rate(self, symbol: str) -> Dict:
         """Get current funding rate"""
