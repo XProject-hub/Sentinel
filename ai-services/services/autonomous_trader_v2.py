@@ -146,6 +146,10 @@ class AutonomousTraderV2:
         # Bybit users always have futures, so this is mainly for Binance
         self.user_account_types: Dict[str, str] = {}
         
+        # Valid symbols per user (especially important for Binance)
+        # {user_id: set(['BTCUSDT', 'ETHUSDT', ...])}
+        self.user_valid_symbols: Dict[str, set] = {}
+        
         # User wallet assets: {user_id: [{coin, balance, usdValue}, ...]}
         self.user_assets: Dict[str, List[Dict]] = {}
         
@@ -942,6 +946,22 @@ class AutonomousTraderV2:
                 
                 self.user_account_types[user_id] = account_type
                 logger.info(f"User {user_id} connected to {exchange.upper()} (account_type={account_type})")
+                
+                # Cache valid symbols for this exchange (important for Binance to avoid trading Bybit-only symbols)
+                try:
+                    if exchange == "binance":
+                        # Get Binance Futures/Spot symbols based on account_type
+                        symbols = await client.get_all_symbols()
+                        self.user_valid_symbols[user_id] = set(symbols)
+                        logger.info(f"Cached {len(symbols)} valid Binance {account_type} symbols for {user_id}")
+                    else:
+                        # For Bybit, get linear symbols
+                        symbols = await client.get_tradeable_symbols(category="linear")
+                        self.user_valid_symbols[user_id] = set(symbols)
+                        logger.info(f"Cached {len(symbols)} valid Bybit symbols for {user_id}")
+                except Exception as e:
+                    logger.warning(f"Could not cache symbols for {user_id}: {e}")
+                    self.user_valid_symbols[user_id] = set()  # Empty set - will allow all (fallback)
                 
                 # Load user-specific stats from Redis
                 if self.redis_client:
@@ -3916,6 +3936,12 @@ class AutonomousTraderV2:
                 if opp.symbol in self._cooldown_symbols or opp.symbol in self._failed_order_symbols:
                     continue
                 
+                # Skip symbols that don't exist on user's exchange (important for Binance)
+                user_symbols = self.user_valid_symbols.get(user_id, set())
+                if user_symbols and opp.symbol not in user_symbols:
+                    logger.debug(f"MOMENTUM {opp.symbol} skipped - not available on user's exchange")
+                    continue
+                
                 # Skip SHORT opportunities for Binance SPOT users (SPOT cannot short!)
                 # (Futures users CAN short)
                 exchange_type = self.user_exchanges.get(user_id, "bybit")
@@ -3994,6 +4020,12 @@ class AutonomousTraderV2:
                     else:
                         # Cooldown expired, remove from dict
                         del self._failed_order_symbols[opp.symbol]
+                
+                # Skip symbols that don't exist on user's exchange (important for Binance)
+                user_symbols = self.user_valid_symbols.get(user_id, set())
+                if user_symbols and opp.symbol not in user_symbols:
+                    logger.debug(f"BREAKOUT {opp.symbol} skipped - not available on user's exchange")
+                    continue
                 
                 # Skip SHORT opportunities for Binance SPOT users (SPOT cannot short!)
                 # (Futures users CAN short)
@@ -4174,6 +4206,21 @@ class AutonomousTraderV2:
                         continue
                     else:
                         del self._failed_order_symbols[opp.symbol]
+                
+                # Skip symbols on permanent blocklist (previously failed with "not permitted")
+                # This is especially important for Binance users who get Bybit symbols from scanner
+                if self.redis_client:
+                    blocklist_key = f"user:{user_id}:blocked_symbols"
+                    is_blocked = await self.redis_client.sismember(blocklist_key, opp.symbol)
+                    if is_blocked:
+                        logger.debug(f"SCANNER {opp.symbol} skipped - on permanent blocklist")
+                        continue
+                
+                # Skip symbols that don't exist on user's exchange (important for Binance)
+                user_symbols = self.user_valid_symbols.get(user_id, set())
+                if user_symbols and opp.symbol not in user_symbols:
+                    logger.debug(f"SCANNER {opp.symbol} skipped - not available on user's exchange")
+                    continue
                     
                 # Validate the opportunity with ADJUSTED thresholds (PER USER!)
                 should_trade, reason = await self._validate_opportunity(
