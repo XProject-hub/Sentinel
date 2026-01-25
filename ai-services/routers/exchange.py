@@ -1496,6 +1496,71 @@ async def get_positions(user_id: str = "default"):
                 "exchange": mode_info.get("exchange", "bybit"),
             })
     
+    # Also fetch SPOT positions from Redis (they don't appear in futures API)
+    try:
+        spot_positions = await r.hgetall(f"positions:spot:{user_id}")
+        for symbol_bytes, data_bytes in spot_positions.items():
+            try:
+                symbol = symbol_bytes.decode() if isinstance(symbol_bytes, bytes) else symbol_bytes
+                data_str = data_bytes.decode() if isinstance(data_bytes, bytes) else data_bytes
+                spot_data = json.loads(data_str)
+                
+                # Get current price for this symbol to calculate P&L
+                current_price = spot_data.get("entry_price", 0)
+                try:
+                    # Try to get current price from tickers
+                    client_for_ticker = await get_user_client(user_id, "bybit")
+                    if client_for_ticker:
+                        ticker_result = await client_for_ticker.get_tickers(symbol=symbol, category="spot")
+                        if ticker_result.get("success"):
+                            ticker_list = ticker_result.get("data", {}).get("list", [])
+                            if ticker_list:
+                                current_price = float(ticker_list[0].get("lastPrice", current_price))
+                except:
+                    pass  # Use entry price if ticker fails
+                
+                entry_price = float(spot_data.get("entry_price", 0))
+                size = float(spot_data.get("size", 0))
+                position_value = size * current_price
+                
+                # Calculate P&L
+                pnl_percent = ((current_price - entry_price) / entry_price * 100) if entry_price > 0 else 0
+                unrealized_pnl = size * (current_price - entry_price)
+                
+                # SPOT has lower fees (0.1% round trip typically)
+                estimated_exit_fee = position_value * 0.001
+                estimated_net_pnl = unrealized_pnl - estimated_exit_fee
+                
+                positions.append({
+                    "symbol": symbol,
+                    "side": spot_data.get("side", "Buy"),
+                    "size": size,
+                    "entryPrice": entry_price,
+                    "markPrice": current_price,
+                    "positionValue": position_value,
+                    "unrealisedPnl": round(unrealized_pnl, 4),
+                    "estimatedNetPnl": round(estimated_net_pnl, 4),
+                    "estimatedExitFee": round(estimated_exit_fee, 4),
+                    "leverage": 1,
+                    "liquidationPrice": None,  # No liquidation for SPOT
+                    "takeProfit": spot_data.get("take_profit_price"),
+                    "stopLoss": spot_data.get("stop_loss_price"),
+                    "createdTime": spot_data.get("entry_time"),
+                    "updatedTime": None,
+                    "isBreakout": symbol in breakout_symbols,
+                    "tradeMode": "spot",
+                    "tradeModeDisplay": spot_data.get("trade_mode_display", "SPOT (no leverage)"),
+                    "isSpot": True,
+                    "exchange": "bybit",
+                    # Extra info for SPOT display
+                    "pnlPercent": round(pnl_percent, 2),
+                })
+                logger.debug(f"Added SPOT position to response: {symbol} | PnL: {pnl_percent:.2f}%")
+            except Exception as e:
+                logger.warning(f"Failed to parse SPOT position {symbol_bytes}: {e}")
+    except Exception as e:
+        logger.warning(f"Failed to fetch SPOT positions: {e}")
+    
     # Sort by createdTime (oldest first) for stable display order
     positions.sort(key=lambda x: x.get("createdTime") or "0")
             

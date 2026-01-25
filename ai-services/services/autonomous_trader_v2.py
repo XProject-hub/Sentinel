@@ -1626,6 +1626,11 @@ class AutonomousTraderV2:
                 # Remove from position_sizer (PER USER!)
                 await self.position_sizer.close_position(symbol, pnl_value, user_id)
                 
+                # Clean up Redis SPOT position data if it was a spot trade
+                if self.redis_client:
+                    await self.redis_client.hdel(f"positions:spot:{user_id}", symbol)
+                    await self.redis_client.hdel(f"positions:trade_mode:{user_id}", symbol)
+                
                 # LOG TO CONSOLE so user sees it on dashboard!
                 await self._log_to_console(
                     f"CLOSED {symbol}: {pnl_percent:+.2f}% (${pnl_value:+.2f}) | {close_reason}",
@@ -1922,10 +1927,11 @@ class AutonomousTraderV2:
                         if position.symbol in self.active_positions[user_id]:
                             del self.active_positions[user_id][position.symbol]
                     
-                    # Remove breakout flag and trade mode from Redis
+                    # Remove breakout flag, trade mode, and SPOT position from Redis
                     if self.redis_client:
                         await self.redis_client.hdel("positions:breakout", position.symbol)
                         await self.redis_client.hdel(f"positions:trade_mode:{user_id}", position.symbol)
+                        await self.redis_client.hdel(f"positions:spot:{user_id}", position.symbol)
                 else:
                     # Trade not stored - DON'T set cooldown, DON'T remove from tracking
                     # _sync_positions will detect it's gone from exchange and log as external close
@@ -5574,6 +5580,27 @@ class AutonomousTraderV2:
                         "risk_level": trade_mode_decision.risk_level
                     })
                     await self.redis_client.hset(f"positions:trade_mode:{user_id}", opp.symbol, trade_mode_data)
+                    
+                    # Store SPOT positions separately so dashboard can show them
+                    # SPOT positions don't appear in get_positions() API since they're wallet holdings
+                    if is_spot_trade:
+                        spot_position_data = json.dumps({
+                            "symbol": opp.symbol,
+                            "side": side,
+                            "size": qty,
+                            "entry_price": opp.current_price,
+                            "entry_time": datetime.utcnow().isoformat(),
+                            "position_value": position_value,
+                            "stop_loss_price": stop_loss,
+                            "take_profit_price": take_profit,
+                            "leverage": 1,
+                            "is_spot": True,
+                            "trade_mode_display": trade_mode_decision.get_display_name(),
+                            "edge_score": opp.edge_score,
+                            "confidence": opp.confidence
+                        })
+                        await self.redis_client.hset(f"positions:spot:{user_id}", opp.symbol, spot_position_data)
+                        logger.info(f"Stored SPOT position in Redis: {opp.symbol} for {user_id}")
                 
                 # Store trade event (per user)
                 await self._store_trade_event(user_id, opp.symbol, 'opened', 0, opp.direction)
