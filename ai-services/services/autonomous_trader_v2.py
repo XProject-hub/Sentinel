@@ -909,7 +909,26 @@ class AutonomousTraderV2:
             exchange = exchange.lower()
             
             if exchange == "binance":
-                client = BinanceClient(api_key, api_secret, testnet)
+                # IMPORTANT: Read account_type from Redis BEFORE creating client
+                # So the client is initialized with correct API base URL
+                account_type = "spot"  # default
+                if self.redis_client:
+                    try:
+                        stored_data = await self.redis_client.hgetall(f"user:{user_id}:exchange:binance")
+                        if stored_data:
+                            stored_type = stored_data.get(b'account_type', b'spot').decode()
+                            stored_futures = stored_data.get(b'has_futures', b'0').decode() == '1'
+                            if stored_futures:
+                                account_type = 'futures'
+                            else:
+                                account_type = stored_type
+                            logger.info(f"Binance user {user_id}: Redis says account_type={account_type}, has_futures={stored_futures}")
+                    except Exception as e:
+                        logger.debug(f"Could not load stored account type for {user_id}: {e}")
+                
+                # Create client with correct account_type from the start
+                client = BinanceClient(api_key, api_secret, testnet, account_type=account_type)
+                logger.info(f"Created BinanceClient for {user_id} with account_type={account_type}")
                 result = await client.test_connection()
             else:
                 # Default to Bybit
@@ -922,27 +941,11 @@ class AutonomousTraderV2:
                 self.active_positions[user_id] = {}
                 
                 # Store account type (spot/futures) - mainly for Binance
-                account_type = result.get('account_type', 'futures')  # Default to futures for Bybit
-                has_futures = result.get('has_futures', True)  # Bybit always has futures
-                
-                # For Binance, also check Redis for stored account_type
-                if exchange == "binance" and self.redis_client:
-                    try:
-                        stored_data = await self.redis_client.hgetall(f"user:{user_id}:exchange:binance")
-                        if stored_data:
-                            stored_type = stored_data.get(b'account_type', b'spot').decode()
-                            stored_futures = stored_data.get(b'has_futures', b'0').decode() == '1'
-                            if stored_futures:
-                                account_type = 'futures'
-                            else:
-                                account_type = stored_type
-                            logger.info(f"Binance user {user_id}: stored account_type={account_type}, has_futures={stored_futures}")
-                            
-                            # Update client's account_type to match stored value
-                            if hasattr(client, 'set_account_type'):
-                                client.set_account_type(account_type)
-                    except Exception as e:
-                        logger.debug(f"Could not load stored account type for {user_id}: {e}")
+                if exchange == "binance":
+                    # Use the account_type we already determined above
+                    pass  # account_type already set correctly
+                else:
+                    account_type = result.get('account_type', 'futures')  # Default to futures for Bybit
                 
                 self.user_account_types[user_id] = account_type
                 logger.info(f"User {user_id} connected to {exchange.upper()} (account_type={account_type})")

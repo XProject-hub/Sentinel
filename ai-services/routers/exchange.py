@@ -317,15 +317,13 @@ async def get_user_client(user_id: str, exchange: str = "bybit") -> Optional[Exc
     exchange = exchange.lower()
     
     # Return existing connection if available
-    if conn_key in user_exchange_connections:
-        return user_exchange_connections[conn_key]
-    
-    # Try to load from Redis
+    # Try to load from Redis first to check account_type
     try:
         r = await get_redis()
         api_key = None
         api_secret = None
         is_testnet = False
+        data = None
         
         # 1. Try new format: user:{user_id}:exchange:{exchange}
         key = f"user:{user_id}:exchange:{exchange}"
@@ -350,13 +348,34 @@ async def get_user_client(user_id: str, exchange: str = "bybit") -> Optional[Exc
         if not api_key or not api_secret:
             return None
         
+        # For Binance, determine expected account_type from Redis
+        expected_account_type = "spot"
+        if exchange == "binance" and data:
+            account_type_raw = data.get(b"account_type", b"spot").decode()
+            has_futures = data.get(b"has_futures", b"0").decode() == "1"
+            if has_futures:
+                expected_account_type = "futures"
+            else:
+                expected_account_type = account_type_raw
+        
+        # Check if cached client exists AND has correct account_type
+        if conn_key in user_exchange_connections:
+            cached_client = user_exchange_connections[conn_key]
+            if exchange == "binance":
+                cached_account_type = getattr(cached_client, 'account_type', 'spot')
+                if cached_account_type != expected_account_type:
+                    # Cache is stale - account_type changed! Invalidate cache.
+                    logger.warning(f"Binance client cache invalidated for {user_id}: was {cached_account_type}, now {expected_account_type}")
+                    del user_exchange_connections[conn_key]
+                else:
+                    return cached_client
+            else:
+                return cached_client
+        
         # Create appropriate client based on exchange
         if exchange == "binance":
-            # Get account_type from Redis data
-            account_type = data.get(b"account_type", b"spot").decode() if data else "spot"
-            has_futures = data.get(b"has_futures", b"0").decode() == "1" if data else False
-            if has_futures:
-                account_type = "futures"
+            # Use the account_type we already determined
+            account_type = expected_account_type
             
             client = BinanceClient(
                 api_key=api_key,
