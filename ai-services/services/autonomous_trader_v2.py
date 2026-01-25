@@ -1124,23 +1124,31 @@ class AutonomousTraderV2:
             self.active_strategy_name = user_set.get('strategy_preset', 'micro').upper()
             
             # ════════════════════════════════════════════════════════════════
-            # CRITICAL: Apply strategy preset to get min_edge, exit rules, etc!
-            # But PRESERVE user's position limit settings!
+            # CRITICAL: Apply strategy preset ONLY for entry thresholds!
+            # User's EXIT rules (TP, SL, trailing) MUST be preserved!
             # ════════════════════════════════════════════════════════════════
             selected_preset = user_set.get('strategy_preset', 'micro').lower()
             
-            # SAVE user's position settings BEFORE applying preset
+            # SAVE ALL user's custom settings BEFORE applying preset
             user_max_positions = self.max_open_positions
             user_breakout_slots = self.breakout_extra_slots
+            user_take_profit = self.take_profit
+            user_stop_loss = self.emergency_stop_loss
+            user_trailing = self.trail_from_peak
+            user_min_trail = self.min_profit_to_trail
             
             self._apply_strategy_preset(selected_preset)
             
-            # RESTORE user's position settings AFTER applying preset!
-            # User's maxOpenPositions takes PRIORITY over preset defaults!
+            # RESTORE user's custom settings AFTER applying preset!
+            # User's settings ALWAYS take priority over preset defaults!
             self.max_open_positions = user_max_positions
             self.breakout_extra_slots = user_breakout_slots
+            self.take_profit = user_take_profit
+            self.emergency_stop_loss = user_stop_loss
+            self.trail_from_peak = user_trailing
+            self.min_profit_to_trail = user_min_trail
             
-            logger.info(f"USER POSITION LIMITS: max={self.max_open_positions}, breakout_extra={self.breakout_extra_slots}")
+            logger.info(f"USER SETTINGS PRESERVED: TP={self.take_profit}%, SL={self.emergency_stop_loss}%, Trail={self.trail_from_peak}%, MaxPos={self.max_open_positions}")
             
             # 0.5 AI FULL AUTO: Let AI override with market-based strategy
             if self.ai_full_auto:
