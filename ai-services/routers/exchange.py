@@ -126,17 +126,47 @@ async def verify_credentials(request: VerifyCredentialsRequest):
         # Get balance to verify permissions
         balance = None
         if exchange == "binance":
-            balance_result = await client.get_wallet_balance()
+            # Try spot balance first
+            balance_result = await client.get_spot_balance()
             if balance_result.get("success") and balance_result.get("data"):
-                # Binance returns array of balances
-                total_balance = 0.0
+                # Binance returns array of all non-zero balances
+                total_usd_value = 0.0
+                assets = []
+                
+                # Get BTC price for conversion
+                btc_price = 0
+                try:
+                    btc_ticker = await client.get_ticker("BTCUSDT")
+                    if btc_ticker.get("success") and btc_ticker.get("data"):
+                        btc_price = float(btc_ticker["data"].get("lastPrice", 0))
+                except:
+                    pass
+                
                 for asset in balance_result["data"]:
-                    if asset.get("asset") == "USDT":
-                        total_balance = float(asset.get("balance", 0))
-                        break
+                    asset_name = asset.get("asset", "")
+                    free = float(asset.get("free", 0))
+                    locked = float(asset.get("locked", 0))
+                    total = free + locked
+                    
+                    if total > 0:
+                        # Calculate USD value
+                        usd_value = 0
+                        if asset_name in ["USDT", "USDC", "BUSD", "FDUSD"]:
+                            usd_value = total
+                        elif asset_name == "BTC" and btc_price > 0:
+                            usd_value = total * btc_price
+                        
+                        total_usd_value += usd_value
+                        assets.append({
+                            "asset": asset_name,
+                            "balance": total,
+                            "usdValue": usd_value
+                        })
+                
                 balance = {
-                    "total_equity": total_balance,
-                    "currency": "USDT"
+                    "total_equity": total_usd_value,
+                    "assets": assets,
+                    "currency": "USD"
                 }
         else:  # bybit
             balance_result = await client.get_wallet_balance(account_type="UNIFIED")
@@ -199,25 +229,24 @@ async def set_user_credentials(request: UserCredentialsRequest):
             user_exchange_connections[f"{request.user_id}:{request.exchange}"] = client
             
             # Connect user to autonomous trader (but DON'T start trading automatically for NEW users)
-            # Note: Autonomous trader currently only supports Bybit
+            # Connect to autonomous trader (supports both Bybit and Binance)
             # Import here to avoid circular imports at module load time
             from services.autonomous_trader_v2 import autonomous_trader_v2
             
             # Check if this is a NEW user (never traded before) or existing user
             is_new_user = not await r.exists(f'trading:started:{request.user_id}')
             
-            # Connect user to autonomous trader (Bybit only for now)
-            connected = False
-            if exchange == "bybit":
-                connected = await autonomous_trader_v2.connect_user(
-                    user_id=request.user_id,
-                    api_key=request.api_key,
-                    api_secret=request.api_secret,
-                    testnet=request.is_testnet
-                )
-            else:
-                # Binance autonomous trading support coming soon
-                logger.info(f"User {request.user_id} connected to {exchange} (autonomous trading pending)")
+            # Connect user to autonomous trader (now supports both Bybit and Binance!)
+            connected = await autonomous_trader_v2.connect_user(
+                user_id=request.user_id,
+                api_key=request.api_key,
+                api_secret=request.api_secret,
+                testnet=request.is_testnet,
+                exchange=exchange
+            )
+            
+            if not connected:
+                logger.warning(f"User {request.user_id} connected to {exchange} but autonomous trader failed")
             
             if connected:
                 if is_new_user:
@@ -331,6 +360,35 @@ async def get_user_client(user_id: str, exchange: str = "bybit") -> Optional[Exc
         return None
 
 
+async def detect_user_exchange(user_id: str) -> Optional[str]:
+    """Detect which exchange the user is connected to (binance or bybit)"""
+    try:
+        r = await get_redis()
+        
+        # Check Binance first
+        binance_key = f"user:{user_id}:exchange:binance"
+        binance_data = await r.hgetall(binance_key)
+        if binance_data and binance_data.get(b"is_active", b"0").decode() == "1":
+            return "binance"
+        
+        # Check Bybit
+        bybit_key = f"user:{user_id}:exchange:bybit"
+        bybit_data = await r.hgetall(bybit_key)
+        if bybit_data and bybit_data.get(b"is_active", b"0").decode() == "1":
+            return "bybit"
+        
+        # Legacy check for default user
+        if user_id == "default":
+            legacy_data = await r.hgetall("exchange:credentials:default")
+            if legacy_data:
+                return "bybit"
+        
+        return None
+    except Exception as e:
+        logger.error(f"Failed to detect user exchange: {e}")
+        return None
+
+
 @router.post("/test")
 async def test_exchange_connection(request: TestConnectionRequest):
     """Test exchange API connection"""
@@ -432,42 +490,85 @@ async def connect_exchange(credentials: ExchangeCredentials):
 
 
 @router.get("/user/{user_id}/balance")
-async def get_user_balance(user_id: str, exchange: str = "bybit"):
+async def get_user_balance(user_id: str, exchange: str = "auto"):
     """Get wallet balance for a specific user"""
+    
+    # Auto-detect exchange if not specified
+    if exchange == "auto":
+        exchange = await detect_user_exchange(user_id) or "bybit"
     
     client = await get_user_client(user_id, exchange)
     if not client:
         return {"success": False, "error": "No exchange connected for this user"}
     
     try:
-        result = await client.get_wallet_balance(account_type="UNIFIED")
-        
-        if not result.get("success"):
-            return {"success": False, "error": "Failed to fetch balance"}
-        
         coins = []
         total_equity = 0
         
-        data = result.get("data", {})
-        for account in data.get("list", []):
-            eq = float(account.get("totalEquity", 0))
-            if eq > 0:
-                total_equity = eq
-                for coin in account.get("coin", []):
-                    if float(coin.get("walletBalance", 0)) > 0:
-                        coins.append({
-                            "coin": coin.get("coin"),
-                            "balance": float(coin.get("walletBalance", 0)),
-                            "equity": float(coin.get("equity", 0)),
-                            "usdValue": float(coin.get("usdValue", 0)),
-                            "unrealizedPnl": float(coin.get("unrealisedPnl", 0))
-                        })
+        if exchange == "binance":
+            # BINANCE: Get spot balance
+            result = await client.get_spot_balance()
+            if not result.get("success"):
+                return {"success": False, "error": "Failed to fetch balance"}
+            
+            # Get BTC price for conversion
+            btc_price = 0
+            try:
+                btc_ticker = await client.get_ticker("BTCUSDT")
+                if btc_ticker.get("success") and btc_ticker.get("data"):
+                    btc_price = float(btc_ticker["data"].get("lastPrice", 0))
+            except:
+                pass
+            
+            for asset in result.get("data", []):
+                asset_name = asset.get("asset", "")
+                free = float(asset.get("free", 0))
+                locked = float(asset.get("locked", 0))
+                total = free + locked
+                
+                if total > 0:
+                    usd_value = 0
+                    if asset_name in ["USDT", "USDC", "BUSD", "FDUSD"]:
+                        usd_value = total
+                    elif asset_name == "BTC" and btc_price > 0:
+                        usd_value = total * btc_price
+                    
+                    total_equity += usd_value
+                    coins.append({
+                        "coin": asset_name,
+                        "balance": total,
+                        "equity": total,
+                        "usdValue": usd_value,
+                        "unrealizedPnl": 0
+                    })
+        else:
+            # BYBIT: Use unified account
+            result = await client.get_wallet_balance(account_type="UNIFIED")
+            
+            if not result.get("success"):
+                return {"success": False, "error": "Failed to fetch balance"}
+            
+            data = result.get("data", {})
+            for account in data.get("list", []):
+                eq = float(account.get("totalEquity", 0))
+                if eq > 0:
+                    total_equity = eq
+                    for coin in account.get("coin", []):
+                        if float(coin.get("walletBalance", 0)) > 0:
+                            coins.append({
+                                "coin": coin.get("coin"),
+                                "balance": float(coin.get("walletBalance", 0)),
+                                "equity": float(coin.get("equity", 0)),
+                                "usdValue": float(coin.get("usdValue", 0)),
+                                "unrealizedPnl": float(coin.get("unrealisedPnl", 0))
+                            })
         
         return {
             "success": True,
             "data": {
                 "totalEquity": total_equity,
                 "coins": coins,
+                "exchange": exchange
             }
         }
         
@@ -581,44 +682,108 @@ async def sync_user_exchange(user_id: str, exchange: str = "bybit"):
 async def get_balance(user_id: str = "default"):
     """Get real wallet balance from connected exchange - checks ALL account types"""
     
-    # Get user-specific client - NO FALLBACK TO OTHER USERS!
-    client = await get_user_client(user_id, "bybit")
-    
-    # NO FALLBACK! Each user MUST have their own connection!
-    if not client:
-        return {"success": False, "error": "No exchange connected for this user"}
-    
     coins = []
     total_equity = 0
     account_type_found = None
     all_results = {}  # For debugging
     
-    # Try UNIFIED account first (derivatives + spot combined)
-    logger.info("Fetching balance from UNIFIED account...")
-    result = await client.get_wallet_balance(account_type="UNIFIED")
-    all_results["UNIFIED"] = result
-    if result.get("success"):
-        data = result.get("data", {})
-        for account in data.get("list", []):
-            eq = float(account.get("totalEquity", 0))
-            if eq > 0:
-                total_equity = eq
-                account_type_found = "UNIFIED"
-                for coin in account.get("coin", []):
-                    if float(coin.get("walletBalance", 0)) > 0:
-                        coins.append({
-                            "coin": coin.get("coin"),
-                            "balance": float(coin.get("walletBalance", 0)),
-                            "equity": float(coin.get("equity", 0)),
-                            "usdValue": float(coin.get("usdValue", 0)),
-                            "unrealizedPnl": float(coin.get("unrealisedPnl", 0))
-                        })
+    # Detect which exchange the user is connected to
+    exchange_type = await detect_user_exchange(user_id)
     
-    # Note: Most Bybit accounts now only support UNIFIED
-    # SPOT, CONTRACT, FUND are legacy account types
-    # If UNIFIED returns 0, the user needs to transfer funds to Unified Trading wallet
+    if not exchange_type:
+        return {"success": False, "error": "No exchange connected for this user"}
     
-    logger.info(f"Balance fetched: {total_equity:.2f} USDT from {account_type_found} account, {len(coins)} coins")
+    # Get user-specific client
+    client = await get_user_client(user_id, exchange_type)
+    
+    if not client:
+        return {"success": False, "error": f"Failed to connect to {exchange_type}"}
+    
+    # Handle based on exchange type
+    if exchange_type == "binance":
+        # BINANCE: Get spot balance (supports all assets including BTC)
+        logger.info(f"Fetching balance from Binance SPOT for user {user_id}...")
+        result = await client.get_spot_balance()
+        all_results["SPOT"] = result
+        
+        if result.get("success") and result.get("data"):
+            account_type_found = "spot"
+            # Get current prices to calculate USD value
+            # For now, fetch BTC and other major asset prices
+            btc_price = 0
+            eth_price = 0
+            try:
+                btc_ticker = await client.get_ticker("BTCUSDT")
+                if btc_ticker.get("success") and btc_ticker.get("data"):
+                    btc_price = float(btc_ticker["data"].get("lastPrice", 0))
+                eth_ticker = await client.get_ticker("ETHUSDT")
+                if eth_ticker.get("success") and eth_ticker.get("data"):
+                    eth_price = float(eth_ticker["data"].get("lastPrice", 0))
+            except Exception as e:
+                logger.warning(f"Failed to get prices: {e}")
+            
+            for asset in result["data"]:
+                asset_name = asset.get("asset", "")
+                free = float(asset.get("free", 0))
+                locked = float(asset.get("locked", 0))
+                total_balance = free + locked
+                
+                if total_balance > 0:
+                    # Calculate USD value
+                    usd_value = 0
+                    if asset_name == "USDT":
+                        usd_value = total_balance
+                    elif asset_name == "BTC" and btc_price > 0:
+                        usd_value = total_balance * btc_price
+                    elif asset_name == "ETH" and eth_price > 0:
+                        usd_value = total_balance * eth_price
+                    elif asset_name in ["USDC", "BUSD", "FDUSD"]:
+                        usd_value = total_balance  # Stablecoins
+                    else:
+                        # Try to get price for other assets
+                        try:
+                            ticker = await client.get_ticker(f"{asset_name}USDT")
+                            if ticker.get("success") and ticker.get("data"):
+                                price = float(ticker["data"].get("lastPrice", 0))
+                                usd_value = total_balance * price
+                        except:
+                            pass
+                    
+                    coins.append({
+                        "coin": asset_name,
+                        "balance": total_balance,
+                        "equity": total_balance,
+                        "usdValue": usd_value,
+                        "unrealizedPnl": 0,
+                        "free": free,
+                        "locked": locked
+                    })
+                    total_equity += usd_value
+            
+            logger.info(f"Binance balance fetched: ${total_equity:.2f} total, {len(coins)} assets")
+    else:
+        # BYBIT: Use unified account
+        logger.info(f"Fetching balance from Bybit UNIFIED for user {user_id}...")
+        result = await client.get_wallet_balance(account_type="UNIFIED")
+        all_results["UNIFIED"] = result
+        if result.get("success"):
+            data = result.get("data", {})
+            for account in data.get("list", []):
+                eq = float(account.get("totalEquity", 0))
+                if eq > 0:
+                    total_equity = eq
+                    account_type_found = "UNIFIED"
+                    for coin in account.get("coin", []):
+                        if float(coin.get("walletBalance", 0)) > 0:
+                            coins.append({
+                                "coin": coin.get("coin"),
+                                "balance": float(coin.get("walletBalance", 0)),
+                                "equity": float(coin.get("equity", 0)),
+                                "usdValue": float(coin.get("usdValue", 0)),
+                                "unrealizedPnl": float(coin.get("unrealisedPnl", 0))
+                            })
+        
+        logger.info(f"Bybit balance fetched: {total_equity:.2f} USDT from {account_type_found} account, {len(coins)} coins")
     
     # If still 0, log all results for debugging
     if total_equity == 0:
@@ -627,11 +792,16 @@ async def get_balance(user_id: str = "default"):
     # Get USDT/EUR conversion rate (approximate)
     usdt_to_eur = 0.92  # TODO: Fetch real rate
     
-    # Calculate available balance from USDT coin
+    # Calculate available balance
     available_balance_usdt = 0
-    usdt_coin = next((c for c in coins if c.get("coin") == "USDT"), None)
-    if usdt_coin:
-        available_balance_usdt = usdt_coin.get("balance", 0) - usdt_coin.get("unrealizedPnl", 0)
+    if exchange_type == "binance":
+        # For Binance, available = total equity (all assets converted to USD)
+        available_balance_usdt = total_equity
+    else:
+        # For Bybit, use USDT coin balance
+        usdt_coin = next((c for c in coins if c.get("coin") == "USDT"), None)
+        if usdt_coin:
+            available_balance_usdt = usdt_coin.get("balance", 0) - usdt_coin.get("unrealizedPnl", 0)
     
     # Calculate unrealized PnL
     total_unrealized_pnl = sum(c.get("unrealizedPnl", 0) for c in coins)
@@ -691,6 +861,7 @@ async def get_balance(user_id: str = "default"):
             "unrealizedPnL": total_unrealized_pnl * usdt_to_eur,
             "coins": coins,
             "accountType": account_type_found,
+            "exchange": exchange_type,
             "currency": "USDT",
             "conversionRate": usdt_to_eur,
             "debug": all_results if total_equity == 0 else None
@@ -1118,12 +1289,27 @@ async def get_fee_rates():
 async def get_positions(user_id: str = "default"):
     """Get real open positions from connected exchange"""
     
-    # Get user-specific client - NO FALLBACK TO OTHER USERS!
-    client = await get_user_client(user_id, "bybit")
+    # Detect which exchange the user is connected to
+    exchange_type = await detect_user_exchange(user_id)
     
-    # NO FALLBACK! Each user MUST have their own connection!
-    if not client:
+    if not exchange_type:
         return {"success": False, "error": "No exchange connected for this user"}
+    
+    # Get user-specific client
+    client = await get_user_client(user_id, exchange_type)
+    
+    if not client:
+        return {"success": False, "error": f"Failed to connect to {exchange_type}"}
+    
+    # For Binance SPOT: No futures positions, return empty (spot holdings are in /balance)
+    if exchange_type == "binance":
+        # For now, Binance spot doesn't have "positions" like futures
+        # The balance endpoint shows all holdings
+        return {
+            "success": True,
+            "data": {"positions": []},
+            "message": "Binance Spot connected - holdings shown in balance. Futures trading coming soon."
+        }
         
     result = await client.get_positions()
     

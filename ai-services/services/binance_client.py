@@ -666,6 +666,20 @@ class BinanceClient:
             return {"success": True, "data": non_zero}
         return result
     
+    async def get_ticker(self, symbol: str) -> Dict:
+        """Get spot ticker for a specific symbol (e.g. BTCUSDT)"""
+        params = {"symbol": symbol}
+        result = await self._spot_request("GET", "/api/v3/ticker/price", params)
+        if result.get("success") and result.get("data"):
+            return {
+                "success": True,
+                "data": {
+                    "symbol": result["data"].get("symbol"),
+                    "lastPrice": result["data"].get("price")
+                }
+            }
+        return result
+    
     async def get_spot_orders(self, symbol: Optional[str] = None) -> Dict:
         """Get open spot orders"""
         params = {}

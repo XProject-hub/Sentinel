@@ -29,6 +29,7 @@ import json
 
 from config import settings
 from services.bybit_client import BybitV5Client
+from services.binance_client import BinanceClient
 from services.learning_engine import LearningEngine, TradeOutcome
 from services.regime_detector import RegimeDetector, RegimeState
 from services.edge_estimator import EdgeEstimator, EdgeScore
@@ -135,8 +136,14 @@ class AutonomousTraderV2:
         self.learning_engine: Optional[LearningEngine] = None
         self.ai_coordinator = None  # Legacy support
         
-        # Connected exchange clients per user
-        self.user_clients: Dict[str, BybitV5Client] = {}
+        # Connected exchange clients per user (can be BybitV5Client or BinanceClient)
+        self.user_clients: Dict[str, Any] = {}
+        
+        # Exchange type per user: "bybit" or "binance"
+        self.user_exchanges: Dict[str, str] = {}
+        
+        # User wallet assets: {user_id: [{coin, balance, usdValue}, ...]}
+        self.user_assets: Dict[str, List[Dict]] = {}
         
         # Paused users - still connected but not opening NEW positions
         self.paused_users: Set[str] = set()
@@ -875,28 +882,36 @@ class AutonomousTraderV2:
         if self.redis_client:
             await self.redis_client.aclose()
             
-    async def connect_user(self, user_id: str, api_key: str, api_secret: str, testnet: bool = False) -> bool:
-        """Connect user's exchange account"""
+    async def connect_user(self, user_id: str, api_key: str, api_secret: str, testnet: bool = False, exchange: str = "bybit") -> bool:
+        """Connect user's exchange account (supports Bybit and Binance)"""
         try:
-            client = BybitV5Client(api_key, api_secret, testnet)
-            result = await client.test_connection()
+            exchange = exchange.lower()
+            
+            if exchange == "binance":
+                client = BinanceClient(api_key, api_secret, testnet)
+                result = await client.test_connection()
+            else:
+                # Default to Bybit
+                client = BybitV5Client(api_key, api_secret, testnet)
+                result = await client.test_connection()
             
             if result.get('success'):
                 self.user_clients[user_id] = client
+                self.user_exchanges[user_id] = exchange
                 self.active_positions[user_id] = {}
                 
                 # Load user-specific stats from Redis
                 if self.redis_client:
                     await self._load_user_stats(user_id)
                 
-                logger.info(f"User {user_id} connected for Ultimate trading")
+                logger.info(f"User {user_id} connected to {exchange.upper()} for trading")
                 return True
             else:
                 await client.close()
                 return False
                 
         except Exception as e:
-            logger.error(f"Failed to connect user {user_id}: {e}")
+            logger.error(f"Failed to connect user {user_id} to {exchange}: {e}")
             return False
             
     async def disconnect_user(self, user_id: str):
@@ -929,10 +944,14 @@ class AutonomousTraderV2:
         if user_id in self.user_clients:
             await self.user_clients[user_id].close()
             del self.user_clients[user_id]
-            if user_id in self.active_positions:
-                del self.active_positions[user_id]
-            self.paused_users.discard(user_id)
-            logger.info(f"User {user_id} fully disconnected")
+        if user_id in self.user_exchanges:
+            del self.user_exchanges[user_id]
+        if user_id in self.user_assets:
+            del self.user_assets[user_id]
+        if user_id in self.active_positions:
+            del self.active_positions[user_id]
+        self.paused_users.discard(user_id)
+        logger.info(f"User {user_id} fully disconnected")
             
     async def run_trading_loop(self):
         """
@@ -1069,10 +1088,11 @@ class AutonomousTraderV2:
                 await asyncio.sleep(2)  # Brief sleep then continue
                 # NEVER break - keep the loop running!
                 
-    async def _process_user(self, user_id: str, client: BybitV5Client):
+    async def _process_user(self, user_id: str, client: Any):
         """
         Process trading for one user - BULLETPROOF VERSION
         This method MUST NEVER crash - all operations have timeouts and error handling
+        Supports both Bybit and Binance clients.
         """
         try:
             # 0. Load user-specific settings (CRITICAL - each user has their own settings!)
@@ -1131,7 +1151,7 @@ class AutonomousTraderV2:
             
             # 1. Get wallet balance (5s timeout)
             try:
-                wallet = await asyncio.wait_for(self._get_wallet(client), timeout=5.0)
+                wallet = await asyncio.wait_for(self._get_wallet(client, user_id), timeout=5.0)
                 if wallet['total_equity'] < 20:
                     return
             except asyncio.TimeoutError:
@@ -1197,33 +1217,113 @@ class AutonomousTraderV2:
             import traceback
             logger.error(traceback.format_exc())
             
-    async def _get_wallet(self, client: BybitV5Client) -> Dict:
-        """Get wallet balance"""
-        result = await client.get_wallet_balance()
+    async def _get_wallet(self, client: Any, user_id: str = "default") -> Dict:
+        """Get wallet balance - supports both Bybit and Binance"""
+        exchange = self.user_exchanges.get(user_id, "bybit")
         
-        if not result.get('success'):
-            return {'total_equity': 0, 'available': 0}
-            
-        data = result.get('data', {})
         total_equity = 0
         available = 0
+        assets = []
         
-        for account in data.get('list', []):
-            total_equity = safe_float(account.get('totalEquity'))
-            available = safe_float(account.get('totalAvailableBalance'))
+        if exchange == "binance":
+            # BINANCE: Get spot balance and calculate USD value
+            result = await client.get_spot_balance()
             
-            for coin in account.get('coin', []):
-                if coin.get('coin') == 'USDT':
-                    avail_withdraw = safe_float(coin.get('availableToWithdraw'))
-                    available = max(available, avail_withdraw)
-                    break
+            if not result.get('success'):
+                return {'total_equity': 0, 'available': 0, 'assets': [], 'exchange': 'binance'}
+            
+            # Get BTC and ETH prices for conversion
+            btc_price = 0
+            eth_price = 0
+            try:
+                btc_ticker = await client.get_ticker("BTCUSDT")
+                if btc_ticker.get("success") and btc_ticker.get("data"):
+                    btc_price = float(btc_ticker["data"].get("lastPrice", 0))
+                eth_ticker = await client.get_ticker("ETHUSDT")
+                if eth_ticker.get("success") and eth_ticker.get("data"):
+                    eth_price = float(eth_ticker["data"].get("lastPrice", 0))
+            except Exception as e:
+                logger.warning(f"Failed to get prices for Binance: {e}")
+            
+            for asset in result.get("data", []):
+                asset_name = asset.get("asset", "")
+                free = safe_float(asset.get("free", 0))
+                locked = safe_float(asset.get("locked", 0))
+                total_balance = free + locked
+                
+                if total_balance > 0:
+                    # Calculate USD value
+                    usd_value = 0
+                    if asset_name in ["USDT", "USDC", "BUSD", "FDUSD"]:
+                        usd_value = total_balance
+                    elif asset_name == "BTC" and btc_price > 0:
+                        usd_value = total_balance * btc_price
+                    elif asset_name == "ETH" and eth_price > 0:
+                        usd_value = total_balance * eth_price
+                    else:
+                        # Try to get price for other assets
+                        try:
+                            ticker = await client.get_ticker(f"{asset_name}USDT")
+                            if ticker.get("success") and ticker.get("data"):
+                                price = float(ticker["data"].get("lastPrice", 0))
+                                usd_value = total_balance * price
+                        except:
+                            pass
+                    
+                    assets.append({
+                        'coin': asset_name,
+                        'balance': total_balance,
+                        'free': free,
+                        'locked': locked,
+                        'usdValue': usd_value
+                    })
+                    total_equity += usd_value
+                    available += usd_value  # For spot, all is available
+            
+            # Store user assets for later reference
+            self.user_assets[user_id] = assets
+            
+            logger.info(f"Binance wallet for {user_id}: ${total_equity:.2f} total, {len(assets)} assets")
+            
+        else:
+            # BYBIT: Use unified account (original logic)
+            result = await client.get_wallet_balance()
+            
+            if not result.get('success'):
+                return {'total_equity': 0, 'available': 0, 'assets': [], 'exchange': 'bybit'}
+                
+            data = result.get('data', {})
+            
+            for account in data.get('list', []):
+                total_equity = safe_float(account.get('totalEquity'))
+                available = safe_float(account.get('totalAvailableBalance'))
+                
+                for coin in account.get('coin', []):
+                    wallet_balance = safe_float(coin.get('walletBalance', 0))
+                    if wallet_balance > 0:
+                        assets.append({
+                            'coin': coin.get('coin'),
+                            'balance': wallet_balance,
+                            'usdValue': safe_float(coin.get('usdValue', 0))
+                        })
+                    
+                    if coin.get('coin') == 'USDT':
+                        avail_withdraw = safe_float(coin.get('availableToWithdraw'))
+                        available = max(available, avail_withdraw)
+            
+            self.user_assets[user_id] = assets
                     
         # Store for position sizer
-        await self.redis_client.set('wallet:equity', str(total_equity))
+        if self.redis_client:
+            await self.redis_client.set('wallet:equity', str(total_equity))
+            await self.redis_client.set(f'wallet:equity:{user_id}', str(total_equity))
+            await self.redis_client.set(f'wallet:assets:{user_id}', json.dumps(assets))
         
         return {
             'total_equity': total_equity,
-            'available': available
+            'available': available,
+            'assets': assets,
+            'exchange': exchange
         }
         
     async def _sync_positions(self, user_id: str, client: BybitV5Client):
