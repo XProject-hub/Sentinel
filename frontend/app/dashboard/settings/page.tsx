@@ -70,6 +70,9 @@ interface BotSettings {
   momentumThreshold: number
   breakoutExtraSlots: boolean  // Allow +2 extra positions for breakouts
   enableBreakout: boolean  // Enable/disable breakout trading
+  // TradFi settings
+  enableTradFi: boolean  // Enable trading of gold, stocks, indices
+  tradFiBudget: number   // Budget allocation for TradFi
 }
 
 const defaultSettings: BotSettings = {
@@ -103,7 +106,10 @@ const defaultSettings: BotSettings = {
   useQLearning: true,
   momentumThreshold: 0,
   breakoutExtraSlots: false,  // OFF by default - user must enable
-  enableBreakout: false  // Breakout trading OFF by default (safer)
+  enableBreakout: false,  // Breakout trading OFF by default (safer)
+  // TradFi defaults
+  enableTradFi: false,  // TradFi OFF by default
+  tradFiBudget: 0       // No TradFi budget by default
 }
 
 // Strategy presets - PROFESSIONAL PRESETS (from ChatGPT quant analysis)
@@ -275,6 +281,8 @@ export default function SettingsPage() {
             useFundingRate: backendData.useFundingRate ?? true,
             useQLearning: backendData.useQLearning ?? true,
             useDynamicSizing: backendData.useDynamicSizing ?? true,
+            enableTradFi: backendData.enableTradFi ?? false,
+            tradFiBudget: parseFloat(backendData.tradFiBudget) || 0,
           }
           setSettings(prev => ({ ...prev, ...mapped }))
         }
@@ -1018,6 +1026,58 @@ export default function SettingsPage() {
                     </div>
                   </div>
                   )}
+
+                  {/* TradFi Section - Gold, Stocks, Indices */}
+                  <div className={`p-5 rounded-2xl border transition-all ${
+                    settings.enableTradFi 
+                      ? 'bg-amber-500/10 border-amber-500/30' 
+                      : 'bg-white/[0.02] border-white/5'
+                  }`}>
+                    <div className="flex items-center justify-between">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-1">
+                          <DollarSign className={`w-4 h-4 ${settings.enableTradFi ? 'text-amber-400' : 'text-gray-500'}`} />
+                          <span className="font-medium text-white">Enable TradFi Assets</span>
+                          <span className="px-2 py-0.5 text-[10px] font-medium bg-amber-500/20 text-amber-400 rounded-full">GOLD, STOCKS</span>
+                        </div>
+                        <p className="text-xs text-gray-500">
+                          Trade traditional finance assets on Bybit: Gold (PAXG), Stock tokens (COIN, MSTR), 
+                          and commodity-backed tokens. Adds diversification beyond pure crypto.
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => updateSetting('enableTradFi', !settings.enableTradFi)}
+                        className={`relative w-12 h-6 rounded-full transition-colors ml-4 ${
+                          settings.enableTradFi ? 'bg-amber-500' : 'bg-white/10'
+                        }`}
+                      >
+                        <div className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow-lg transition-transform ${
+                          settings.enableTradFi ? 'left-[26px]' : 'left-0.5'
+                        }`} />
+                      </button>
+                    </div>
+                    
+                    {/* TradFi Budget - only show if enabled */}
+                    {settings.enableTradFi && (
+                      <div className="mt-4 pt-4 border-t border-white/10">
+                        <label className="block text-sm font-medium text-gray-300 mb-2">
+                          TradFi Budget (USDT)
+                        </label>
+                        <input
+                          type="number"
+                          min="0"
+                          step="10"
+                          value={settings.tradFiBudget}
+                          onChange={(e) => updateSetting('tradFiBudget', parseFloat(e.target.value) || 0)}
+                          className="w-full px-4 py-2 bg-white/5 border border-white/10 rounded-xl text-white focus:outline-none focus:border-amber-500/50"
+                          placeholder="Enter budget for TradFi..."
+                        />
+                        <p className="text-xs text-gray-500 mt-2">
+                          Available TradFi symbols: PAXGUSDT (Gold), COINUSDT, MSTRUSDT (Stocks)
+                        </p>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </section>
             )}
