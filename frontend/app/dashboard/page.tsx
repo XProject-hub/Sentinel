@@ -108,6 +108,36 @@ interface TradeHistory {
   closed_time: string
 }
 
+interface SymbolTradeEvent {
+  action: string
+  timestamp: string
+  side: string | null
+  entry_price: number | null
+  size: number | null
+  position_value: number | null
+  leverage: number
+  trade_mode: string | null
+  is_spot: boolean
+  edge_score: number | null
+  confidence: number | null
+  reason: string
+  pnl_percent: number | null
+  pnl_value: number | null
+}
+
+interface SymbolHistoryData {
+  symbol: string
+  history: SymbolTradeEvent[]
+  completedTrades: TradeHistory[]
+  stats: {
+    totalTrades: number
+    totalPnl: number
+    winRate: number
+    wins: number
+    losses: number
+  }
+}
+
 interface TraderStats {
   total_trades: number
   winning_trades: number
@@ -172,6 +202,9 @@ export default function DashboardPage() {
   const [userId, setUserId] = useState<string>('default')
   const [priceCharts, setPriceCharts] = useState<{[symbol: string]: {close: number}[]}>({})
   const [showAssetsPopup, setShowAssetsPopup] = useState(false)
+  const [showHistoryModal, setShowHistoryModal] = useState(false)
+  const [selectedSymbolHistory, setSelectedSymbolHistory] = useState<SymbolHistoryData | null>(null)
+  const [loadingHistory, setLoadingHistory] = useState(false)
   
   const consoleRef = useRef<HTMLDivElement>(null)
 
@@ -492,6 +525,24 @@ export default function DashboardPage() {
       alert('Failed to close all positions. Check console for details.')
     } finally {
       setIsSellingAll(false)
+    }
+  }
+
+  const fetchSymbolHistory = async (symbol: string) => {
+    setLoadingHistory(true)
+    setShowHistoryModal(true)
+    try {
+      const response = await fetch(`/ai/exchange/trade-history/${symbol}?user_id=${userId}`)
+      if (response.ok) {
+        const result = await response.json()
+        if (result.success) {
+          setSelectedSymbolHistory(result.data)
+        }
+      }
+    } catch (error) {
+      console.error('Failed to fetch symbol history:', error)
+    } finally {
+      setLoadingHistory(false)
     }
   }
 
@@ -860,7 +911,12 @@ export default function DashboardPage() {
                       const finalPnlPercent = apiPnl !== 0 && marginUSDT > 0 ? (apiPnl / marginUSDT) * 100 : pnlPercent * leverage
                       
                       return (
-                        <tr key={i} className="border-b border-white/5 hover:bg-white/[0.02]">
+                        <tr 
+                          key={i} 
+                          className="border-b border-white/5 hover:bg-white/[0.02] cursor-pointer transition-colors"
+                          onClick={() => fetchSymbolHistory(pos.symbol)}
+                          title="Click to view trade history"
+                        >
                           <td className="px-3 py-2">
                             <div className="flex items-center gap-1.5">
                               <span className="font-medium text-white text-sm">{pos.symbol.replace('USDT', '')}</span>
@@ -1307,6 +1363,150 @@ export default function DashboardPage() {
           </div>
         </div>
       </main>
+
+      {/* Trade History Modal */}
+      {showHistoryModal && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-2xl max-h-[80vh] overflow-hidden"
+          >
+            {/* Modal Header */}
+            <div className="p-4 border-b border-slate-700 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <BarChart3 className="w-5 h-5 text-cyan-400" />
+                <h3 className="text-lg font-semibold text-white">
+                  {selectedSymbolHistory?.symbol.replace('USDT', '')}/USDT Trade History
+                </h3>
+              </div>
+              <button
+                onClick={() => {
+                  setShowHistoryModal(false)
+                  setSelectedSymbolHistory(null)
+                }}
+                className="p-2 hover:bg-slate-800 rounded-lg transition-colors"
+              >
+                <XCircle className="w-5 h-5 text-gray-400" />
+              </button>
+            </div>
+
+            {/* Modal Content */}
+            <div className="p-4 overflow-y-auto max-h-[calc(80vh-80px)]">
+              {loadingHistory ? (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 className="w-8 h-8 text-cyan-400 animate-spin" />
+                </div>
+              ) : selectedSymbolHistory ? (
+                <>
+                  {/* Stats Summary */}
+                  <div className="grid grid-cols-4 gap-3 mb-6">
+                    <div className="bg-slate-800/50 rounded-xl p-3 text-center">
+                      <div className="text-2xl font-bold text-white">{selectedSymbolHistory.stats.totalTrades}</div>
+                      <div className="text-xs text-gray-400">Total Trades</div>
+                    </div>
+                    <div className="bg-slate-800/50 rounded-xl p-3 text-center">
+                      <div className={`text-2xl font-bold ${selectedSymbolHistory.stats.totalPnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                        {selectedSymbolHistory.stats.totalPnl >= 0 ? '+' : ''}€{(selectedSymbolHistory.stats.totalPnl * USDT_TO_EUR).toFixed(2)}
+                      </div>
+                      <div className="text-xs text-gray-400">Total P&L</div>
+                    </div>
+                    <div className="bg-slate-800/50 rounded-xl p-3 text-center">
+                      <div className="text-2xl font-bold text-emerald-400">{selectedSymbolHistory.stats.wins}</div>
+                      <div className="text-xs text-gray-400">Wins</div>
+                    </div>
+                    <div className="bg-slate-800/50 rounded-xl p-3 text-center">
+                      <div className="text-2xl font-bold text-red-400">{selectedSymbolHistory.stats.losses}</div>
+                      <div className="text-xs text-gray-400">Losses</div>
+                    </div>
+                  </div>
+
+                  {/* Trade Events List */}
+                  <div className="space-y-2">
+                    <h4 className="text-sm font-medium text-gray-400 mb-3">Recent Activity</h4>
+                    {selectedSymbolHistory.history.length === 0 ? (
+                      <div className="text-center py-8 text-gray-500">
+                        No trade history yet for this symbol
+                      </div>
+                    ) : (
+                      selectedSymbolHistory.history.map((event, idx) => (
+                        <div 
+                          key={idx}
+                          className={`p-3 rounded-lg border ${
+                            event.action === 'opened' 
+                              ? 'bg-blue-500/10 border-blue-500/30' 
+                              : event.pnl_percent && event.pnl_percent >= 0
+                                ? 'bg-emerald-500/10 border-emerald-500/30'
+                                : 'bg-red-500/10 border-red-500/30'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <span className={`px-2 py-0.5 rounded text-xs font-bold ${
+                                event.action === 'opened' ? 'bg-blue-500/20 text-blue-400' :
+                                event.pnl_percent && event.pnl_percent >= 0 ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'
+                              }`}>
+                                {event.action.toUpperCase()}
+                              </span>
+                              <span className="text-white font-medium">{event.side}</span>
+                              {event.is_spot && (
+                                <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 text-[10px]">SPOT</span>
+                              )}
+                            </div>
+                            <span className="text-xs text-gray-400">
+                              {new Date(event.timestamp).toLocaleString()}
+                            </span>
+                          </div>
+                          <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
+                            {event.entry_price && (
+                              <div>
+                                <span className="text-gray-500">Entry:</span>
+                                <span className="text-white ml-1">${event.entry_price.toFixed(4)}</span>
+                              </div>
+                            )}
+                            {event.position_value && (
+                              <div>
+                                <span className="text-gray-500">Value:</span>
+                                <span className="text-white ml-1">${event.position_value.toFixed(0)}</span>
+                              </div>
+                            )}
+                            {event.edge_score && (
+                              <div>
+                                <span className="text-gray-500">Edge:</span>
+                                <span className="text-cyan-400 ml-1">{event.edge_score}</span>
+                              </div>
+                            )}
+                          </div>
+                          {event.action === 'closed' && event.pnl_percent !== null && (
+                            <div className="mt-2 flex items-center gap-4 text-sm">
+                              <span className={`font-bold ${event.pnl_percent >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                                {event.pnl_percent >= 0 ? '+' : ''}{event.pnl_percent.toFixed(2)}%
+                              </span>
+                              {event.pnl_value !== null && (
+                                <span className={event.pnl_value >= 0 ? 'text-emerald-400' : 'text-red-400'}>
+                                  {event.pnl_value >= 0 ? '+' : ''}€{(event.pnl_value * USDT_TO_EUR).toFixed(2)}
+                                </span>
+                              )}
+                              <span className="text-gray-500 text-xs">{event.reason}</span>
+                            </div>
+                          )}
+                          {event.action === 'opened' && (
+                            <div className="mt-1 text-xs text-gray-500">{event.reason}</div>
+                          )}
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </>
+              ) : (
+                <div className="text-center py-8 text-gray-500">
+                  Failed to load history
+                </div>
+              )}
+            </div>
+          </motion.div>
+        </div>
+      )}
     </div>
   )
 }

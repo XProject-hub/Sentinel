@@ -1592,6 +1592,71 @@ async def get_positions(user_id: str = "default"):
     }
 
 
+@router.get("/trade-history/{symbol}")
+async def get_trade_history(symbol: str, user_id: str = "default", limit: int = 50):
+    """Get trade history for a specific symbol
+    
+    Returns all trade events (opens and closes) for a symbol, 
+    useful for showing history when user clicks on a position.
+    """
+    try:
+        r = await get_redis()
+        
+        # Fetch per-symbol history from Redis
+        history_key = f'trade_history:{user_id}:{symbol}'
+        raw_history = await r.lrange(history_key, 0, limit - 1)
+        
+        history = []
+        for item in raw_history:
+            try:
+                data = json.loads(item.decode() if isinstance(item, bytes) else item)
+                history.append(data)
+            except Exception as e:
+                logger.warning(f"Failed to parse history item: {e}")
+        
+        # Also get completed trades for this symbol (for historical P&L)
+        completed_key = f'trades:completed:{user_id}'
+        raw_completed = await r.lrange(completed_key, 0, 99)
+        
+        completed_trades = []
+        for item in raw_completed:
+            try:
+                data = json.loads(item.decode() if isinstance(item, bytes) else item)
+                if data.get('symbol') == symbol:
+                    completed_trades.append(data)
+            except:
+                pass
+        
+        # Calculate stats for this symbol
+        total_pnl = sum(t.get('pnl', 0) for t in completed_trades)
+        total_trades = len(completed_trades)
+        wins = sum(1 for t in completed_trades if t.get('pnl', 0) > 0)
+        win_rate = (wins / total_trades * 100) if total_trades > 0 else 0
+        
+        return {
+            "success": True,
+            "data": {
+                "symbol": symbol,
+                "history": history,  # All trade events (opens/closes)
+                "completedTrades": completed_trades,  # Just closed trades
+                "stats": {
+                    "totalTrades": total_trades,
+                    "totalPnl": round(total_pnl, 2),
+                    "winRate": round(win_rate, 1),
+                    "wins": wins,
+                    "losses": total_trades - wins
+                }
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to get trade history for {symbol}: {e}")
+        return {
+            "success": False,
+            "error": str(e)
+        }
+
+
 @router.get("/klines/{symbol}")
 async def get_klines(symbol: str, interval: str = "5", limit: int = 30, user_id: str = "default"):
     """Get kline/candlestick data for sparkline charts"""

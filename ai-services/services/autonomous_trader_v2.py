@@ -5613,8 +5613,9 @@ class AutonomousTraderV2:
                         await self.redis_client.hset(f"positions:spot:{user_id}", opp.symbol, spot_position_data)
                         logger.info(f"Stored SPOT position in Redis: {opp.symbol} for {user_id}")
                 
-                # Store trade event (per user)
-                await self._store_trade_event(user_id, opp.symbol, 'opened', 0, opp.direction)
+                # Store trade event (per user) - include position for history
+                opened_position = self.active_positions[user_id].get(opp.symbol)
+                await self._store_trade_event(user_id, opp.symbol, 'opened', 0, f"{opp.direction} | Edge: {opp.edge_score:.2f}", opened_position)
                 
             else:
                 error_msg = result.get('error', result.get('message', str(result)))
@@ -6028,6 +6029,32 @@ class AutonomousTraderV2:
                 except Exception as store_error:
                     logger.error(f"CRITICAL: Failed to store completed trade {symbol}: {store_error}")
                     logger.error(f"Lost trade data: {trade_data}")
+            
+            # Store per-symbol trade history for dashboard modal
+            try:
+                symbol_history_entry = {
+                    'action': action,  # 'opened' or 'closed'
+                    'timestamp': timestamp,
+                    'side': position.side if position else None,
+                    'entry_price': position.entry_price if position else None,
+                    'size': position.size if position else None,
+                    'position_value': round(position.position_value, 2) if position else None,
+                    'leverage': position.leverage if position else 1,
+                    'trade_mode': position.trade_mode if position else None,
+                    'is_spot': getattr(position, 'is_spot', False) if position else False,
+                    'edge_score': round(position.entry_edge, 2) if position else None,
+                    'confidence': round(position.entry_confidence, 0) if position else None,
+                    'reason': reason,
+                    'pnl_percent': round(pnl, 2) if action == 'closed' else None,
+                    'pnl_value': round(pnl_value, 2) if action == 'closed' else None,
+                }
+                # Store per user + per symbol
+                history_key = f'trade_history:{user_id}:{symbol}'
+                await self.redis_client.lpush(history_key, json.dumps(symbol_history_entry))
+                await self.redis_client.ltrim(history_key, 0, 99)  # Keep last 100 events per symbol
+                logger.debug(f"Symbol history stored: {symbol} {action} -> {history_key}")
+            except Exception as hist_err:
+                logger.warning(f"Failed to store symbol history for {symbol}: {hist_err}")
             
             # V3: Record to data collector for ML training
             if position:
