@@ -205,6 +205,11 @@ export default function DashboardPage() {
   const [showHistoryModal, setShowHistoryModal] = useState(false)
   const [selectedSymbolHistory, setSelectedSymbolHistory] = useState<SymbolHistoryData | null>(null)
   const [loadingHistory, setLoadingHistory] = useState(false)
+  const [showChartModal, setShowChartModal] = useState(false)
+  const [chartModalSymbol, setChartModalSymbol] = useState<string>('')
+  const [chartModalData, setChartModalData] = useState<{time: number, open: number, high: number, low: number, close: number, volume: number}[]>([])
+  const [loadingChart, setLoadingChart] = useState(false)
+  const [chartModalTicker, setChartModalTicker] = useState<{price: number, change24h: number, high24h: number, low24h: number, volume24h: number} | null>(null)
   
   const consoleRef = useRef<HTMLDivElement>(null)
 
@@ -525,6 +530,47 @@ export default function DashboardPage() {
       alert('Failed to close all positions. Check console for details.')
     } finally {
       setIsSellingAll(false)
+    }
+  }
+
+  const openChartModal = async (newsTitle: string) => {
+    // Extract symbol from news title (e.g., "BTR surges +87.9% in 24h" -> "BTRUSDT")
+    const match = newsTitle.match(/^(\w+)\s+(surges|drops|pumps|dumps|rises|falls)/i)
+    if (!match) return
+    
+    const symbol = match[1].toUpperCase() + 'USDT'
+    setChartModalSymbol(symbol)
+    setShowChartModal(true)
+    setLoadingChart(true)
+    
+    try {
+      // Fetch kline data for chart (1h candles, last 100)
+      const klinesRes = await fetch(`/ai/exchange/klines/${symbol}?interval=60&limit=100&user_id=${userId}`)
+      if (klinesRes.ok) {
+        const klinesData = await klinesRes.json()
+        if (klinesData.success && klinesData.data?.prices) {
+          setChartModalData(klinesData.data.prices)
+        }
+      }
+      
+      // Fetch ticker data for current price info
+      const tickerRes = await fetch(`/ai/exchange/ticker/${symbol}?user_id=${userId}`)
+      if (tickerRes.ok) {
+        const tickerData = await tickerRes.json()
+        if (tickerData.success && tickerData.data) {
+          setChartModalTicker({
+            price: parseFloat(tickerData.data.lastPrice || '0'),
+            change24h: parseFloat(tickerData.data.price24hPcnt || '0') * 100,
+            high24h: parseFloat(tickerData.data.highPrice24h || '0'),
+            low24h: parseFloat(tickerData.data.lowPrice24h || '0'),
+            volume24h: parseFloat(tickerData.data.volume24h || '0')
+          })
+        }
+      }
+    } catch (error) {
+      console.error('Failed to fetch chart data:', error)
+    } finally {
+      setLoadingChart(false)
     }
   }
 
@@ -1100,7 +1146,12 @@ export default function DashboardPage() {
                   <div className="p-3 text-gray-600 text-[10px] text-center">Loading news...</div>
                 ) : (
                   news.map((item, i) => (
-                    <div key={i} className="px-2 py-1.5 hover:bg-white/[0.02]">
+                    <div 
+                      key={i} 
+                      className="px-2 py-1.5 hover:bg-white/[0.02] cursor-pointer transition-colors"
+                      onClick={() => openChartModal(item.title)}
+                      title="Click to view chart"
+                    >
                       <div className="flex items-start gap-1.5">
                         <span className={`text-[8px] px-1 py-0.5 rounded flex-shrink-0 mt-0.5 ${
                           item.sentiment === 'bullish' ? 'bg-emerald-500/20 text-emerald-400' :
@@ -1111,7 +1162,7 @@ export default function DashboardPage() {
                         </span>
                         <div>
                           <p className="text-[10px] text-gray-300 leading-tight">{item.title}</p>
-                          <p className="text-[8px] text-gray-600">{item.source}</p>
+                          <p className="text-[8px] text-gray-600">{item.source} • Click for chart</p>
                         </div>
                       </div>
                     </div>
@@ -1502,6 +1553,145 @@ export default function DashboardPage() {
                 <div className="text-center py-8 text-gray-500">
                   Failed to load history
                 </div>
+              )}
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {/* Chart Modal - Opens when clicking on Market News */}
+      {showChartModal && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-4xl max-h-[85vh] overflow-hidden"
+          >
+            {/* Modal Header */}
+            <div className="p-4 border-b border-slate-700 flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-2">
+                  <LineChart className="w-5 h-5 text-cyan-400" />
+                  <h3 className="text-xl font-bold text-white">
+                    {chartModalSymbol.replace('USDT', '')}<span className="text-gray-500 text-sm">/USDT</span>
+                  </h3>
+                </div>
+                {chartModalTicker && (
+                  <div className="flex items-center gap-4">
+                    <span className="text-2xl font-bold text-white">
+                      ${chartModalTicker.price.toFixed(chartModalTicker.price < 1 ? 6 : 2)}
+                    </span>
+                    <span className={`px-2 py-1 rounded text-sm font-bold ${
+                      chartModalTicker.change24h >= 0 ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'
+                    }`}>
+                      {chartModalTicker.change24h >= 0 ? '+' : ''}{chartModalTicker.change24h.toFixed(2)}%
+                    </span>
+                  </div>
+                )}
+              </div>
+              <button
+                onClick={() => {
+                  setShowChartModal(false)
+                  setChartModalSymbol('')
+                  setChartModalData([])
+                  setChartModalTicker(null)
+                }}
+                className="p-2 hover:bg-slate-800 rounded-lg transition-colors"
+              >
+                <XCircle className="w-5 h-5 text-gray-400" />
+              </button>
+            </div>
+
+            {/* Modal Content */}
+            <div className="p-4">
+              {loadingChart ? (
+                <div className="flex items-center justify-center py-24">
+                  <Loader2 className="w-10 h-10 text-cyan-400 animate-spin" />
+                </div>
+              ) : (
+                <>
+                  {/* 24h Stats */}
+                  {chartModalTicker && (
+                    <div className="grid grid-cols-4 gap-3 mb-4">
+                      <div className="bg-slate-800/50 rounded-xl p-3 text-center">
+                        <div className="text-lg font-bold text-white">${chartModalTicker.high24h.toFixed(chartModalTicker.high24h < 1 ? 6 : 2)}</div>
+                        <div className="text-xs text-gray-400">24h High</div>
+                      </div>
+                      <div className="bg-slate-800/50 rounded-xl p-3 text-center">
+                        <div className="text-lg font-bold text-white">${chartModalTicker.low24h.toFixed(chartModalTicker.low24h < 1 ? 6 : 2)}</div>
+                        <div className="text-xs text-gray-400">24h Low</div>
+                      </div>
+                      <div className="bg-slate-800/50 rounded-xl p-3 text-center">
+                        <div className={`text-lg font-bold ${chartModalTicker.change24h >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                          {chartModalTicker.change24h >= 0 ? '+' : ''}{chartModalTicker.change24h.toFixed(2)}%
+                        </div>
+                        <div className="text-xs text-gray-400">24h Change</div>
+                      </div>
+                      <div className="bg-slate-800/50 rounded-xl p-3 text-center">
+                        <div className="text-lg font-bold text-white">${(chartModalTicker.volume24h / 1000000).toFixed(2)}M</div>
+                        <div className="text-xs text-gray-400">24h Volume</div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Price Chart */}
+                  <div className="bg-slate-800/30 rounded-xl p-4" style={{ height: '400px' }}>
+                    {chartModalData.length > 0 ? (
+                      <ResponsiveContainer width="100%" height="100%">
+                        <AreaChart data={chartModalData}>
+                          <defs>
+                            <linearGradient id="chartGradient" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="5%" stopColor={chartModalTicker && chartModalTicker.change24h >= 0 ? "#10b981" : "#ef4444"} stopOpacity={0.3}/>
+                              <stop offset="95%" stopColor={chartModalTicker && chartModalTicker.change24h >= 0 ? "#10b981" : "#ef4444"} stopOpacity={0}/>
+                            </linearGradient>
+                          </defs>
+                          <XAxis 
+                            dataKey="time" 
+                            tickFormatter={(t) => new Date(t).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                            stroke="#475569"
+                            fontSize={10}
+                          />
+                          <YAxis 
+                            domain={['auto', 'auto']}
+                            tickFormatter={(v) => v < 1 ? v.toFixed(4) : v.toFixed(2)}
+                            stroke="#475569"
+                            fontSize={10}
+                            width={60}
+                          />
+                          <Tooltip
+                            contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px' }}
+                            labelFormatter={(t) => new Date(t).toLocaleString()}
+                            formatter={(value: number) => ['$' + value.toFixed(value < 1 ? 6 : 4), 'Price']}
+                          />
+                          <Area
+                            type="monotone"
+                            dataKey="close"
+                            stroke={chartModalTicker && chartModalTicker.change24h >= 0 ? "#10b981" : "#ef4444"}
+                            strokeWidth={2}
+                            fill="url(#chartGradient)"
+                          />
+                        </AreaChart>
+                      </ResponsiveContainer>
+                    ) : (
+                      <div className="flex items-center justify-center h-full text-gray-500">
+                        No chart data available
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Trade Button */}
+                  <div className="mt-4 flex justify-center">
+                    <a
+                      href={`https://www.bybit.com/trade/usdt/${chartModalSymbol}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-6 py-3 bg-gradient-to-r from-cyan-500 to-blue-600 text-white rounded-xl font-semibold hover:from-cyan-400 hover:to-blue-500 transition-all flex items-center gap-2"
+                    >
+                      Trade on Bybit
+                      <TrendingUp className="w-4 h-4" />
+                    </a>
+                  </div>
+                </>
               )}
             </div>
           </motion.div>
