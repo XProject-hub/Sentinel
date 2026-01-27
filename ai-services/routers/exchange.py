@@ -2877,11 +2877,35 @@ async def close_single_position(symbol: str, user_id: str = "default"):
             # This is a SPOT position - need to SELL the coins
             try:
                 spot_info = json.loads(spot_data.decode() if isinstance(spot_data, bytes) else spot_data)
-                size = float(spot_info.get('size', 0))
+                size_from_redis = float(spot_info.get('size', 0))
                 entry_price = float(spot_info.get('entry_price', 0))
                 
-                if size <= 0:
+                if size_from_redis <= 0:
                     return {"success": False, "error": f"Invalid SPOT position size for {symbol}"}
+                
+                # Get ACTUAL wallet balance for this coin (may differ from Redis)
+                base_coin = symbol.replace('USDT', '')
+                actual_balance = 0
+                try:
+                    wallet_result = await client.get_wallet_balance()
+                    if wallet_result.get('success'):
+                        for coin_data in wallet_result.get('data', []):
+                            if coin_data.get('coin') == base_coin:
+                                actual_balance = float(coin_data.get('free', 0) or coin_data.get('walletBalance', 0))
+                                break
+                except Exception as e:
+                    logger.warning(f"Could not get wallet balance: {e}")
+                
+                # Use actual balance if available, otherwise fall back to Redis
+                if actual_balance > 0:
+                    size = actual_balance
+                    logger.info(f"Using actual wallet balance: {size} (Redis had: {size_from_redis})")
+                else:
+                    size = size_from_redis
+                    logger.warning(f"Using Redis size: {size} (wallet check failed)")
+                
+                if size <= 0:
+                    return {"success": False, "error": f"No {base_coin} balance found in wallet"}
                 
                 logger.info(f"CLOSING SPOT POSITION: {symbol} | Size: {size} | Entry: ${entry_price}")
                 
@@ -2896,11 +2920,11 @@ async def close_single_position(symbol: str, user_id: str = "default"):
                 except:
                     pass
                 
-                # Calculate P&L
+                # Calculate P&L based on actual size being sold
                 pnl_percent = ((current_price - entry_price) / entry_price * 100) if entry_price > 0 else 0
                 pnl_value = size * (current_price - entry_price)
                 
-                # Place SPOT sell order
+                # Place SPOT sell order with actual balance
                 order_result = await client.place_spot_order(
                     symbol=symbol,
                     side='Sell',
