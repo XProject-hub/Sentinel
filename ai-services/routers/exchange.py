@@ -2858,7 +2858,7 @@ async def sell_all_positions():
 
 @router.post("/close-position/{symbol}")
 async def close_single_position(symbol: str, user_id: str = "default"):
-    """Close a specific position by symbol"""
+    """Close a specific position by symbol (FUTURES or SPOT)"""
     
     # Get user-specific client - NO FALLBACK TO OTHER USERS!
     client = await get_user_client(user_id, "bybit")
@@ -2868,7 +2868,76 @@ async def close_single_position(symbol: str, user_id: str = "default"):
         return {"success": False, "error": "No exchange connected for this user"}
     
     try:
-        # Get current positions
+        r = await get_redis()
+        
+        # === FIRST: Check if it's a SPOT position (stored in Redis) ===
+        spot_data = await r.hget(f"positions:spot:{user_id}", symbol)
+        
+        if spot_data:
+            # This is a SPOT position - need to SELL the coins
+            try:
+                spot_info = json.loads(spot_data.decode() if isinstance(spot_data, bytes) else spot_data)
+                size = float(spot_info.get('size', 0))
+                entry_price = float(spot_info.get('entry_price', 0))
+                
+                if size <= 0:
+                    return {"success": False, "error": f"Invalid SPOT position size for {symbol}"}
+                
+                logger.info(f"CLOSING SPOT POSITION: {symbol} | Size: {size} | Entry: ${entry_price}")
+                
+                # Get current price for P&L calculation
+                current_price = entry_price
+                try:
+                    ticker_result = await client.get_tickers(symbol=symbol, category="spot")
+                    if ticker_result.get("success"):
+                        ticker_list = ticker_result.get("data", {}).get("list", [])
+                        if ticker_list:
+                            current_price = float(ticker_list[0].get("lastPrice", entry_price))
+                except:
+                    pass
+                
+                # Calculate P&L
+                pnl_percent = ((current_price - entry_price) / entry_price * 100) if entry_price > 0 else 0
+                pnl_value = size * (current_price - entry_price)
+                
+                # Place SPOT sell order
+                order_result = await client.place_spot_order(
+                    symbol=symbol,
+                    side='Sell',
+                    order_type='Market',
+                    qty=str(size)
+                )
+                
+                if order_result.get('success'):
+                    logger.info(f"SPOT CLOSE SUCCESS: {symbol} sold {size} coins | PnL: {pnl_percent:+.2f}% (${pnl_value:+.2f})")
+                    
+                    # Remove from Redis tracking
+                    await r.hdel(f"positions:spot:{user_id}", symbol)
+                    await r.hdel(f"positions:trade_mode:{user_id}", symbol)
+                    await r.delete(f'peak:{user_id}:{symbol}')
+                    
+                    return {
+                        "success": True,
+                        "data": {
+                            "symbol": symbol,
+                            "side": "Sell",
+                            "size": size,
+                            "pnl": pnl_value,
+                            "pnl_percent": pnl_percent,
+                            "type": "SPOT",
+                            "message": f"SPOT position closed: {pnl_percent:+.2f}%"
+                        }
+                    }
+                else:
+                    error_msg = order_result.get('error', 'Failed to sell SPOT coins')
+                    logger.error(f"SPOT CLOSE FAILED: {symbol} - {error_msg}")
+                    return {"success": False, "error": error_msg}
+                    
+            except Exception as spot_err:
+                logger.error(f"Error closing SPOT position {symbol}: {spot_err}")
+                return {"success": False, "error": f"SPOT close error: {str(spot_err)}"}
+        
+        # === SECOND: Check FUTURES positions ===
         positions_result = await client.get_positions()
         
         if not positions_result.get('success'):
@@ -2884,7 +2953,7 @@ async def close_single_position(symbol: str, user_id: str = "default"):
                 break
         
         if not target_position:
-            return {"success": False, "error": f"No open position found for {symbol}"}
+            return {"success": False, "error": f"No open position found for {symbol} (checked both SPOT and FUTURES)"}
         
         size = float(target_position.get('size', 0))
         side = target_position.get('side')
@@ -2904,10 +2973,9 @@ async def close_single_position(symbol: str, user_id: str = "default"):
         if order_result.get('success'):
             logger.info(f"MANUAL CLOSE: {symbol} {side} size={size} PnL=€{unrealized_pnl:.2f}")
             
-            # Clear peak tracking for this symbol
-            r = await redis.from_url(settings.REDIS_URL)
-            await r.delete(f'peak:default:{symbol}')
-            await r.close()
+            # Clear tracking data
+            await r.delete(f'peak:{user_id}:{symbol}')
+            await r.hdel(f"positions:trade_mode:{user_id}", symbol)
             
             return {
                 "success": True,
@@ -2916,6 +2984,7 @@ async def close_single_position(symbol: str, user_id: str = "default"):
                     "side": side,
                     "size": size,
                     "pnl": unrealized_pnl,
+                    "type": "FUTURES",
                     "message": f"Position closed successfully"
                 }
             }
