@@ -2940,6 +2940,23 @@ async def close_single_position(symbol: str, user_id: str = "default"):
                         await r.lpush(f'trade_history:{user_id}:{symbol}', json.dumps(history_entry))
                         await r.ltrim(f'trade_history:{user_id}:{symbol}', 0, 99)
                         
+                        # === UPDATE TRADER STATS (Total P&L, Win Rate, Daily P&L) ===
+                        stats_key = f'trading:stats:{user_id}'
+                        stats_raw = await r.get(stats_key)
+                        if stats_raw:
+                            stats = json.loads(stats_raw)
+                        else:
+                            stats = {'total_trades': 0, 'winning_trades': 0, 'total_pnl': 0, 'daily_pnl': 0}
+                        
+                        stats['total_trades'] = int(stats.get('total_trades', 0)) + 1
+                        stats['total_pnl'] = float(stats.get('total_pnl', 0)) + pnl_value
+                        stats['daily_pnl'] = float(stats.get('daily_pnl', 0)) + pnl_value
+                        if pnl_value > 0:
+                            stats['winning_trades'] = int(stats.get('winning_trades', 0)) + 1
+                        
+                        await r.set(stats_key, json.dumps(stats))
+                        logger.info(f"Updated stats: total_pnl={stats['total_pnl']:.2f}, daily_pnl={stats['daily_pnl']:.2f}")
+                        
                         logger.info(f"Manual SPOT close recorded: {symbol} {pnl_percent:+.2f}% -> trades:completed:{user_id}")
                     except Exception as store_err:
                         logger.warning(f"Failed to store manual close trade: {store_err}")
@@ -3041,6 +3058,23 @@ async def close_single_position(symbol: str, user_id: str = "default"):
                 }
                 await r.lpush(f'trade_history:{user_id}:{symbol}', json.dumps(history_entry))
                 await r.ltrim(f'trade_history:{user_id}:{symbol}', 0, 99)
+                
+                # === UPDATE TRADER STATS (Total P&L, Win Rate, Daily P&L) ===
+                stats_key = f'trading:stats:{user_id}'
+                stats_raw = await r.get(stats_key)
+                if stats_raw:
+                    stats = json.loads(stats_raw)
+                else:
+                    stats = {'total_trades': 0, 'winning_trades': 0, 'total_pnl': 0, 'daily_pnl': 0}
+                
+                stats['total_trades'] = int(stats.get('total_trades', 0)) + 1
+                stats['total_pnl'] = float(stats.get('total_pnl', 0)) + unrealized_pnl
+                stats['daily_pnl'] = float(stats.get('daily_pnl', 0)) + unrealized_pnl
+                if unrealized_pnl > 0:
+                    stats['winning_trades'] = int(stats.get('winning_trades', 0)) + 1
+                
+                await r.set(stats_key, json.dumps(stats))
+                logger.info(f"Updated stats: total_pnl={stats['total_pnl']:.2f}, daily_pnl={stats['daily_pnl']:.2f}")
                 
                 logger.info(f"Manual FUTURES close recorded: {symbol} {pnl_percent:+.2f}% -> trades:completed:{user_id}")
             except Exception as store_err:
