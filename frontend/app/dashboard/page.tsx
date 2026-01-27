@@ -1069,7 +1069,10 @@ export default function DashboardPage() {
                           </td>
                           <td className="px-3 py-2 text-center">
                             <button
-                              onClick={() => closePosition(pos.symbol)}
+                              onClick={(e) => {
+                                e.stopPropagation()  // Prevent opening history modal
+                                closePosition(pos.symbol)
+                              }}
                               disabled={closingPositions.has(pos.symbol)}
                               className={`px-2 py-1 rounded text-[10px] font-medium border transition-colors ${
                                 closingPositions.has(pos.symbol)
