@@ -2887,11 +2887,17 @@ async def close_single_position(symbol: str, user_id: str = "default"):
                 base_coin = symbol.replace('USDT', '')
                 actual_balance = 0
                 try:
-                    wallet_result = await client.get_wallet_balance()
+                    wallet_result = await client.get_wallet_balance(account_type="UNIFIED")
                     if wallet_result.get('success'):
-                        for coin_data in wallet_result.get('data', []):
-                            if coin_data.get('coin') == base_coin:
-                                actual_balance = float(coin_data.get('free', 0) or coin_data.get('walletBalance', 0))
+                        data = wallet_result.get('data', {})
+                        # Bybit format: data.list[].coin[]
+                        for account in data.get('list', []):
+                            for coin_data in account.get('coin', []):
+                                if coin_data.get('coin') == base_coin:
+                                    actual_balance = float(coin_data.get('walletBalance', 0))
+                                    logger.info(f"Found {base_coin} wallet balance: {actual_balance}")
+                                    break
+                            if actual_balance > 0:
                                 break
                 except Exception as e:
                     logger.warning(f"Could not get wallet balance: {e}")
