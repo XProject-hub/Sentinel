@@ -2911,6 +2911,39 @@ async def close_single_position(symbol: str, user_id: str = "default"):
                 if order_result.get('success'):
                     logger.info(f"SPOT CLOSE SUCCESS: {symbol} sold {size} coins | PnL: {pnl_percent:+.2f}% (${pnl_value:+.2f})")
                     
+                    # === STORE IN RECENT TRADES (so manual close counts!) ===
+                    try:
+                        trade_data = {
+                            'symbol': symbol,
+                            'pnl': round(pnl_value, 2),
+                            'pnl_percent': round(pnl_percent, 2),
+                            'close_reason': 'Manual close (SPOT)',
+                            'closed_time': datetime.utcnow().isoformat()
+                        }
+                        await r.lpush(f'trades:completed:{user_id}', json.dumps(trade_data))
+                        await r.ltrim(f'trades:completed:{user_id}', 0, 49)
+                        
+                        # Also store in symbol history
+                        history_entry = {
+                            'action': 'closed',
+                            'timestamp': datetime.utcnow().isoformat(),
+                            'side': 'Sell',
+                            'entry_price': entry_price,
+                            'size': size,
+                            'position_value': size * entry_price,
+                            'leverage': 1,
+                            'is_spot': True,
+                            'reason': 'Manual close',
+                            'pnl_percent': round(pnl_percent, 2),
+                            'pnl_value': round(pnl_value, 2),
+                        }
+                        await r.lpush(f'trade_history:{user_id}:{symbol}', json.dumps(history_entry))
+                        await r.ltrim(f'trade_history:{user_id}:{symbol}', 0, 99)
+                        
+                        logger.info(f"Manual SPOT close recorded: {symbol} {pnl_percent:+.2f}% -> trades:completed:{user_id}")
+                    except Exception as store_err:
+                        logger.warning(f"Failed to store manual close trade: {store_err}")
+                    
                     # Remove from Redis tracking
                     await r.hdel(f"positions:spot:{user_id}", symbol)
                     await r.hdel(f"positions:trade_mode:{user_id}", symbol)
@@ -2972,6 +3005,46 @@ async def close_single_position(symbol: str, user_id: str = "default"):
         
         if order_result.get('success'):
             logger.info(f"MANUAL CLOSE: {symbol} {side} size={size} PnL=€{unrealized_pnl:.2f}")
+            
+            # === STORE IN RECENT TRADES (so manual close counts!) ===
+            try:
+                # Get entry price from position for P&L percent calc
+                entry_price = float(target_position.get('avgPrice', 0)) or float(target_position.get('entryPrice', 0))
+                mark_price = float(target_position.get('markPrice', entry_price))
+                pnl_percent = ((mark_price - entry_price) / entry_price * 100) if entry_price > 0 else 0
+                if side == 'Sell':  # Short position
+                    pnl_percent = -pnl_percent
+                
+                trade_data = {
+                    'symbol': symbol,
+                    'pnl': round(unrealized_pnl, 2),
+                    'pnl_percent': round(pnl_percent, 2),
+                    'close_reason': 'Manual close (FUTURES)',
+                    'closed_time': datetime.utcnow().isoformat()
+                }
+                await r.lpush(f'trades:completed:{user_id}', json.dumps(trade_data))
+                await r.ltrim(f'trades:completed:{user_id}', 0, 49)
+                
+                # Also store in symbol history
+                history_entry = {
+                    'action': 'closed',
+                    'timestamp': datetime.utcnow().isoformat(),
+                    'side': close_side,
+                    'entry_price': entry_price,
+                    'size': size,
+                    'position_value': float(target_position.get('positionValue', size * entry_price)),
+                    'leverage': float(target_position.get('leverage', 1)),
+                    'is_spot': False,
+                    'reason': 'Manual close',
+                    'pnl_percent': round(pnl_percent, 2),
+                    'pnl_value': round(unrealized_pnl, 2),
+                }
+                await r.lpush(f'trade_history:{user_id}:{symbol}', json.dumps(history_entry))
+                await r.ltrim(f'trade_history:{user_id}:{symbol}', 0, 99)
+                
+                logger.info(f"Manual FUTURES close recorded: {symbol} {pnl_percent:+.2f}% -> trades:completed:{user_id}")
+            except Exception as store_err:
+                logger.warning(f"Failed to store manual close trade: {store_err}")
             
             # Clear tracking data
             await r.delete(f'peak:{user_id}:{symbol}')
