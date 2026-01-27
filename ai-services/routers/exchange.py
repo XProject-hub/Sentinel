@@ -2941,7 +2941,7 @@ async def close_single_position(symbol: str, user_id: str = "default"):
                         await r.ltrim(f'trade_history:{user_id}:{symbol}', 0, 99)
                         
                         # === UPDATE TRADER STATS (Total P&L, Win Rate, Daily P&L) ===
-                        stats_key = f'trading:stats:{user_id}'
+                        stats_key = f'trader:stats:{user_id}'
                         stats_raw = await r.get(stats_key)
                         if stats_raw:
                             stats = json.loads(stats_raw)
@@ -3060,7 +3060,7 @@ async def close_single_position(symbol: str, user_id: str = "default"):
                 await r.ltrim(f'trade_history:{user_id}:{symbol}', 0, 99)
                 
                 # === UPDATE TRADER STATS (Total P&L, Win Rate, Daily P&L) ===
-                stats_key = f'trading:stats:{user_id}'
+                stats_key = f'trader:stats:{user_id}'
                 stats_raw = await r.get(stats_key)
                 if stats_raw:
                     stats = json.loads(stats_raw)
