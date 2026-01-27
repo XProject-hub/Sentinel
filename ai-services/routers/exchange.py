@@ -2930,12 +2930,39 @@ async def close_single_position(symbol: str, user_id: str = "default"):
                 pnl_percent = ((current_price - entry_price) / entry_price * 100) if entry_price > 0 else 0
                 pnl_value = size * (current_price - entry_price)
                 
-                # Place SPOT sell order with actual balance
+                # Round quantity to appropriate decimals (Bybit requires specific precision)
+                # Try to get instrument info for correct precision, fallback to integer
+                qty_decimals = 0  # Default to integers (safest)
+                try:
+                    instruments = await client.get_instruments(category="spot", symbol=symbol)
+                    if instruments.get('success'):
+                        inst_list = instruments.get('data', {}).get('list', [])
+                        if inst_list:
+                            lot_size = inst_list[0].get('lotSizeFilter', {})
+                            base_precision = lot_size.get('basePrecision', '1')
+                            # Count decimals in basePrecision (e.g., "0.01" = 2 decimals)
+                            if '.' in base_precision:
+                                qty_decimals = len(base_precision.split('.')[1])
+                            logger.info(f"SPOT {symbol}: basePrecision={base_precision}, using {qty_decimals} decimals")
+                except Exception as e:
+                    logger.warning(f"Could not get instrument info for {symbol}: {e}")
+                
+                # Round DOWN to avoid insufficient balance
+                import math
+                if qty_decimals == 0:
+                    rounded_size = math.floor(size)
+                else:
+                    factor = 10 ** qty_decimals
+                    rounded_size = math.floor(size * factor) / factor
+                
+                logger.info(f"SPOT CLOSE: {symbol} | Raw size: {size} -> Rounded: {rounded_size} ({qty_decimals} decimals)")
+                
+                # Place SPOT sell order with rounded quantity
                 order_result = await client.place_spot_order(
                     symbol=symbol,
                     side='Sell',
                     order_type='Market',
-                    qty=str(size)
+                    qty=str(rounded_size)
                 )
                 
                 if order_result.get('success'):
