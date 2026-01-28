@@ -47,6 +47,7 @@ from services.capital_allocator import capital_allocator, MarketOpportunity
 from services.whale_tracker import whale_tracker
 from services.trade_mode_selector import trade_mode_selector, TradeMode, TradeModeDecision
 from services.open_interest_tracker import get_oi_tracker, OISignal
+from services.liquidation_heatmap import get_liquidation_heatmap
 
 # V4 HuggingFace Safety Models (GATES, not signals!)
 try:
@@ -4812,6 +4813,53 @@ class AutonomousTraderV2:
                     
         except Exception as e:
             logger.debug(f"OI analysis skipped for {opp.symbol}: {e}")
+        
+        # 2.45 LIQUIDATION HEATMAP ANALYSIS - Avoid liquidation magnets!
+        try:
+            liq_heatmap = await get_liquidation_heatmap()
+            liq_data = await liq_heatmap.fetch_liquidation_data(opp.symbol, client)
+            
+            if liq_data and 'heatmap' in liq_data:
+                summary = liq_data['heatmap'].get('summary', {})
+                current_price = liq_data.get('current_price', 0)
+                liq_imbalance = summary.get('liq_imbalance', 'balanced')
+                risk_assessment = summary.get('risk_assessment', 'moderate')
+                
+                total_long_liqs = summary.get('total_long_liquidations_usd', 0)
+                total_short_liqs = summary.get('total_short_liquidations_usd', 0)
+                
+                # Check for extreme risk nearby
+                if risk_assessment == 'extreme_risk_nearby':
+                    logger.warning(f"LIQ WARNING: {opp.symbol} has extreme liquidation cluster nearby!")
+                    opp.confidence = max(0, opp.confidence - 10)  # Reduce confidence
+                
+                # For LONG entries: Check if more longs are at risk below
+                if opp.direction == 'long' and liq_imbalance == 'more_longs':
+                    # Many longs below = downside magnet, risky for new longs
+                    if total_long_liqs > total_short_liqs * 1.5:
+                        logger.info(f"LIQ CAUTION: {opp.symbol} LONG - ${total_long_liqs/1e6:.1f}M longs below (liquidation magnet)")
+                        opp.confidence = max(0, opp.confidence - 5)
+                        
+                # For SHORT entries: Check if more shorts are at risk above
+                elif opp.direction == 'short' and liq_imbalance == 'more_shorts':
+                    # Many shorts above = upside magnet, risky for new shorts
+                    if total_short_liqs > total_long_liqs * 1.5:
+                        logger.info(f"LIQ CAUTION: {opp.symbol} SHORT - ${total_short_liqs/1e6:.1f}M shorts above (liquidation magnet)")
+                        opp.confidence = max(0, opp.confidence - 5)
+                        
+                # Favorable conditions: Enter when liquidation cascade might push our way
+                if opp.direction == 'long' and liq_imbalance == 'more_shorts':
+                    # Many shorts above = potential short squeeze
+                    logger.debug(f"LIQ FAVORABLE: {opp.symbol} LONG - short squeeze potential above")
+                    opp.confidence = min(100, opp.confidence + 5)
+                    
+                elif opp.direction == 'short' and liq_imbalance == 'more_longs':
+                    # Many longs below = potential long liquidation cascade
+                    logger.debug(f"LIQ FAVORABLE: {opp.symbol} SHORT - long liquidation cascade potential below")
+                    opp.confidence = min(100, opp.confidence + 5)
+                    
+        except Exception as e:
+            logger.debug(f"Liquidation analysis skipped for {opp.symbol}: {e}")
         
         # 2.5 NEWS SENTIMENT ANALYSIS - AI reads and understands news!
         try:
