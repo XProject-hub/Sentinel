@@ -119,6 +119,119 @@ async def get_funding_rates():
         return {"success": True, "rates": {}, "error": str(e)}
 
 
+@router.get("/open-interest/{symbol}")
+async def get_open_interest(symbol: str):
+    """Get Open Interest analysis for a symbol"""
+    try:
+        from services.open_interest_tracker import get_oi_tracker
+        from services.bybit_client import BybitV5Client
+        
+        # Create a temporary client for the API call
+        client = BybitV5Client()
+        
+        oi_tracker = await get_oi_tracker()
+        analysis = await oi_tracker.update_oi_data(symbol, client)
+        
+        if analysis:
+            return {
+                "success": True,
+                "data": {
+                    "symbol": analysis.symbol,
+                    "signal": analysis.signal.value,
+                    "oi_change_pct": analysis.oi_change_pct,
+                    "price_change_pct": analysis.price_change_pct,
+                    "oi_trend": analysis.oi_trend,
+                    "confidence": analysis.confidence,
+                    "recommendation": analysis.recommendation,
+                    "reasoning": analysis.reasoning,
+                    "timestamp": analysis.timestamp.isoformat()
+                }
+            }
+        else:
+            return {"success": False, "error": "Could not fetch OI data"}
+            
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@router.get("/open-interest-signals")
+async def get_oi_signals(limit: int = 10, signal_type: str = None):
+    """
+    Get top Open Interest signals across all symbols
+    
+    Args:
+        limit: Number of signals to return (default 10)
+        signal_type: Filter by signal type (strong_bullish, strong_bearish, accumulation, etc.)
+    """
+    try:
+        from services.open_interest_tracker import get_oi_tracker, OISignal
+        
+        oi_tracker = await get_oi_tracker()
+        
+        # Parse signal type filter if provided
+        filter_signal = None
+        if signal_type:
+            try:
+                filter_signal = OISignal(signal_type)
+            except ValueError:
+                pass
+        
+        signals = await oi_tracker.get_top_signals(limit=limit, signal_type=filter_signal)
+        
+        return {
+            "success": True,
+            "signals": signals,
+            "count": len(signals)
+        }
+        
+    except Exception as e:
+        return {"success": True, "signals": [], "error": str(e)}
+
+
+@router.get("/open-interest-bulk")
+async def get_oi_bulk(symbols: str = "BTCUSDT,ETHUSDT,SOLUSDT"):
+    """
+    Get OI analysis for multiple symbols at once
+    
+    Args:
+        symbols: Comma-separated list of symbols
+    """
+    try:
+        from services.open_interest_tracker import get_oi_tracker
+        from services.bybit_client import BybitV5Client
+        
+        client = BybitV5Client()
+        oi_tracker = await get_oi_tracker()
+        
+        symbol_list = [s.strip().upper() for s in symbols.split(',')][:20]  # Max 20
+        
+        results = {}
+        for symbol in symbol_list:
+            try:
+                analysis = await oi_tracker.update_oi_data(symbol, client)
+                if analysis:
+                    results[symbol] = {
+                        "signal": analysis.signal.value,
+                        "oi_change_pct": analysis.oi_change_pct,
+                        "price_change_pct": analysis.price_change_pct,
+                        "oi_trend": analysis.oi_trend,
+                        "confidence": analysis.confidence,
+                        "recommendation": analysis.recommendation,
+                        "reasoning": analysis.reasoning
+                    }
+            except:
+                pass
+                
+        return {
+            "success": True,
+            "data": results,
+            "count": len(results)
+        }
+        
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
 @router.get("/fear-greed")
 async def get_fear_greed():
     """Get REAL Fear & Greed Index from Alternative.me API"""

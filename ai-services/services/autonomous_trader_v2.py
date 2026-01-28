@@ -46,6 +46,7 @@ from services.price_predictor import price_predictor
 from services.capital_allocator import capital_allocator, MarketOpportunity
 from services.whale_tracker import whale_tracker
 from services.trade_mode_selector import trade_mode_selector, TradeMode, TradeModeDecision
+from services.open_interest_tracker import get_oi_tracker, OISignal
 
 # V4 HuggingFace Safety Models (GATES, not signals!)
 try:
@@ -4771,6 +4772,46 @@ class AutonomousTraderV2:
         if opp.confidence < min_confidence:
             self.stats['trades_rejected_low_edge'] += 1
             return False, f"Confidence too low ({opp.confidence:.1f} < {min_confidence:.0f})"
+        
+        # 2.4 OPEN INTEREST ANALYSIS - Confirms real breakouts vs fake-outs
+        try:
+            oi_tracker = await get_oi_tracker()
+            oi_analysis = await oi_tracker.update_oi_data(opp.symbol, client)
+            
+            if oi_analysis:
+                oi_confirms, oi_reason = oi_tracker.should_confirm_entry(oi_analysis, opp.direction)
+                
+                # Strong bearish OI blocks longs (new shorts entering = dump incoming)
+                if oi_analysis.signal == OISignal.STRONG_BEARISH and opp.direction == 'long':
+                    self.stats['trades_rejected_regime'] += 1
+                    logger.info(f"OI BLOCKED: {opp.symbol} LONG - {oi_reason}")
+                    return False, f"OI: {oi_reason}"
+                
+                # Strong bullish OI blocks shorts (new longs entering = pump incoming)
+                if oi_analysis.signal == OISignal.STRONG_BULLISH and opp.direction == 'short':
+                    self.stats['trades_rejected_regime'] += 1
+                    logger.info(f"OI BLOCKED: {opp.symbol} SHORT - {oi_reason}")
+                    return False, f"OI: {oi_reason}"
+                
+                # Distribution pattern - avoid all entries
+                if oi_analysis.signal == OISignal.DISTRIBUTION:
+                    self.stats['trades_rejected_regime'] += 1
+                    logger.info(f"OI BLOCKED: {opp.symbol} - Distribution pattern (interest fading)")
+                    return False, f"OI: {oi_reason}"
+                
+                # Adjust opportunity score based on OI
+                oi_adjustment = oi_tracker.get_oi_score_adjustment(oi_analysis, opp.direction)
+                if oi_adjustment != 0:
+                    original_confidence = opp.confidence
+                    opp.confidence = max(0, min(100, opp.confidence + oi_adjustment))
+                    logger.debug(f"OI adjusted {opp.symbol} confidence: {original_confidence:.0f}% -> {opp.confidence:.0f}% ({oi_adjustment:+d})")
+                
+                # Log confirmation for good signals
+                if oi_confirms and oi_analysis.signal in [OISignal.STRONG_BULLISH, OISignal.STRONG_BEARISH]:
+                    logger.info(f"OI CONFIRMS: {opp.symbol} {opp.direction.upper()} - {oi_reason}")
+                    
+        except Exception as e:
+            logger.debug(f"OI analysis skipped for {opp.symbol}: {e}")
         
         # 2.5 NEWS SENTIMENT ANALYSIS - AI reads and understands news!
         try:

@@ -483,6 +483,71 @@ class BybitV5Client:
         return await self._request("GET", "/v5/position/closed-pnl", params, auth=True)
         
     # ============================================
+    # OPEN INTEREST (Public)
+    # ============================================
+    
+    async def get_open_interest(self, symbol: str, interval: str = "5min", limit: int = 50, category: str = "linear") -> Dict:
+        """
+        Get open interest history for a symbol
+        
+        Args:
+            symbol: Trading pair (e.g., 'BTCUSDT')
+            interval: '5min', '15min', '30min', '1h', '4h', '1d'
+            limit: Number of data points (max 200)
+            category: 'linear' (USDT perpetual) or 'inverse'
+            
+        Returns:
+            Historical open interest data
+        """
+        params = {
+            "category": category,
+            "symbol": symbol,
+            "intervalTime": interval,
+            "limit": min(limit, 200)
+        }
+        return await self._request("GET", "/v5/market/open-interest", params)
+    
+    async def get_funding_rate_history(self, symbol: str, limit: int = 50, category: str = "linear") -> Dict:
+        """
+        Get funding rate history for a symbol
+        
+        Args:
+            symbol: Trading pair (e.g., 'BTCUSDT')
+            limit: Number of data points (max 200)
+            category: 'linear' (USDT perpetual) or 'inverse'
+            
+        Returns:
+            Historical funding rate data
+        """
+        params = {
+            "category": category,
+            "symbol": symbol,
+            "limit": min(limit, 200)
+        }
+        return await self._request("GET", "/v5/market/funding/history", params)
+    
+    async def get_long_short_ratio(self, symbol: str, period: str = "5min", limit: int = 50, category: str = "linear") -> Dict:
+        """
+        Get long/short ratio for a symbol
+        
+        Args:
+            symbol: Trading pair (e.g., 'BTCUSDT')
+            period: '5min', '15min', '30min', '1h', '4h', '1d'
+            limit: Number of data points (max 500)
+            category: 'linear' (USDT perpetual) or 'inverse'
+            
+        Returns:
+            Long/short ratio data
+        """
+        params = {
+            "category": category,
+            "symbol": symbol,
+            "period": period,
+            "limit": min(limit, 500)
+        }
+        return await self._request("GET", "/v5/market/account-ratio", params)
+
+    # ============================================
     # TRADING (Private - requires auth)
     # ============================================
     
