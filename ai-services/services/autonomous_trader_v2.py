@@ -1813,12 +1813,37 @@ class AutonomousTraderV2:
             if is_spot:
                 # SPOT CLOSE: Sell the coins we hold
                 # For spot, we sell the actual coins, not a contract
-                logger.info(f"Closing SPOT position: {position.symbol} - Selling {position.size} coins")
+                
+                # Get correct quantity precision from Bybit
+                import math
+                raw_size = position.size
+                qty_decimals = 0  # Default to integers (safest)
+                try:
+                    instruments = await client.get_instruments(category="spot", symbol=position.symbol)
+                    if instruments.get('success'):
+                        inst_list = instruments.get('data', {}).get('list', [])
+                        if inst_list:
+                            lot_size = inst_list[0].get('lotSizeFilter', {})
+                            base_precision = lot_size.get('basePrecision', '1')
+                            if '.' in base_precision:
+                                qty_decimals = len(base_precision.split('.')[1])
+                            logger.debug(f"SPOT {position.symbol}: basePrecision={base_precision}, using {qty_decimals} decimals")
+                except Exception as e:
+                    logger.warning(f"Could not get instrument info for {position.symbol}: {e}")
+                
+                # Round DOWN to avoid insufficient balance
+                if qty_decimals == 0:
+                    rounded_size = math.floor(raw_size)
+                else:
+                    factor = 10 ** qty_decimals
+                    rounded_size = math.floor(raw_size * factor) / factor
+                
+                logger.info(f"Closing SPOT position: {position.symbol} - Selling {rounded_size} coins (raw: {raw_size})")
                 result = await client.place_spot_order(
                     symbol=position.symbol,
                     side='Sell',  # Always sell to close a spot long
                     order_type='Market',
-                    qty=str(position.size)  # Sell the coins we hold
+                    qty=str(rounded_size)  # Sell rounded quantity
                 )
                 logger.info(f"SPOT SELL order result for {position.symbol}: {result}")
             else:
