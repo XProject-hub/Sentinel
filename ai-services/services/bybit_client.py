@@ -277,37 +277,6 @@ class BybitV5Client:
         }
         return await self._request("GET", "/v5/market/funding/history", params)
         
-    async def get_open_interest(self, symbol: str, category: str = "linear") -> Dict:
-        """Get open interest"""
-        params = {
-            "category": category,
-            "symbol": symbol,
-            "intervalTime": "5min",
-            "limit": 1
-        }
-        return await self._request("GET", "/v5/market/open-interest", params)
-    
-    async def get_long_short_ratio(self, symbol: str, category: str = "linear", period: str = "1h") -> Dict:
-        """
-        Get Long/Short Ratio - CRITICAL for sentiment analysis!
-        
-        Period: 5min, 15min, 30min, 1h, 4h, 1d
-        
-        Returns ratio of long vs short positions - tells us market sentiment:
-        - Ratio > 1: More longs than shorts (bullish sentiment)
-        - Ratio < 1: More shorts than longs (bearish sentiment)
-        - Extreme ratios (>2 or <0.5) often signal reversal
-        
-        https://bybit-exchange.github.io/docs/v5/market/long-short-ratio
-        """
-        params = {
-            "category": category,
-            "symbol": symbol,
-            "period": period,
-            "limit": 1
-        }
-        return await self._request("GET", "/v5/market/account-ratio", params)
-    
     async def get_fee_rate(self, symbol: str = None, category: str = "linear") -> Dict:
         """
         Get Trading Fee Rate - for calculating REAL profit after fees
