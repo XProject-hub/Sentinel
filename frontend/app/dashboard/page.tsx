@@ -410,36 +410,52 @@ export default function DashboardPage() {
         const lsRes = await fetch('/ai/market/long-short-bulk?symbols=BTCUSDT,ETHUSDT,SOLUSDT,XRPUSDT,DOGEUSDT')
         if (lsRes.ok) {
           const data = await lsRes.json()
-          if (data.data) setLongShortRatio(data.data)
+          if (data.data && Object.keys(data.data).length > 0) {
+            setLongShortRatio(data.data)
+          }
         }
-      } catch {}
+      } catch (e) {
+        console.log('L/S Ratio fetch failed:', e)
+      }
 
       // Get Funding Arbitrage Opportunities
       try {
         const fundingRes = await fetch('/ai/market/funding-arbitrage?limit=5')
         if (fundingRes.ok) {
           const data = await fundingRes.json()
-          if (data.opportunities) setFundingArbitrage(data.opportunities)
+          if (data.opportunities && data.opportunities.length > 0) {
+            setFundingArbitrage(data.opportunities)
+          }
         }
-      } catch {}
+      } catch (e) {
+        console.log('Funding arb fetch failed:', e)
+      }
 
       // Get Liquidation Data
       try {
         const liqRes = await fetch('/ai/market/liquidation-bulk?symbols=BTCUSDT,ETHUSDT,SOLUSDT')
         if (liqRes.ok) {
           const data = await liqRes.json()
-          if (data.data) setLiquidationData(data.data)
+          if (data.data && Object.keys(data.data).length > 0) {
+            setLiquidationData(data.data)
+          }
         }
-      } catch {}
+      } catch (e) {
+        console.log('Liquidation fetch failed:', e)
+      }
 
       // Get Open Interest Signals
       try {
         const oiRes = await fetch('/ai/market/open-interest-signals?limit=5')
         if (oiRes.ok) {
           const data = await oiRes.json()
-          if (data.signals) setOpenInterestSignals(data.signals)
+          if (data.signals && data.signals.length > 0) {
+            setOpenInterestSignals(data.signals)
+          }
         }
-      } catch {}
+      } catch (e) {
+        console.log('OI signals fetch failed:', e)
+      }
 
       // Get AI Signals (top opportunities)
       try {
