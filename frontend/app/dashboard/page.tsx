@@ -207,6 +207,12 @@ export default function DashboardPage() {
   const [loadingHistory, setLoadingHistory] = useState(false)
   const [showChartModal, setShowChartModal] = useState(false)
   const [chartModalSymbol, setChartModalSymbol] = useState<string>('')
+  
+  // Market Intelligence Widgets
+  const [longShortRatio, setLongShortRatio] = useState<{[symbol: string]: {long_pct: number, short_pct: number, sentiment: string}}>({})
+  const [fundingArbitrage, setFundingArbitrage] = useState<{symbol: string, funding_rate_pct: number, daily_yield_pct: number, recommendation: string, risk_level: string}[]>([])
+  const [liquidationData, setLiquidationData] = useState<{[symbol: string]: {liq_imbalance: string, total_long_liqs: number, total_short_liqs: number}}>({})
+  const [openInterestSignals, setOpenInterestSignals] = useState<{symbol: string, signal: string, oi_change_pct: number, reasoning: string}[]>([])
   const [chartModalData, setChartModalData] = useState<{time: number, open: number, high: number, low: number, close: number, volume: number}[]>([])
   const [loadingChart, setLoadingChart] = useState(false)
   const [chartModalTicker, setChartModalTicker] = useState<{price: number, change24h: number, high24h: number, low24h: number, volume24h: number} | null>(null)
@@ -396,6 +402,42 @@ export default function DashboardPage() {
         if (fgRes.ok) {
           const data = await fgRes.json()
           setFearGreed(data.value || 50)
+        }
+      } catch {}
+
+      // Get Long/Short Ratio
+      try {
+        const lsRes = await fetch('/ai/market/long-short-bulk?symbols=BTCUSDT,ETHUSDT,SOLUSDT,XRPUSDT,DOGEUSDT')
+        if (lsRes.ok) {
+          const data = await lsRes.json()
+          if (data.data) setLongShortRatio(data.data)
+        }
+      } catch {}
+
+      // Get Funding Arbitrage Opportunities
+      try {
+        const fundingRes = await fetch('/ai/market/funding-arbitrage?limit=5')
+        if (fundingRes.ok) {
+          const data = await fundingRes.json()
+          if (data.opportunities) setFundingArbitrage(data.opportunities)
+        }
+      } catch {}
+
+      // Get Liquidation Data
+      try {
+        const liqRes = await fetch('/ai/market/liquidation-bulk?symbols=BTCUSDT,ETHUSDT,SOLUSDT')
+        if (liqRes.ok) {
+          const data = await liqRes.json()
+          if (data.data) setLiquidationData(data.data)
+        }
+      } catch {}
+
+      // Get Open Interest Signals
+      try {
+        const oiRes = await fetch('/ai/market/open-interest-signals?limit=5')
+        if (oiRes.ok) {
+          const data = await oiRes.json()
+          if (data.signals) setOpenInterestSignals(data.signals)
         }
       } catch {}
 
@@ -1412,6 +1454,151 @@ export default function DashboardPage() {
                 <div className="text-center py-2 text-gray-600 text-[10px]">
                   No breakouts detected
                 </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Market Intelligence Row */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mt-4">
+          
+          {/* Long/Short Ratio Widget */}
+          <div className="bg-white/[0.02] rounded-xl border border-white/5 overflow-hidden">
+            <div className="p-3 border-b border-white/5 flex items-center gap-2">
+              <div className="w-5 h-5 rounded-full bg-gradient-to-r from-emerald-500 to-red-500 flex items-center justify-center">
+                <span className="text-[8px] font-bold text-white">L/S</span>
+              </div>
+              <h3 className="text-xs font-semibold text-white">Long/Short Ratio</h3>
+            </div>
+            <div className="p-3 space-y-2">
+              {Object.entries(longShortRatio).slice(0, 5).map(([symbol, data]) => (
+                <div key={symbol} className="flex items-center justify-between">
+                  <span className="text-[10px] text-gray-400 font-medium">{symbol.replace('USDT', '')}</span>
+                  <div className="flex items-center gap-2">
+                    <div className="w-20 h-2 bg-gray-800 rounded-full overflow-hidden flex">
+                      <div 
+                        className="h-full bg-emerald-500" 
+                        style={{ width: `${data.long_pct}%` }}
+                      />
+                      <div 
+                        className="h-full bg-red-500" 
+                        style={{ width: `${data.short_pct}%` }}
+                      />
+                    </div>
+                    <span className={`text-[9px] font-semibold ${
+                      data.sentiment === 'crowded_long' ? 'text-emerald-400' : 
+                      data.sentiment === 'crowded_short' ? 'text-red-400' : 'text-gray-400'
+                    }`}>
+                      {data.long_pct.toFixed(0)}%
+                    </span>
+                  </div>
+                </div>
+              ))}
+              {Object.keys(longShortRatio).length === 0 && (
+                <div className="text-center py-3 text-gray-600 text-[10px]">Loading L/S data...</div>
+              )}
+            </div>
+          </div>
+
+          {/* Open Interest Signals Widget */}
+          <div className="bg-white/[0.02] rounded-xl border border-white/5 overflow-hidden">
+            <div className="p-3 border-b border-white/5 flex items-center gap-2">
+              <div className="w-5 h-5 rounded-full bg-purple-500/20 flex items-center justify-center">
+                <span className="text-[8px] font-bold text-purple-400">OI</span>
+              </div>
+              <h3 className="text-xs font-semibold text-white">Open Interest Signals</h3>
+            </div>
+            <div className="p-3 space-y-2 max-h-[140px] overflow-y-auto">
+              {openInterestSignals.slice(0, 4).map((signal, i) => (
+                <div key={i} className="p-2 bg-white/[0.02] rounded-lg">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-[10px] text-white font-medium">{signal.symbol.replace('USDT', '')}</span>
+                    <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded ${
+                      signal.signal === 'strong_bullish' ? 'bg-emerald-500/20 text-emerald-400' :
+                      signal.signal === 'strong_bearish' ? 'bg-red-500/20 text-red-400' :
+                      signal.signal === 'accumulation' ? 'bg-amber-500/20 text-amber-400' :
+                      'bg-gray-500/20 text-gray-400'
+                    }`}>
+                      {signal.signal.replace('_', ' ').toUpperCase()}
+                    </span>
+                  </div>
+                  <div className="text-[9px] text-gray-500 truncate">{signal.reasoning}</div>
+                </div>
+              ))}
+              {openInterestSignals.length === 0 && (
+                <div className="text-center py-3 text-gray-600 text-[10px]">Scanning OI patterns...</div>
+              )}
+            </div>
+          </div>
+
+          {/* Liquidation Heatmap Widget */}
+          <div className="bg-white/[0.02] rounded-xl border border-white/5 overflow-hidden">
+            <div className="p-3 border-b border-white/5 flex items-center gap-2">
+              <div className="w-5 h-5 rounded-full bg-orange-500/20 flex items-center justify-center">
+                <span className="text-[8px] font-bold text-orange-400">LIQ</span>
+              </div>
+              <h3 className="text-xs font-semibold text-white">Liquidation Zones</h3>
+            </div>
+            <div className="p-3 space-y-2">
+              {Object.entries(liquidationData).slice(0, 3).map(([symbol, data]) => (
+                <div key={symbol} className="p-2 bg-white/[0.02] rounded-lg">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-[10px] text-white font-medium">{symbol.replace('USDT', '')}</span>
+                    <span className={`text-[9px] font-semibold ${
+                      data.liq_imbalance === 'more_longs' ? 'text-red-400' :
+                      data.liq_imbalance === 'more_shorts' ? 'text-emerald-400' : 'text-gray-400'
+                    }`}>
+                      {data.liq_imbalance === 'more_longs' ? '⚠️ Long Risk' :
+                       data.liq_imbalance === 'more_shorts' ? '⚠️ Short Risk' : 'Balanced'}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-[9px]">
+                    <span className="text-emerald-400">L: ${((data.total_long_liqs || 0) / 1e6).toFixed(1)}M</span>
+                    <span className="text-red-400">S: ${((data.total_short_liqs || 0) / 1e6).toFixed(1)}M</span>
+                  </div>
+                </div>
+              ))}
+              {Object.keys(liquidationData).length === 0 && (
+                <div className="text-center py-3 text-gray-600 text-[10px]">Mapping liquidations...</div>
+              )}
+            </div>
+          </div>
+
+          {/* Funding Arbitrage Widget */}
+          <div className="bg-white/[0.02] rounded-xl border border-white/5 overflow-hidden">
+            <div className="p-3 border-b border-white/5 flex items-center gap-2">
+              <div className="w-5 h-5 rounded-full bg-cyan-500/20 flex items-center justify-center">
+                <span className="text-[8px] font-bold text-cyan-400">$</span>
+              </div>
+              <h3 className="text-xs font-semibold text-white">Funding Yields</h3>
+            </div>
+            <div className="p-3 space-y-2 max-h-[140px] overflow-y-auto">
+              {fundingArbitrage.slice(0, 4).map((opp, i) => (
+                <div key={i} className="p-2 bg-white/[0.02] rounded-lg">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-[10px] text-white font-medium">{opp.symbol.replace('USDT', '')}</span>
+                    <div className="flex items-center gap-1">
+                      <span className={`text-[10px] font-bold ${
+                        opp.daily_yield_pct > 0.1 ? 'text-emerald-400' : 'text-cyan-400'
+                      }`}>
+                        {opp.daily_yield_pct.toFixed(2)}%/day
+                      </span>
+                      <span className={`text-[8px] px-1 rounded ${
+                        opp.risk_level === 'low' ? 'bg-emerald-500/20 text-emerald-400' :
+                        opp.risk_level === 'medium' ? 'bg-amber-500/20 text-amber-400' :
+                        'bg-red-500/20 text-red-400'
+                      }`}>
+                        {opp.risk_level}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="text-[8px] text-gray-500">
+                    Funding: {opp.funding_rate_pct > 0 ? '+' : ''}{opp.funding_rate_pct.toFixed(3)}%
+                  </div>
+                </div>
+              ))}
+              {fundingArbitrage.length === 0 && (
+                <div className="text-center py-3 text-gray-600 text-[10px]">Scanning funding rates...</div>
               )}
             </div>
           </div>

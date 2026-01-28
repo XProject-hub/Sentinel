@@ -2,6 +2,7 @@
 
 from fastapi import APIRouter, HTTPException
 from typing import Optional
+from datetime import datetime
 
 router = APIRouter()
 
@@ -438,3 +439,411 @@ async def get_market_news(limit: int = 10):
             "error": str(e)
         }
 
+
+# ============================================
+# LIQUIDATION HEATMAP ENDPOINTS
+# ============================================
+
+@router.get("/liquidation-heatmap/{symbol}")
+async def get_liquidation_heatmap(symbol: str):
+    """
+    Get liquidation heatmap for a symbol
+    
+    Shows where liquidations would occur based on OI and leverage distribution.
+    Useful for identifying support/resistance magnets.
+    """
+    try:
+        from services.liquidation_heatmap import get_liquidation_heatmap
+        from services.bybit_client import BybitV5Client
+        
+        client = BybitV5Client()
+        heatmap = await get_liquidation_heatmap()
+        
+        data = await heatmap.fetch_liquidation_data(symbol, client)
+        
+        if data:
+            return {"success": True, "data": data}
+        else:
+            return {"success": False, "error": "Could not fetch liquidation data"}
+            
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@router.get("/liquidation-zones/{symbol}")
+async def get_liquidation_zones(symbol: str):
+    """
+    Get simplified liquidation zones for trading decisions
+    
+    Returns key support/resistance magnets where large liquidations would occur.
+    """
+    try:
+        from services.liquidation_heatmap import get_liquidation_heatmap
+        from services.bybit_client import BybitV5Client
+        
+        client = BybitV5Client()
+        heatmap = await get_liquidation_heatmap()
+        
+        zones = await heatmap.get_liquidation_zones(symbol, client)
+        
+        return {"success": True, "data": zones}
+            
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@router.get("/liquidation-bulk")
+async def get_liquidation_bulk(symbols: str = "BTCUSDT,ETHUSDT,SOLUSDT"):
+    """
+    Get liquidation summaries for multiple symbols
+    
+    Args:
+        symbols: Comma-separated list of symbols
+    """
+    try:
+        from services.liquidation_heatmap import get_liquidation_heatmap
+        from services.bybit_client import BybitV5Client
+        
+        client = BybitV5Client()
+        heatmap = await get_liquidation_heatmap()
+        
+        symbol_list = [s.strip().upper() for s in symbols.split(',')][:10]
+        
+        results = {}
+        for symbol in symbol_list:
+            try:
+                data = await heatmap.fetch_liquidation_data(symbol, client)
+                if data and 'heatmap' in data:
+                    summary = data['heatmap'].get('summary', {})
+                    results[symbol] = {
+                        'current_price': data.get('current_price'),
+                        'open_interest_usd': data.get('open_interest_usd'),
+                        'long_ratio': data.get('long_ratio'),
+                        'short_ratio': data.get('short_ratio'),
+                        'total_long_liqs': summary.get('total_long_liquidations_usd'),
+                        'total_short_liqs': summary.get('total_short_liquidations_usd'),
+                        'liq_imbalance': summary.get('liq_imbalance'),
+                        'risk_assessment': summary.get('risk_assessment')
+                    }
+            except:
+                pass
+                
+        return {"success": True, "data": results, "count": len(results)}
+        
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+# ============================================
+# LONG/SHORT RATIO ENDPOINTS
+# ============================================
+
+@router.get("/long-short-ratio/{symbol}")
+async def get_long_short_ratio(symbol: str, period: str = "5min", limit: int = 24):
+    """
+    Get long/short ratio history for a symbol
+    
+    Args:
+        symbol: Trading pair (e.g., 'BTCUSDT')
+        period: '5min', '15min', '30min', '1h', '4h', '1d'
+        limit: Number of data points (max 50)
+    """
+    try:
+        from services.bybit_client import BybitV5Client
+        
+        client = BybitV5Client()
+        result = await client.get_long_short_ratio(symbol=symbol, period=period, limit=min(limit, 50))
+        
+        if not result.get('success'):
+            return {"success": False, "error": "Failed to fetch data"}
+            
+        ls_list = result.get('data', {}).get('list', [])
+        
+        data = []
+        for item in ls_list:
+            data.append({
+                'timestamp': item.get('timestamp'),
+                'buy_ratio': float(item.get('buyRatio', 0.5)),
+                'sell_ratio': float(item.get('sellRatio', 0.5)),
+                'long_pct': round(float(item.get('buyRatio', 0.5)) * 100, 2),
+                'short_pct': round(float(item.get('sellRatio', 0.5)) * 100, 2)
+            })
+        
+        # Calculate current sentiment
+        if data:
+            current = data[0]
+            sentiment = 'neutral'
+            if current['long_pct'] > 55:
+                sentiment = 'crowded_long'
+            elif current['long_pct'] > 52:
+                sentiment = 'slightly_long'
+            elif current['short_pct'] > 55:
+                sentiment = 'crowded_short'
+            elif current['short_pct'] > 52:
+                sentiment = 'slightly_short'
+        else:
+            sentiment = 'unknown'
+            current = {'long_pct': 50, 'short_pct': 50}
+        
+        return {
+            "success": True,
+            "symbol": symbol,
+            "current": current,
+            "sentiment": sentiment,
+            "history": data,
+            "insight": f"Market is {sentiment.replace('_', ' ')} - {'contrarian short may be favorable' if sentiment == 'crowded_long' else 'contrarian long may be favorable' if sentiment == 'crowded_short' else 'balanced positioning'}"
+        }
+            
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@router.get("/long-short-bulk")
+async def get_ls_ratio_bulk(symbols: str = "BTCUSDT,ETHUSDT,SOLUSDT,XRPUSDT,DOGEUSDT"):
+    """
+    Get current long/short ratios for multiple symbols
+    """
+    try:
+        from services.bybit_client import BybitV5Client
+        
+        client = BybitV5Client()
+        symbol_list = [s.strip().upper() for s in symbols.split(',')][:15]
+        
+        results = {}
+        for symbol in symbol_list:
+            try:
+                result = await client.get_long_short_ratio(symbol=symbol, period="5min", limit=1)
+                
+                if result.get('success'):
+                    ls_list = result.get('data', {}).get('list', [])
+                    if ls_list:
+                        item = ls_list[0]
+                        long_pct = round(float(item.get('buyRatio', 0.5)) * 100, 2)
+                        short_pct = round(float(item.get('sellRatio', 0.5)) * 100, 2)
+                        
+                        results[symbol] = {
+                            'long_pct': long_pct,
+                            'short_pct': short_pct,
+                            'sentiment': 'crowded_long' if long_pct > 55 else ('crowded_short' if short_pct > 55 else 'balanced')
+                        }
+            except:
+                pass
+                
+        return {"success": True, "data": results, "count": len(results)}
+        
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+# ============================================
+# FUNDING ARBITRAGE ENDPOINTS
+# ============================================
+
+@router.get("/funding-arbitrage")
+async def get_funding_arbitrage_opportunities(limit: int = 10):
+    """
+    Get current funding rate arbitrage opportunities
+    
+    Returns coins with high funding rates suitable for delta-neutral yield farming.
+    """
+    try:
+        from services.funding_arbitrage import get_funding_arbitrage
+        from services.bybit_client import BybitV5Client
+        
+        client = BybitV5Client()
+        arb = await get_funding_arbitrage()
+        
+        # Scan for opportunities
+        opportunities = await arb.scan_opportunities(client)
+        
+        # Format response
+        data = []
+        for opp in opportunities[:limit]:
+            data.append({
+                'symbol': opp.symbol,
+                'funding_rate': opp.funding_rate,
+                'funding_rate_pct': round(opp.funding_rate * 100, 4),
+                'direction': opp.direction,
+                'spot_action': opp.spot_action,
+                'daily_yield_pct': opp.estimated_daily_yield,
+                'monthly_yield_pct': opp.estimated_monthly_yield,
+                'annualized_pct': round(opp.funding_rate_annualized * 100, 2),
+                'hours_until_funding': opp.hours_until_funding,
+                'risk_level': opp.risk_level,
+                'recommendation': opp.recommendation
+            })
+        
+        return {
+            "success": True,
+            "opportunities": data,
+            "count": len(data),
+            "explanation": "Delta-neutral strategy: Open opposite positions on spot + perp to collect funding without directional risk."
+        }
+            
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@router.get("/funding-arbitrage/best")
+async def get_best_funding_opportunity():
+    """Get the single best funding arbitrage opportunity right now"""
+    try:
+        from services.funding_arbitrage import get_funding_arbitrage
+        from services.bybit_client import BybitV5Client
+        
+        client = BybitV5Client()
+        arb = await get_funding_arbitrage()
+        
+        # Scan and get best
+        await arb.scan_opportunities(client)
+        best = await arb.get_best_opportunity()
+        
+        if best:
+            return {
+                "success": True,
+                "opportunity": best,
+                "action_plan": f"1. {best.get('spot_action', '').replace('_', ' ').title()} {best.get('symbol', '')}\n"
+                             f"2. Open {best.get('direction', '').replace('_', ' ')} position\n"
+                             f"3. Collect {best.get('funding_rate_pct', 0):.3f}% every 8 hours"
+            }
+        else:
+            return {"success": True, "opportunity": None, "message": "No good opportunities at the moment"}
+            
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@router.get("/funding-arbitrage/calculate")
+async def calculate_funding_position(symbol: str, capital: float = 1000, leverage: float = 1.0):
+    """
+    Calculate position size and expected returns for funding arbitrage
+    
+    Args:
+        symbol: Trading pair
+        capital: Capital to allocate (USD)
+        leverage: Leverage to use (1.0 = no leverage)
+    """
+    try:
+        from services.funding_arbitrage import get_funding_arbitrage
+        from services.bybit_client import BybitV5Client
+        
+        client = BybitV5Client()
+        arb = await get_funding_arbitrage()
+        
+        # Get current funding rate
+        ticker_result = await client.get_tickers(symbol=symbol, category="linear")
+        if not ticker_result.get('success'):
+            return {"success": False, "error": "Could not fetch ticker"}
+            
+        ticker_list = ticker_result.get('data', {}).get('list', [])
+        if not ticker_list:
+            return {"success": False, "error": "Symbol not found"}
+            
+        funding_rate = float(ticker_list[0].get('fundingRate', 0))
+        
+        # Calculate position
+        calc = arb.calculate_position_size(capital, funding_rate, leverage)
+        
+        direction = "SHORT perp + LONG spot" if funding_rate > 0 else "LONG perp + SHORT spot"
+        
+        return {
+            "success": True,
+            "symbol": symbol,
+            "funding_rate": funding_rate,
+            "funding_rate_pct": round(funding_rate * 100, 4),
+            "direction": direction,
+            "calculation": calc
+        }
+            
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+# ============================================
+# COMBINED MARKET INTELLIGENCE
+# ============================================
+
+@router.get("/intelligence/{symbol}")
+async def get_full_market_intelligence(symbol: str):
+    """
+    Get complete market intelligence for a symbol
+    
+    Combines: OI analysis, liquidation heatmap, L/S ratio, funding rate
+    """
+    try:
+        from services.open_interest_tracker import get_oi_tracker
+        from services.liquidation_heatmap import get_liquidation_heatmap
+        from services.bybit_client import BybitV5Client
+        
+        client = BybitV5Client()
+        
+        result = {
+            'symbol': symbol,
+            'timestamp': datetime.utcnow().isoformat()
+        }
+        
+        # Open Interest
+        try:
+            oi_tracker = await get_oi_tracker()
+            oi_analysis = await oi_tracker.update_oi_data(symbol, client)
+            if oi_analysis:
+                result['open_interest'] = {
+                    'signal': oi_analysis.signal.value,
+                    'oi_change_pct': oi_analysis.oi_change_pct,
+                    'price_change_pct': oi_analysis.price_change_pct,
+                    'recommendation': oi_analysis.recommendation,
+                    'reasoning': oi_analysis.reasoning
+                }
+        except:
+            result['open_interest'] = None
+            
+        # Liquidation Heatmap
+        try:
+            liq_heatmap = await get_liquidation_heatmap()
+            liq_data = await liq_heatmap.fetch_liquidation_data(symbol, client)
+            if liq_data and 'heatmap' in liq_data:
+                result['liquidation'] = {
+                    'current_price': liq_data.get('current_price'),
+                    'open_interest_usd': liq_data.get('open_interest_usd'),
+                    'summary': liq_data['heatmap'].get('summary')
+                }
+        except:
+            result['liquidation'] = None
+            
+        # Long/Short Ratio
+        try:
+            ls_result = await client.get_long_short_ratio(symbol=symbol, period="5min", limit=1)
+            if ls_result.get('success'):
+                ls_list = ls_result.get('data', {}).get('list', [])
+                if ls_list:
+                    item = ls_list[0]
+                    long_pct = round(float(item.get('buyRatio', 0.5)) * 100, 2)
+                    result['long_short_ratio'] = {
+                        'long_pct': long_pct,
+                        'short_pct': 100 - long_pct,
+                        'sentiment': 'crowded_long' if long_pct > 55 else ('crowded_short' if long_pct < 45 else 'balanced')
+                    }
+        except:
+            result['long_short_ratio'] = None
+            
+        # Funding Rate
+        try:
+            ticker_result = await client.get_tickers(symbol=symbol, category="linear")
+            if ticker_result.get('success'):
+                ticker_list = ticker_result.get('data', {}).get('list', [])
+                if ticker_list:
+                    ticker = ticker_list[0]
+                    funding = float(ticker.get('fundingRate', 0))
+                    result['funding'] = {
+                        'rate': funding,
+                        'rate_pct': round(funding * 100, 4),
+                        'annualized_pct': round(funding * 3 * 365 * 100, 2),
+                        'sentiment': 'longs_pay' if funding > 0 else ('shorts_pay' if funding < 0 else 'neutral')
+                    }
+        except:
+            result['funding'] = None
+        
+        return {"success": True, "data": result}
+            
+    except Exception as e:
+        return {"success": False, "error": str(e)}
