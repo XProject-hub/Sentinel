@@ -1416,6 +1416,66 @@ export default function SettingsPage() {
                   </div>
                 </div>
 
+                {/* Market Intelligence Widgets Guide */}
+                <div className="p-5 rounded-2xl bg-white/[0.02] border border-white/5 space-y-4">
+                  <h3 className="text-lg font-semibold text-purple-400 flex items-center gap-2">
+                    <Activity className="w-5 h-5" />
+                    Market Intelligence Widgets
+                  </h3>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="p-3 rounded-lg bg-white/[0.02]">
+                      <div className="text-sm font-medium text-white mb-1">Long/Short Ratio</div>
+                      <p className="text-xs text-gray-400">
+                        Shows percentage of traders holding LONG vs SHORT positions.<br/>
+                        • <span className="text-green-400">&gt;55% Long</span> = Market crowded long (contrarian short signal)<br/>
+                        • <span className="text-red-400">&gt;55% Short</span> = Market crowded short (contrarian long signal)<br/>
+                        • <span className="text-gray-300">50/50</span> = Balanced, no crowd signal
+                      </p>
+                    </div>
+                    
+                    <div className="p-3 rounded-lg bg-white/[0.02]">
+                      <div className="text-sm font-medium text-white mb-1">Open Interest Signals</div>
+                      <p className="text-xs text-gray-400">
+                        Analyzes Open Interest changes vs Price moves:<br/>
+                        • <span className="text-green-400">STRONG BULLISH</span> - OI↑ + Price↑ = Real buyers entering<br/>
+                        • <span className="text-red-400">STRONG BEARISH</span> - OI↑ + Price↓ = New shorts, dump incoming<br/>
+                        • <span className="text-yellow-400">ACCUMULATION</span> - OI↑↑ + Flat price = Big move coming<br/>
+                        AI uses this to confirm/reject entries.
+                      </p>
+                    </div>
+                    
+                    <div className="p-3 rounded-lg bg-white/[0.02]">
+                      <div className="text-sm font-medium text-white mb-1">Liquidation Zones</div>
+                      <p className="text-xs text-gray-400">
+                        Shows where large liquidations would occur:<br/>
+                        • <span className="text-green-400">More Shorts Above</span> = Short squeeze potential (bullish)<br/>
+                        • <span className="text-red-400">More Longs Below</span> = Long liquidation risk (bearish)<br/>
+                        • <span className="text-gray-300">Balanced</span> = No significant cluster<br/>
+                        Price often &quot;hunts&quot; these liquidation clusters.
+                      </p>
+                    </div>
+                    
+                    <div className="p-3 rounded-lg bg-white/[0.02]">
+                      <div className="text-sm font-medium text-white mb-1">Funding Yields</div>
+                      <p className="text-xs text-gray-400">
+                        Delta-neutral funding arbitrage opportunities:<br/>
+                        • Shows coins with high funding rates<br/>
+                        • <span className="text-green-400">%/day</span> = Potential daily yield<br/>
+                        • <span className="text-yellow-400">Risk level</span> = How stable the funding is<br/>
+                        Strategy: SHORT perp + LONG spot (or vice versa) to collect funding without directional risk.
+                      </p>
+                    </div>
+                  </div>
+                  
+                  <div className="mt-3 p-3 rounded-lg bg-purple-500/10 border border-purple-500/20">
+                    <p className="text-xs text-purple-300">
+                      💡 <span className="font-semibold">How AI Uses This Data:</span> The bot automatically analyzes OI patterns and liquidation zones 
+                      before entering trades. It avoids entries when OI signals dump, and prefers entries when short/long squeezes are likely.
+                    </p>
+                  </div>
+                </div>
+
                 {/* AI Panels Guide */}
                 <div className="p-5 rounded-2xl bg-white/[0.02] border border-white/5 space-y-4">
                   <h3 className="text-lg font-semibold text-violet-400 flex items-center gap-2">
