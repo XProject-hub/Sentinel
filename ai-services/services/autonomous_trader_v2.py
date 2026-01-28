@@ -3247,13 +3247,21 @@ class AutonomousTraderV2:
         
         ENTRY CONDITIONS:
         1. Strong momentum (>0.5% 24h change)
-        2. Good volume (>$1M)
+        2. Good volume (>$1M for crypto, >$100K for TradFi)
         3. Low spread (<0.5%)
         4. Must pass all safety filters (_validate_opportunity)
         """
         opportunities = []
         
         try:
+            # Get user settings for TradFi
+            user_set = self.user_settings.get(user_id, {})
+            enable_tradfi = user_set.get('enable_tradfi', False)
+            tradfi_budget = float(user_set.get('tradfi_budget', 0))
+            
+            # TradFi symbols - Gold, Stocks, etc. on Bybit
+            TRADFI_SYMBOLS = ['PAXGUSDT', 'COINUSDT', 'MSTRUSDT', 'XAUUSDT', 'XAGUSDT']
+            
             # Get tickers
             tickers_result = await client.get_tickers()
             if not tickers_result.get('success'):
@@ -3266,6 +3274,13 @@ class AutonomousTraderV2:
             for ticker in tickers[:200]:  # Scan top 200
                 symbol = ticker.get('symbol', '')
                 if not symbol.endswith('USDT') or symbol in ['USDCUSDT', 'USDTUSDT', 'DAIUSDT', 'TUSDUSDT']:
+                    continue
+                
+                # Check if this is a TradFi symbol
+                is_tradfi = symbol in TRADFI_SYMBOLS
+                
+                # Skip TradFi if not enabled or no budget
+                if is_tradfi and (not enable_tradfi or tradfi_budget <= 0):
                     continue
                 
                 # Skip if already in position
@@ -3282,9 +3297,16 @@ class AutonomousTraderV2:
                 bid_price = float(ticker.get('bid1Price', 0))
                 ask_price = float(ticker.get('ask1Price', 0))
                 
+                # Volume requirements - lower for TradFi (Gold, stocks have less volume)
+                min_volume = 100000 if is_tradfi else 1000000  # $100K for TradFi, $1M for crypto
+                
                 # Basic filters
-                if volume < 1000000 or last_price <= 0:  # Min $1M volume
+                if volume < min_volume or last_price <= 0:
                     continue
+                
+                # Log TradFi opportunities found
+                if is_tradfi:
+                    logger.info(f"TRADFI: Found {symbol} | Price: ${last_price:.2f} | Vol: ${volume/1000:.0f}K | Change: {price_change:+.2f}%")
                 
                 # Calculate spread
                 spread = ((ask_price - bid_price) / last_price * 100) if last_price > 0 else 0
@@ -6374,6 +6396,13 @@ class AutonomousTraderV2:
             
             # Breakout trading toggle (default: OFF for safer trading)
             user_set['enable_breakout'] = str(parsed.get('enableBreakout', 'false')).lower() == 'true'
+            
+            # TradFi settings (Gold, Stocks, etc.)
+            user_set['enable_tradfi'] = str(parsed.get('enableTradFi', 'false')).lower() == 'true'
+            user_set['tradfi_budget'] = float(parsed.get('tradFiBudget', 0))
+            
+            if user_set['enable_tradfi'] and user_set['tradfi_budget'] > 0:
+                logger.info(f"TradFi ENABLED for {user_id}: Budget ${user_set['tradfi_budget']}")
             
             # Kelly Criterion settings
             # kellyEnabled: when OFF, use equal sizing (no Kelly adjustment)
