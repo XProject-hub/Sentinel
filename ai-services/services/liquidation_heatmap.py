@@ -118,39 +118,58 @@ class LiquidationHeatmap:
             # Get current ticker for price reference
             ticker_result = await client.get_tickers(symbol=symbol, category="linear")
             if not ticker_result.get('success'):
+                logger.debug(f"Liquidation: ticker fetch failed for {symbol}")
                 return {}
                 
             ticker_list = ticker_result.get('data', {}).get('list', [])
             if not ticker_list:
+                logger.debug(f"Liquidation: no ticker data for {symbol}")
                 return {}
                 
             ticker = ticker_list[0]
             current_price = float(ticker.get('lastPrice', 0))
             
+            if current_price <= 0:
+                return {}
+            
             # Get instrument info for leverage
-            instrument_result = await client.get_instruments_info(symbol=symbol, category="linear")
             max_leverage = 100  # Default
-            if instrument_result.get('success'):
-                instruments = instrument_result.get('data', {}).get('list', [])
-                if instruments:
-                    max_leverage = float(instruments[0].get('leverageFilter', {}).get('maxLeverage', 100))
+            try:
+                instrument_result = await client.get_instruments_info(symbol=symbol, category="linear")
+                if instrument_result.get('success'):
+                    instruments = instrument_result.get('data', {}).get('list', [])
+                    if instruments:
+                        max_leverage = float(instruments[0].get('leverageFilter', {}).get('maxLeverage', 100))
+            except Exception as e:
+                logger.debug(f"Liquidation: instrument info failed for {symbol}: {e}")
             
-            # Get open interest
-            oi_result = await client.get_open_interest(symbol=symbol, interval="5min", limit=1)
+            # Get open interest - use turnover as fallback estimate
             current_oi = 0
-            if oi_result.get('success'):
-                oi_list = oi_result.get('data', {}).get('list', [])
-                if oi_list:
-                    current_oi = float(oi_list[0].get('openInterest', 0))
+            try:
+                oi_result = await client.get_open_interest(symbol=symbol, interval="5min", limit=1)
+                if oi_result.get('success'):
+                    oi_list = oi_result.get('data', {}).get('list', [])
+                    if oi_list:
+                        current_oi = float(oi_list[0].get('openInterest', 0))
+            except Exception as e:
+                logger.debug(f"Liquidation: OI fetch failed for {symbol}: {e}")
             
-            # Get long/short ratio for distribution
-            ls_result = await client.get_long_short_ratio(symbol=symbol, period="5min", limit=1)
+            # If no OI data, estimate from turnover
+            if current_oi == 0:
+                turnover = float(ticker.get('turnover24h', 0))
+                current_oi = turnover / current_price / 10 if turnover > 0 else 0  # Rough estimate
+            
+            # Get long/short ratio for distribution - default to 50/50 if fails
             long_ratio = 0.5
-            if ls_result.get('success'):
-                ls_list = ls_result.get('data', {}).get('list', [])
-                if ls_list:
-                    buy_ratio = float(ls_list[0].get('buyRatio', 0.5))
-                    long_ratio = buy_ratio
+            try:
+                ls_result = await client.get_long_short_ratio(symbol=symbol, period="5min", limit=1)
+                if ls_result.get('success'):
+                    ls_list = ls_result.get('data', {}).get('list', [])
+                    if ls_list:
+                        buy_ratio = float(ls_list[0].get('buyRatio', 0.5))
+                        long_ratio = buy_ratio
+            except Exception as e:
+                logger.debug(f"Liquidation: L/S ratio failed for {symbol}: {e}")
             
             # Estimate liquidation levels
             heatmap = self._estimate_liquidation_levels(
@@ -179,7 +198,7 @@ class LiquidationHeatmap:
             return result
             
         except Exception as e:
-            logger.debug(f"Liquidation fetch error for {symbol}: {e}")
+            logger.error(f"Liquidation fetch error for {symbol}: {e}")
             return {}
     
     def _estimate_liquidation_levels(

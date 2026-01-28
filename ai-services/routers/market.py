@@ -603,6 +603,7 @@ async def get_ls_ratio_bulk(symbols: str = "BTCUSDT,ETHUSDT,SOLUSDT,XRPUSDT,DOGE
     """
     Get current long/short ratios for multiple symbols
     """
+    from loguru import logger
     try:
         from services.bybit_client import BybitV5Client
         
@@ -610,6 +611,8 @@ async def get_ls_ratio_bulk(symbols: str = "BTCUSDT,ETHUSDT,SOLUSDT,XRPUSDT,DOGE
         symbol_list = [s.strip().upper() for s in symbols.split(',')][:15]
         
         results = {}
+        errors = []
+        
         for symbol in symbol_list:
             try:
                 result = await client.get_long_short_ratio(symbol=symbol, period="5min", limit=1)
@@ -626,12 +629,38 @@ async def get_ls_ratio_bulk(symbols: str = "BTCUSDT,ETHUSDT,SOLUSDT,XRPUSDT,DOGE
                             'short_pct': short_pct,
                             'sentiment': 'crowded_long' if long_pct > 55 else ('crowded_short' if short_pct > 55 else 'balanced')
                         }
-            except:
-                pass
+                    else:
+                        # No data for this symbol - use default 50/50
+                        results[symbol] = {
+                            'long_pct': 50.0,
+                            'short_pct': 50.0,
+                            'sentiment': 'balanced'
+                        }
+                        errors.append(f"{symbol}: no data")
+                else:
+                    # API returned error - use default
+                    results[symbol] = {
+                        'long_pct': 50.0,
+                        'short_pct': 50.0,
+                        'sentiment': 'balanced'
+                    }
+                    errors.append(f"{symbol}: {result.get('error', 'API error')}")
+            except Exception as e:
+                # Exception - use default
+                results[symbol] = {
+                    'long_pct': 50.0,
+                    'short_pct': 50.0,
+                    'sentiment': 'balanced'
+                }
+                errors.append(f"{symbol}: {str(e)}")
+        
+        if errors:
+            logger.debug(f"L/S Ratio errors: {errors}")
                 
-        return {"success": True, "data": results, "count": len(results)}
+        return {"success": True, "data": results, "count": len(results), "errors": errors if errors else None}
         
     except Exception as e:
+        logger.error(f"L/S Ratio bulk error: {e}")
         return {"success": False, "error": str(e)}
 
 

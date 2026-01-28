@@ -410,9 +410,14 @@ export default function DashboardPage() {
         const lsRes = await fetch('/ai/market/long-short-bulk?symbols=BTCUSDT,ETHUSDT,SOLUSDT,XRPUSDT,DOGEUSDT')
         if (lsRes.ok) {
           const data = await lsRes.json()
+          console.log('L/S Ratio response:', data)
           if (data.data && Object.keys(data.data).length > 0) {
             setLongShortRatio(data.data)
+          } else if (data.success === false) {
+            console.log('L/S Ratio API error:', data.error)
           }
+        } else {
+          console.log('L/S Ratio HTTP error:', lsRes.status)
         }
       } catch (e) {
         console.log('L/S Ratio fetch failed:', e)
@@ -423,9 +428,14 @@ export default function DashboardPage() {
         const fundingRes = await fetch('/ai/market/funding-arbitrage?limit=5')
         if (fundingRes.ok) {
           const data = await fundingRes.json()
+          console.log('Funding arb response:', data)
           if (data.opportunities && data.opportunities.length > 0) {
             setFundingArbitrage(data.opportunities)
+          } else if (data.success === false) {
+            console.log('Funding arb API error:', data.error)
           }
+        } else {
+          console.log('Funding arb HTTP error:', fundingRes.status)
         }
       } catch (e) {
         console.log('Funding arb fetch failed:', e)
@@ -436,9 +446,14 @@ export default function DashboardPage() {
         const liqRes = await fetch('/ai/market/liquidation-bulk?symbols=BTCUSDT,ETHUSDT,SOLUSDT')
         if (liqRes.ok) {
           const data = await liqRes.json()
+          console.log('Liquidation response:', data)
           if (data.data && Object.keys(data.data).length > 0) {
             setLiquidationData(data.data)
+          } else if (data.success === false) {
+            console.log('Liquidation API error:', data.error)
           }
+        } else {
+          console.log('Liquidation HTTP error:', liqRes.status)
         }
       } catch (e) {
         console.log('Liquidation fetch failed:', e)
