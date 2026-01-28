@@ -5897,11 +5897,27 @@ class AutonomousTraderV2:
             
             # === MAX TRADE TIME (from preset) ===
             # Close trades that exceed maximum duration for the preset
+            # BUT ONLY if they are in profit or breakeven - NEVER close losing trades before stop loss!
             trade_duration_minutes = (datetime.utcnow() - position.entry_time).total_seconds() / 60
             
-            if self.max_trade_minutes > 0 and trade_duration_minutes >= self.max_trade_minutes:
-                # Only close if not in significant profit (don't cut winners short)
-                if pnl_percent < self.take_profit * 0.5:  # Less than 50% of TP
+            if self.use_max_trade_time and self.max_trade_minutes > 0 and trade_duration_minutes >= self.max_trade_minutes:
+                # FIXED: Only close if position is near breakeven or in profit
+                # NEVER close a position that hasn't hit stop loss yet!
+                # This prevents early exits on positions that are still within normal loss range
+                
+                # If TP is set (> 0), close if we haven't reached 50% of TP
+                # If TP is OFF (= 0), only close if position is in profit or breakeven (>= -0.1%)
+                should_time_close = False
+                
+                if self.take_profit > 0:
+                    # TP is enabled - close stagnant trades below 50% of TP
+                    should_time_close = pnl_percent < self.take_profit * 0.5 and pnl_percent >= -0.1
+                else:
+                    # TP is OFF (trailing only mode) - only close if at breakeven or small profit
+                    # This allows trades to stay open until they hit SL or trailing takes profit
+                    should_time_close = pnl_percent >= -0.1 and pnl_percent < 0.5  # Near breakeven, not moving
+                
+                if should_time_close:
                     logger.info(f"MAX TIME: {position.symbol} after {trade_duration_minutes:.0f}min (max={self.max_trade_minutes}min), P&L={pnl_percent:+.2f}%")
                     await self._log_to_console(f"MAX TIME: {position.symbol} {pnl_percent:+.2f}% after {trade_duration_minutes:.0f}min", "TRADE", user_id)
                     await self._close_position(user_id, client, position, pnl_percent, 

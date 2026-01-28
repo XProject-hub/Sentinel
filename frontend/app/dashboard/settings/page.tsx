@@ -744,14 +744,14 @@ export default function SettingsPage() {
                     </div>
                     <input
                       type="range"
-                      min="0.5"
-                      max="5"
-                      step="0.1"
+                      min="1"
+                      max="100"
+                      step="1"
                       value={settings.stopLossPercent}
                       onChange={(e) => updateSetting('stopLossPercent', parseFloat(e.target.value))}
                       className="w-full h-2 rounded-full appearance-none cursor-pointer bg-white/10 accent-red-500"
                     />
-                    <p className="text-xs text-gray-500 mt-3">Maximum loss before forced exit</p>
+                    <p className="text-xs text-gray-500 mt-3">Maximum loss before forced exit (1-100%)</p>
                   </div>
 
                   {/* Trailing Stop */}
@@ -953,7 +953,7 @@ export default function SettingsPage() {
                     <input
                       type="range"
                       min="0"
-                      max="20"
+                      max="100"
                       step="1"
                       value={settings.maxDailyDrawdown}
                       onChange={(e) => updateSetting('maxDailyDrawdown', parseInt(e.target.value))}
